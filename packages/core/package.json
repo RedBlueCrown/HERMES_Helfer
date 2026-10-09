@@ -1,0 +1,17 @@
+{
+  "name": "@hermes-helfer/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HERMES model and deterministic process engine (no I/O).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.3"
+  }
+}

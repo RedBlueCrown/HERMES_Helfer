@@ -1,0 +1,322 @@
+// Project state = the events of its stream, applied in order.
+// `foldEvents` is the only way to build a state; it is pure from the caller's
+// point of view (it builds a fresh object and never touches the events).
+
+import type { HermesModel } from "../model";
+import type { PhaseId, ProjectProfile, ProjectRole } from "../model/types";
+import type { Actor, ConditionSpec, Decision, DraftContent, Finding, Producer, StoredEvent } from "./events";
+
+export interface ActorRef {
+  userId: string;
+  displayName: string;
+}
+
+export interface ApprovalRecord {
+  decision: Exclude<Decision, "zurückgewiesen">;
+  reason: string;
+  konsent: boolean;
+  at: string;
+  by: ActorRef;
+}
+
+export interface SkillOutput {
+  runId: string;
+  draft: DraftContent;
+  findings: Finding[];
+  producer: Producer;
+  createdAt: string;
+  requestedBy: ActorRef;
+  /** Increases with every new run result or edit. */
+  version: number;
+  editedAt?: string;
+  editedBy?: ActorRef;
+}
+
+export interface SkillState {
+  runningRunId?: string;
+  output?: SkillOutput;
+  approvals: Partial<Record<ProjectRole, ApprovalRecord>>;
+  lastError?: { reason: string; at: string };
+  lastRejection?: { role: ProjectRole; reason: string; at: string; by: ActorRef };
+}
+
+export interface RunRecord {
+  runId: string;
+  skillId: string;
+  status: "running" | "completed" | "failed";
+  requestedAt: string;
+  requestedBy: ActorRef;
+  finishedAt?: string;
+  reason?: string;
+}
+
+export interface ConditionState extends ConditionSpec {
+  phase: PhaseId;
+  /** "skill:<skillId>" or "gate:<phaseId>" */
+  source: string;
+  createdAt: string;
+  createdBy: ActorRef;
+  doneAt?: string;
+  doneBy?: ActorRef;
+  doneNote?: string;
+}
+
+export interface GateDecisionRecord {
+  decision: Decision;
+  reason: string;
+  konsent: boolean;
+  at: string;
+  by: ActorRef;
+  conditionIds: string[];
+}
+
+export interface ProjectState {
+  projectId: string;
+  code: string;
+  name: string;
+  description: string;
+  phase: PhaseId;
+  modelVersion: string;
+  profile: ProjectProfile;
+  createdAt: string;
+  updatedAt: string;
+  lastSeq: number;
+  members: Record<string, { displayName: string; roles: ProjectRole[] }>;
+  runs: Record<string, RunRecord>;
+  skills: Record<string, SkillState>;
+  /** Deliverables whose content changed since the last release. */
+  unreleased: Record<string, true>;
+  released: Record<string, { at: string; by: ActorRef }>;
+  notApplicable: Record<string, { reason: string; at: string; by: ActorRef }>;
+  /** Key: `${phase}:${participantId}` */
+  participation: Record<string, { how: string; at: string; by: ActorRef }>;
+  /** Key: `${checklistOwnerId}:${itemId}` (owner is a deliverable or skill id) */
+  checklist: Record<string, { at: string; by: ActorRef; note: string }>;
+  gateDecisions: Partial<Record<PhaseId, GateDecisionRecord[]>>;
+  /** Phases whose gate was passed in the app. */
+  passed: PhaseId[];
+  conditions: Record<string, ConditionState>;
+}
+
+export const participationKey = (phase: PhaseId, participantId: string) => `${phase}:${participantId}`;
+export const checklistKey = (ownerId: string, itemId: string) => `${ownerId}:${itemId}`;
+
+const ref = (a: Actor): ActorRef => ({ userId: a.userId, displayName: a.displayName });
+
+function skillState(s: ProjectState, skillId: string): SkillState {
+  let sk = s.skills[skillId];
+  if (!sk) {
+    sk = { approvals: {} };
+    s.skills[skillId] = sk;
+  }
+  return sk;
+}
+
+function addConditions(
+  s: ProjectState,
+  specs: ConditionSpec[],
+  phase: PhaseId,
+  source: string,
+  e: StoredEvent,
+): string[] {
+  for (const c of specs) {
+    s.conditions[c.id] = { ...c, phase, source, createdAt: e.at, createdBy: ref(e.actor) };
+  }
+  return specs.map((c) => c.id);
+}
+
+function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
+  switch (e.type) {
+    case "ProjectCreated":
+      throw new Error("ProjectCreated may only be the first event of a stream");
+    case "MemberRoleAssigned": {
+      const m = (s.members[e.data.userId] ??= { displayName: e.data.displayName, roles: [] });
+      m.displayName = e.data.displayName;
+      if (!m.roles.includes(e.data.role)) m.roles.push(e.data.role);
+      return;
+    }
+    case "MemberRoleRemoved": {
+      const m = s.members[e.data.userId];
+      if (!m) return;
+      m.roles = m.roles.filter((r) => r !== e.data.role);
+      if (m.roles.length === 0) delete s.members[e.data.userId];
+      return;
+    }
+    case "ProfileUpdated":
+      s.profile = { ...e.data.profile };
+      return;
+    case "SkillRunRequested": {
+      s.runs[e.data.runId] = {
+        runId: e.data.runId,
+        skillId: e.data.skillId,
+        status: "running",
+        requestedAt: e.at,
+        requestedBy: ref(e.actor),
+      };
+      const sk = skillState(s, e.data.skillId);
+      sk.runningRunId = e.data.runId;
+      delete sk.lastError;
+      return;
+    }
+    case "SkillRunCompleted": {
+      const run = s.runs[e.data.runId];
+      if (run) {
+        run.status = "completed";
+        run.finishedAt = e.at;
+      }
+      const sk = skillState(s, e.data.skillId);
+      delete sk.runningRunId;
+      delete sk.lastError;
+      sk.output = {
+        runId: e.data.runId,
+        draft: e.data.draft,
+        findings: e.data.findings,
+        producer: e.data.producer,
+        createdAt: e.at,
+        requestedBy: run?.requestedBy ?? ref(e.actor),
+        version: (sk.output?.version ?? 0) + 1,
+      };
+      sk.approvals = {};
+      // A result without a human decision is a draft until the PL releases it.
+      if (model.skill(e.data.skillId).approvers.length === 0) {
+        for (const d of model.deliverablesOfSkill(e.data.skillId)) s.unreleased[d.id] = true;
+      }
+      return;
+    }
+    case "SkillRunFailed": {
+      const run = s.runs[e.data.runId];
+      if (run) {
+        run.status = "failed";
+        run.finishedAt = e.at;
+        run.reason = e.data.reason;
+      }
+      const sk = skillState(s, e.data.skillId);
+      if (sk.runningRunId === e.data.runId) delete sk.runningRunId;
+      sk.lastError = { reason: e.data.reason, at: e.at };
+      return;
+    }
+    case "DraftEdited": {
+      const sk = skillState(s, e.data.skillId);
+      if (!sk.output) return;
+      sk.output = {
+        ...sk.output,
+        draft: e.data.draft,
+        version: sk.output.version + 1,
+        editedAt: e.at,
+        editedBy: ref(e.actor),
+      };
+      // Changed content needs fresh decisions and a new release.
+      sk.approvals = {};
+      for (const d of model.deliverablesOfSkill(e.data.skillId)) s.unreleased[d.id] = true;
+      return;
+    }
+    case "DeliverableReleased":
+      delete s.unreleased[e.data.deliverableId];
+      s.released[e.data.deliverableId] = { at: e.at, by: ref(e.actor) };
+      return;
+    case "SkillDecisionRecorded": {
+      const sk = skillState(s, e.data.skillId);
+      if (e.data.decision === "zurückgewiesen") {
+        // Back to the agent: the result is discarded and must be produced again.
+        delete sk.output;
+        sk.approvals = {};
+        sk.lastRejection = { role: e.data.role, reason: e.data.reason, at: e.at, by: ref(e.actor) };
+        return;
+      }
+      sk.approvals[e.data.role] = {
+        decision: e.data.decision,
+        reason: e.data.reason,
+        konsent: e.data.konsent,
+        at: e.at,
+        by: ref(e.actor),
+      };
+      addConditions(s, e.data.conditions, model.skill(e.data.skillId).phase, `skill:${e.data.skillId}`, e);
+      return;
+    }
+    case "DeliverableMarkedNotApplicable":
+      s.notApplicable[e.data.deliverableId] = { reason: e.data.reason, at: e.at, by: ref(e.actor) };
+      return;
+    case "DeliverableReactivated":
+      delete s.notApplicable[e.data.deliverableId];
+      return;
+    case "ParticipationRecorded":
+      s.participation[participationKey(e.data.phase, e.data.participantId)] = {
+        how: e.data.how,
+        at: e.at,
+        by: ref(e.actor),
+      };
+      return;
+    case "ChecklistItemConfirmed":
+      s.checklist[checklistKey(e.data.checklistOwnerId, e.data.itemId)] = {
+        at: e.at,
+        by: ref(e.actor),
+        note: e.data.note,
+      };
+      return;
+    case "GateDecisionRecorded": {
+      const conditionIds = addConditions(s, e.data.conditions, e.data.phase, `gate:${e.data.phase}`, e);
+      (s.gateDecisions[e.data.phase] ??= []).push({
+        decision: e.data.decision,
+        reason: e.data.reason,
+        konsent: e.data.konsent,
+        at: e.at,
+        by: ref(e.actor),
+        conditionIds,
+      });
+      if (e.data.decision === "zurückgewiesen") return;
+      if (!s.passed.includes(e.data.phase)) s.passed.push(e.data.phase);
+      const next = model.nextPhase(e.data.phase);
+      if (next && s.phase === e.data.phase) s.phase = next.id;
+      return;
+    }
+    case "ConditionCompleted": {
+      const c = s.conditions[e.data.conditionId];
+      if (!c) return;
+      c.doneAt = e.at;
+      c.doneBy = ref(e.actor);
+      c.doneNote = e.data.note;
+      return;
+    }
+    default: {
+      const unknown: never = e;
+      throw new Error(`Unknown event type ${(unknown as StoredEvent).type}`);
+    }
+  }
+}
+
+export function foldEvents(events: readonly StoredEvent[], model: HermesModel): ProjectState {
+  const first = events[0];
+  if (!first || first.type !== "ProjectCreated") {
+    throw new Error("A project stream must start with ProjectCreated");
+  }
+  const s: ProjectState = {
+    projectId: first.projectId,
+    code: first.data.code,
+    name: first.data.name,
+    description: first.data.description,
+    phase: first.data.phase,
+    modelVersion: first.data.modelVersion,
+    profile: { ...first.data.profile },
+    createdAt: first.at,
+    updatedAt: first.at,
+    lastSeq: first.seq,
+    members: {},
+    runs: {},
+    skills: {},
+    unreleased: {},
+    released: {},
+    notApplicable: {},
+    participation: {},
+    checklist: {},
+    gateDecisions: {},
+    passed: [],
+    conditions: {},
+  };
+  for (let i = 1; i < events.length; i++) {
+    const e = events[i]!;
+    apply(s, e, model);
+    s.updatedAt = e.at;
+    s.lastSeq = e.seq;
+  }
+  return s;
+}

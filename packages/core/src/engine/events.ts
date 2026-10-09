@@ -1,0 +1,121 @@
+// Events of a project stream. The stream is the Projektakte: the project state
+// is computed from it (state.ts), and the API hash-chains it (tamper evidence).
+// Events are facts. Never change the meaning of an existing event type; add a new one.
+
+import type { AgentId, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
+
+export type Decision = "freigegeben" | "mit Auflagen" | "zurückgewiesen";
+export const DECISIONS: readonly Decision[] = ["freigegeben", "mit Auflagen", "zurückgewiesen"];
+
+/** An Auflage (condition) attached to an approval or a gate decision. */
+export interface ConditionSpec {
+  id: string;
+  text: string;
+  ownerRole: ProjectRole;
+  due: string;
+}
+
+export interface DraftSection {
+  heading: string;
+  body: string;
+}
+
+export interface DraftContent {
+  summary: string;
+  sections: DraftSection[];
+  openPoints: string[];
+}
+
+export interface Finding {
+  severity: "hinweis" | "warnung";
+  text: string;
+  /** "checkliste": deterministic check. "kritiker": content review by the Kritiker agent. */
+  source: "checkliste" | "kritiker";
+}
+
+/** Who produced a result: an AI agent (with model) or a person (manual skill). */
+export interface Producer {
+  kind: "ai" | "human";
+  agent?: AgentId;
+  provider?: string;
+  model?: string;
+}
+
+export type ProjectEvent =
+  | {
+      type: "ProjectCreated";
+      data: {
+        code: string;
+        name: string;
+        description: string;
+        phase: PhaseId;
+        profile: ProjectProfile;
+        modelVersion: string;
+      };
+    }
+  | { type: "MemberRoleAssigned"; data: { userId: string; displayName: string; role: ProjectRole } }
+  | { type: "MemberRoleRemoved"; data: { userId: string; displayName: string; role: ProjectRole } }
+  | { type: "ProfileUpdated"; data: { profile: ProjectProfile } }
+  | { type: "SkillRunRequested"; data: { runId: string; skillId: string } }
+  | {
+      type: "SkillRunCompleted";
+      data: { runId: string; skillId: string; draft: DraftContent; findings: Finding[]; producer: Producer };
+    }
+  | { type: "SkillRunFailed"; data: { runId: string; skillId: string; reason: string } }
+  | { type: "DraftEdited"; data: { skillId: string; draft: DraftContent } }
+  | { type: "DeliverableReleased"; data: { deliverableId: string } }
+  | {
+      type: "SkillDecisionRecorded";
+      data: {
+        skillId: string;
+        role: ProjectRole;
+        decision: Decision;
+        reason: string;
+        konsent: boolean;
+        conditions: ConditionSpec[];
+      };
+    }
+  | { type: "DeliverableMarkedNotApplicable"; data: { deliverableId: string; reason: string } }
+  | { type: "DeliverableReactivated"; data: { deliverableId: string } }
+  | { type: "ParticipationRecorded"; data: { phase: PhaseId; participantId: string; how: string } }
+  | { type: "ChecklistItemConfirmed"; data: { checklistOwnerId: string; itemId: string; note: string } }
+  | {
+      type: "GateDecisionRecorded";
+      data: {
+        phase: PhaseId;
+        decision: Decision;
+        reason: string;
+        konsent: boolean;
+        conditions: ConditionSpec[];
+      };
+    }
+  | { type: "ConditionCompleted"; data: { conditionId: string; text: string; note: string } };
+
+export type EventType = ProjectEvent["type"];
+
+export type Channel = "web" | "chat" | "agent" | "system";
+
+export interface Actor {
+  userId: string;
+  displayName: string;
+  /** Roles held when acting (project roles and global roles), for the record. */
+  roles: string[];
+  channel: Channel;
+}
+
+export interface EventEnvelope {
+  projectId: string;
+  /** 1-based position in the project stream. */
+  seq: number;
+  id: string;
+  at: string;
+  actor: Actor;
+  correlationId: string;
+  prevHash: string;
+  hash: string;
+}
+
+export type StoredEvent = ProjectEvent & EventEnvelope;
+
+/** Narrow a stored event to one type. */
+export type StoredEventOf<T extends EventType> = Extract<ProjectEvent, { type: T }> & EventEnvelope;
