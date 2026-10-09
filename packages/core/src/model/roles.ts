@@ -1,4 +1,4 @@
-import type { GlobalRole, ProjectRole } from "./types";
+import type { GlobalRole, ProjectProfile, ProjectRole } from "./types";
 
 export const PROJECT_ROLE_LABELS: Readonly<Record<ProjectRole, string>> = {
   PL: "Projektleitung",
@@ -25,3 +25,15 @@ export const RESTRICTED_READERS: readonly ProjectRole[] = ["PL", "PA", "ISM", "D
 
 /** Due dates offered for Auflagen (todo-later P09: real dates). */
 export const DUE_OPTIONS: readonly string[] = ["1 Woche", "2 Wochen", "bis zum nächsten Gate"];
+
+/** Profile of a new project until the PL fills it in. */
+export const DEFAULT_PROFILE: ProjectProfile = {
+  schutzbedarf: "mittel",
+  personendaten: false,
+  cloud: false,
+  schnittstellen: 0,
+  lieferant: false,
+  verfuegbarkeit: "mittel",
+  neueTechnologie: false,
+  externeNutzende: false,
+};

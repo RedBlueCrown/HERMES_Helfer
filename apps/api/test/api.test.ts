@@ -1,0 +1,281 @@
+import type { ProjectEvent, ProjectView } from "@hermes-helfer/core";
+import { afterEach, describe, expect, it } from "vitest";
+import { testServer } from "./helpers";
+
+type Server = Awaited<ReturnType<typeof testServer>>;
+let server: Server | undefined;
+afterEach(async () => {
+  await server?.app.close();
+  server = undefined;
+});
+
+const view = async (s: Server, user: string, code: string) =>
+  (await s.as(user).get(`/api/projects/${code}`)).json() as ProjectView;
+const row = (v: ProjectView, id: string) =>
+  v.phases.find((p) => p.current)!.deliverables.find((d) => d.id === id)!;
+
+describe("authentication and visibility", () => {
+  it("answers health without sign-in and rejects other calls without a user", async () => {
+    server = await testServer();
+    expect((await server.app.inject({ url: "/api/health" })).statusCode).toBe(200);
+    const res = await server.app.inject({ url: "/api/projects" });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("not_authenticated");
+    expect(res.headers["x-correlation-id"]).toBeTruthy();
+    expect((await server.as("u-nobody").get("/api/me")).statusCode).toBe(401);
+  });
+
+  it("lists only the viewer's projects, and all projects for the PMO", async () => {
+    server = await testServer();
+    const mine = (await server.as("u-anna").get("/api/projects")).json();
+    expect(mine.items.map((p: { code: string }) => p.code).sort()).toEqual(["CRM", "INT", "KPO"]);
+    const annaAll = (await server.as("u-anna").get("/api/projects?scope=all")).json();
+    expect(annaAll.total).toBe(3);
+    const pmo = (await server.as("u-peter").get("/api/projects?scope=all")).json();
+    expect(pmo.total).toBe(5);
+    const filtered = (await server.as("u-peter").get("/api/projects?scope=all&q=erp")).json();
+    expect(filtered.items.map((p: { code: string }) => p.code)).toEqual(["ERP"]);
+  });
+
+  it("returns the same 404 for unknown projects and projects without access", async () => {
+    server = await testServer();
+    const forbidden = await server.as("u-anna").get("/api/projects/ERP");
+    const unknown = await server.as("u-anna").get("/api/projects/NOPE");
+    expect(forbidden.statusCode).toBe(404);
+    expect(unknown.statusCode).toBe(404);
+    expect(forbidden.json().error.message).toBe(unknown.json().error.message);
+    expect((await server.as("u-peter").get("/api/projects/ERP")).statusCode).toBe(200);
+  });
+});
+
+describe("drafts, releases and decisions", () => {
+  it("runs the kick-off agent, then the PL releases the draft", async () => {
+    server = await testServer();
+    let v = await view(server, "u-anna", "KPO");
+    expect(v.nextStep).toMatchObject({ kind: "run", skillId: "init.kick-off", canAct: true });
+
+    const start = await server.as("u-anna").post("/api/projects/KPO/skills/init.kick-off/runs");
+    expect(start.statusCode).toBe(202);
+    await server.runs.idle();
+    v = await view(server, "u-anna", "KPO");
+    expect(row(v, "kickoff")).toMatchObject({ status: "draft", statusLabel: "Entwurf (KI)" });
+
+    const detail = (await server.as("u-anna").get("/api/projects/KPO/deliverables/kickoff")).json();
+    expect(detail.skills[0].output.producer).toMatchObject({ kind: "ai", agent: "A2", provider: "mock" });
+    expect(detail.skills[0].output.draft.sections.length).toBe(4);
+
+    expect(
+      (await server.as("u-nina").post("/api/projects/KPO/deliverables/kickoff/release")).statusCode,
+    ).toBe(403);
+    expect(
+      (await server.as("u-anna").post("/api/projects/KPO/deliverables/kickoff/release")).statusCode,
+    ).toBe(200);
+    expect(row(await view(server, "u-anna", "KPO"), "kickoff").status).toBe("done");
+  });
+
+  it("lets the right role decide, and validates Konsent and reasons", async () => {
+    server = await testServer();
+    expect(
+      (await server.as("u-nina").post("/api/projects/KPO/skills/init.datenklassifizierung/runs")).statusCode,
+    ).toBe(202);
+    await server.runs.idle();
+    const decide = (user: string, body: object) =>
+      server!.as(user).post("/api/projects/KPO/skills/init.datenklassifizierung/decisions", body);
+    expect((await decide("u-tim", { role: "ISM", decision: "freigegeben" })).statusCode).toBe(403);
+    const short = await decide("u-marco", { role: "ISM", decision: "zurückgewiesen", reason: "x" });
+    expect(short.statusCode).toBe(422);
+    expect(short.json().error.message).toMatch(/Begründung/);
+    expect((await decide("u-marco", { role: "ISM", decision: "freigegeben" })).statusCode).toBe(200);
+    expect(row(await view(server, "u-anna", "KPO"), "klass").status).toBe("done");
+
+    expect((await server.as("u-jonas").post("/api/projects/KPO/skills/init.bewerter/runs")).statusCode).toBe(
+      403,
+    );
+    expect((await server.as("u-anna").post("/api/projects/KPO/skills/init.bewerter/runs")).statusCode).toBe(
+      202,
+    );
+    await server.runs.idle();
+    const noKonsent = await server
+      .as("u-thomas")
+      .post("/api/projects/KPO/skills/init.bewerter/decisions", { role: "PA", decision: "freigegeben" });
+    expect(noKonsent.statusCode).toBe(422);
+    expect(noKonsent.json().error.message).toMatch(/Konsent/);
+  });
+
+  it("refuses agent runs for manual skills and records manual results", async () => {
+    server = await testServer();
+    expect(
+      (await server.as("u-jonas").post("/api/projects/ERP/skills/real.integrationstest/runs")).statusCode,
+    ).toBe(409);
+    const res = await server.as("u-tim").post("/api/projects/ERP/skills/real.integrationstest/result", {
+      draft: {
+        summary: "142 Tests, 139 bestanden.",
+        sections: [
+          {
+            heading: "Ausgeführte Tests",
+            body: "Schnittstellen- und Regressionstests aus der Pipeline vom 3. Oktober.",
+          },
+        ],
+        openPoints: [],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const detail = (await server.as("u-jonas").get("/api/projects/ERP/deliverables/testprot")).json();
+    expect(detail.skills[0].output.producer.kind).toBe("human");
+    expect(detail.skills[0].output.findings.map((f: { text: string }) => f.text)).toContain(
+      "Abschnitt «Ergebnisse» fehlt.",
+    );
+  });
+
+  it("answers one of two simultaneous releases with a conflict", async () => {
+    server = await testServer();
+    await server.as("u-anna").post("/api/projects/KPO/skills/init.kick-off/runs");
+    await server.runs.idle();
+    const [a, b] = await Promise.all([
+      server.as("u-anna").post("/api/projects/KPO/deliverables/kickoff/release"),
+      server.as("u-anna").post("/api/projects/KPO/deliverables/kickoff/release"),
+    ]);
+    expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
+  });
+
+  it("decides a gate and moves the project to the next phase", async () => {
+    server = await testServer();
+    const s = server.repo.findByCode("KPO")!;
+    // Fast-forward: complete all mandatory results and participation of Initialisierung.
+    const model = server.repo.model;
+    const events: ProjectEvent[] = [];
+    for (const d of model
+      .phase("init")
+      .deliverables.filter((x) => x.requirement === "pflicht" && !x.preExisting)) {
+      for (const sid of d.skills) {
+        if (events.some((e) => e.type === "SkillRunCompleted" && e.data.skillId === sid)) continue;
+        events.push({ type: "SkillRunRequested", data: { runId: `r-${sid}`, skillId: sid } });
+        events.push({
+          type: "SkillRunCompleted",
+          data: {
+            runId: `r-${sid}`,
+            skillId: sid,
+            draft: { summary: "x", sections: [], openPoints: [] },
+            findings: [],
+            producer: { kind: "ai" },
+          },
+        });
+        for (const a of model.skill(sid).approvers) {
+          events.push({
+            type: "SkillDecisionRecorded",
+            data: {
+              skillId: sid,
+              role: a.role,
+              decision: "freigegeben",
+              reason: "ok",
+              konsent: true,
+              conditions: [],
+            },
+          });
+        }
+      }
+      events.push({ type: "DeliverableReleased", data: { deliverableId: d.id } });
+    }
+    for (const p of ["sach", "apm", "ism", "ea", "ds", "dev", "tk", "besch"]) {
+      events.push({
+        type: "ParticipationRecorded",
+        data: { phase: "init", participantId: p, how: "Workshop" },
+      });
+    }
+    await server.repo.append(
+      s.projectId,
+      s.lastSeq,
+      events,
+      { userId: "system", displayName: "Test", roles: [], channel: "system" },
+      "c-test-1234",
+    );
+
+    let v = await view(server, "u-thomas", "KPO");
+    expect(v.phases[0]!.gate.status).toBe("ready");
+    expect(
+      (await server.as("u-anna").post("/api/projects/KPO/gates/init/decisions", { decision: "freigegeben" }))
+        .statusCode,
+    ).toBe(403);
+    const res = await server.as("u-thomas").post("/api/projects/KPO/gates/init/decisions", {
+      decision: "mit Auflagen",
+      reason: "Variante B mit Auflage",
+      conditions: [{ text: "Exit-Klausel im Vertrag prüfen", ownerRole: "PL", due: "2 Wochen" }],
+    });
+    expect(res.statusCode).toBe(200);
+    v = await view(server, "u-anna", "KPO");
+    expect(v.phase).toBe("konzept");
+    expect(v.conditions).toHaveLength(1);
+    expect(v.myTasks.some((t) => t.kind === "condition")).toBe(true);
+  });
+});
+
+describe("audit trail", () => {
+  it("lists events in German, newest first, and detects tampering", async () => {
+    server = await testServer();
+    const events = (await server.as("u-anna").get("/api/projects/CRM/events?limit=5")).json();
+    expect(events.items).toHaveLength(5);
+    expect(events.items[0].seq).toBeGreaterThan(events.items[4].seq);
+    expect(events.hasMore).toBe(true);
+    expect(events.items.some((e: { text: string }) => e.text.includes("ISDS-Konzept"))).toBe(true);
+
+    expect((await server.as("u-anna").post("/api/projects/CRM/audit/verify")).json()).toMatchObject({
+      ok: true,
+    });
+    expect((await server.as("u-nina").post("/api/projects/CRM/audit/verify")).statusCode).toBe(403);
+
+    const crm = server.repo.findByCode("CRM")!;
+    server.store.tamperForTest(crm.projectId, 3, (e) => ({
+      ...e,
+      actor: { ...e.actor, displayName: "Jemand anderes" },
+    }));
+    const broken = (await server.as("u-anna").post("/api/projects/CRM/audit/verify")).json();
+    expect(broken).toMatchObject({ ok: false, brokenAtSeq: 3 });
+  });
+
+  it("closes runs that a restart interrupted", async () => {
+    server = await testServer();
+    const kpo = server.repo.findByCode("KPO")!;
+    await server.repo.append(
+      kpo.projectId,
+      kpo.lastSeq,
+      [{ type: "SkillRunRequested", data: { runId: "r-lost", skillId: "init.kick-off" } }],
+      { userId: "u-anna", displayName: "Anna Keller", roles: ["PL"], channel: "web" },
+      "c-test-1234",
+    );
+    expect(await server.runs.recover()).toBe(1);
+    const state = server.repo.findByCode("KPO")!;
+    expect(state.skills["init.kick-off"]?.lastError?.reason).toBe("Abgebrochen durch Neustart");
+    expect(row(await view(server, "u-anna", "KPO"), "kickoff").status).toBe("open");
+  });
+});
+
+describe("Delivery-Assistent (rules mode)", () => {
+  const chat = (s: Server, user: string, message: string) =>
+    s.as(user).post("/api/projects/KPO/chat", { message, history: [] });
+
+  it("answers the next step and the user's tasks", async () => {
+    server = await testServer();
+    const next = (await chat(server, "u-anna", "Was ist als Nächstes?")).json();
+    expect(next.mode).toBe("regeln");
+    expect(next.text).toContain("Kick-off");
+    expect(next.actions[0]).toMatchObject({ kind: "start_skill", skillId: "init.kick-off" });
+    const tasks = (await chat(server, "u-anna", "Meine Aufgaben")).json();
+    expect(tasks.text).toContain("Einbeziehen");
+  });
+
+  it("starts a draft on request but never on a question", async () => {
+    server = await testServer();
+    const started = (await chat(server, "u-anna", "Starte bitte den Kick-off")).json();
+    expect(started.actions[0]).toMatchObject({ kind: "run_started", skillId: "init.kick-off" });
+    await server.runs.idle();
+    const question = (await chat(server, "u-anna", "Was wird erstellt?")).json();
+    expect(question.actions.every((a: { kind: string }) => a.kind !== "run_started")).toBe(true);
+    const denied = (await chat(server, "u-nina", "Starte Kick-off")).json();
+    expect(denied.text).toMatch(/nicht anstossen/);
+  });
+
+  it("rejects overly long messages", async () => {
+    server = await testServer();
+    expect((await chat(server, "u-anna", "x".repeat(2001))).statusCode).toBe(422);
+  });
+});

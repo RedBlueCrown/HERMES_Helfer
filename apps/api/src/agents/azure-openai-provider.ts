@@ -1,0 +1,259 @@
+// Azure OpenAI (Microsoft Foundry) in the EU. Authenticates with Entra ID
+// (managed identity in Azure, developer sign-in locally); no API keys.
+// Written against the documented REST API and not yet tested against a real
+// deployment (todo-later P07).
+
+import type { DraftContent, Finding } from "@hermes-helfer/core";
+import { z } from "zod";
+import {
+  AiProviderError,
+  type AiProvider,
+  type ChatMessage,
+  type ChatResponse,
+  type CritiqueRequest,
+  type DraftRequest,
+  type ProviderInfo,
+  type ToolSpec,
+  type Usage,
+} from "./provider";
+import { critiqueSystemPrompt, critiqueUserPrompt, draftSystemPrompt, draftUserPrompt } from "./prompts";
+
+export interface AzureOpenAiConfig {
+  endpoint: string;
+  draftDeployment: string;
+  chatDeployment: string;
+  apiVersion: string;
+  regionLabel: string;
+  timeoutMs?: number;
+}
+
+export type TokenSource = () => Promise<string>;
+
+const DRAFT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["summary", "sections", "openPoints"],
+  properties: {
+    summary: { type: "string" },
+    sections: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["heading", "body"],
+        properties: { heading: { type: "string" }, body: { type: "string" } },
+      },
+    },
+    openPoints: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+const CRITIQUE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["findings"],
+  properties: {
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["severity", "text"],
+        properties: { severity: { type: "string", enum: ["hinweis", "warnung"] }, text: { type: "string" } },
+      },
+    },
+  },
+} as const;
+
+const DraftOut = z.object({
+  summary: z.string().max(4000),
+  sections: z.array(z.object({ heading: z.string().max(200), body: z.string().max(30_000) })).max(40),
+  openPoints: z.array(z.string().max(500)).max(50),
+});
+const CritiqueOut = z.object({
+  findings: z
+    .array(z.object({ severity: z.enum(["hinweis", "warnung"]), text: z.string().max(500) }))
+    .max(10),
+});
+
+const ApiResponse = z.object({
+  choices: z
+    .array(
+      z.object({
+        finish_reason: z.string().nullable().optional(),
+        message: z.object({
+          content: z.string().nullable().optional(),
+          tool_calls: z
+            .array(
+              z.object({ id: z.string(), function: z.object({ name: z.string(), arguments: z.string() }) }),
+            )
+            .optional(),
+        }),
+      }),
+    )
+    .min(1),
+  usage: z.object({ prompt_tokens: z.number(), completion_tokens: z.number() }).optional(),
+});
+
+/** Token source via @azure/identity, loaded only when this provider is used. */
+export function entraTokenSource(): TokenSource {
+  let cached: { token: string; expires: number } | undefined;
+  let credential:
+    { getToken(scope: string): Promise<{ token: string; expiresOnTimestamp: number } | null> } | undefined;
+  return async () => {
+    if (cached && cached.expires - Date.now() > 120_000) return cached.token;
+    if (!credential) {
+      const { DefaultAzureCredential } = await import("@azure/identity");
+      credential = new DefaultAzureCredential();
+    }
+    const t = await credential.getToken("https://cognitiveservices.azure.com/.default");
+    if (!t) throw new AiProviderError("provider_error", "No token for Azure OpenAI");
+    cached = { token: t.token, expires: t.expiresOnTimestamp };
+    return t.token;
+  };
+}
+
+export class AzureOpenAiProvider implements AiProvider {
+  readonly info: ProviderInfo;
+
+  constructor(
+    private readonly cfg: AzureOpenAiConfig,
+    private readonly token: TokenSource,
+    private readonly fetchImpl: typeof fetch = fetch,
+  ) {
+    this.info = {
+      provider: "azure-openai",
+      model: `${cfg.draftDeployment} / ${cfg.chatDeployment}`,
+      region: cfg.regionLabel,
+      supportsChat: true,
+    };
+  }
+
+  private async call(deployment: string, body: Record<string, unknown>) {
+    const url = `${this.cfg.endpoint.replace(/\/$/, "")}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(this.cfg.apiVersion)}`;
+    let res: Response;
+    try {
+      res = await this.fetchImpl(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${await this.token()}` },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 90_000),
+      });
+    } catch (err) {
+      const timeout = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+      throw new AiProviderError(timeout ? "timeout" : "provider_error", String(err));
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      if (res.status === 429) throw new AiProviderError("rate_limited", `Azure OpenAI 429`);
+      if (res.status === 400 && /content_filter|ResponsibleAIPolicyViolation/i.test(text)) {
+        throw new AiProviderError("blocked", "Azure OpenAI content filter");
+      }
+      throw new AiProviderError("provider_error", `Azure OpenAI ${res.status}`);
+    }
+    const parsed = ApiResponse.safeParse(await res.json());
+    if (!parsed.success) throw new AiProviderError("invalid_output", "Unexpected Azure OpenAI response");
+    const choice = parsed.data.choices[0]!;
+    if (choice.finish_reason === "content_filter")
+      throw new AiProviderError("blocked", "Azure OpenAI content filter");
+    const usage: Usage | undefined = parsed.data.usage
+      ? { inputTokens: parsed.data.usage.prompt_tokens, outputTokens: parsed.data.usage.completion_tokens }
+      : undefined;
+    return { message: choice.message, usage };
+  }
+
+  private async structured<T>(
+    deployment: string,
+    system: string,
+    user: string,
+    name: string,
+    schema: unknown,
+    out: z.ZodType<T>,
+  ): Promise<{ value: T; usage?: Usage }> {
+    const { message, usage } = await this.call(deployment, {
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
+    });
+    let json: unknown;
+    try {
+      json = JSON.parse(message.content ?? "");
+    } catch {
+      throw new AiProviderError("invalid_output", "Model output is not JSON");
+    }
+    const value = out.safeParse(json);
+    if (!value.success) throw new AiProviderError("invalid_output", "Model output does not match the schema");
+    return { value: value.data, ...(usage ? { usage } : {}) };
+  }
+
+  async draft(req: DraftRequest): Promise<{ draft: DraftContent; usage?: Usage }> {
+    const { value, usage } = await this.structured(
+      this.cfg.draftDeployment,
+      draftSystemPrompt(req),
+      draftUserPrompt(req),
+      "entwurf",
+      DRAFT_SCHEMA,
+      DraftOut,
+    );
+    return { draft: value, ...(usage ? { usage } : {}) };
+  }
+
+  async critique(req: CritiqueRequest): Promise<{ findings: Finding[]; usage?: Usage }> {
+    const { value, usage } = await this.structured(
+      this.cfg.draftDeployment,
+      critiqueSystemPrompt(),
+      critiqueUserPrompt(req),
+      "kritik",
+      CRITIQUE_SCHEMA,
+      CritiqueOut,
+    );
+    return {
+      findings: value.findings.map((f) => ({
+        severity: f.severity,
+        text: f.text,
+        source: "kritiker" as const,
+      })),
+      ...(usage ? { usage } : {}),
+    };
+  }
+
+  async chat(messages: ChatMessage[], tools: ToolSpec[]): Promise<ChatResponse> {
+    const { message, usage } = await this.call(this.cfg.chatDeployment, {
+      messages: messages.map((m) => {
+        if (m.role === "tool") return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
+        if (m.role === "assistant") {
+          return {
+            role: "assistant",
+            content: m.content,
+            ...(m.toolCalls?.length
+              ? {
+                  tool_calls: m.toolCalls.map((t) => ({
+                    id: t.id,
+                    type: "function",
+                    function: { name: t.name, arguments: t.arguments },
+                  })),
+                }
+              : {}),
+          };
+        }
+        return { role: m.role, content: m.content };
+      }),
+      tools: tools.map((t) => ({
+        type: "function",
+        function: { name: t.name, description: t.description, parameters: t.parameters },
+      })),
+      tool_choice: "auto",
+    });
+    return {
+      content: message.content ?? null,
+      toolCalls: (message.tool_calls ?? []).map((t) => ({
+        id: t.id,
+        name: t.function.name,
+        arguments: t.function.arguments,
+      })),
+      ...(usage ? { usage } : {}),
+    };
+  }
+}
