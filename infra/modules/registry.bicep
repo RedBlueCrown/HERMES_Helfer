@@ -8,11 +8,14 @@ param tags object
 @description('Identities that may pull images.')
 param pullPrincipalIds array
 
+@description('Basic is enough for a test environment.')
+param sku 'Basic' | 'Standard'
+
 resource registry 'Microsoft.ContainerRegistry/registries@2025-04-01' = {
   name: 'cr${replace(name, '-', '')}${uniqueString(resourceGroup().id)}'
   location: location
   tags: tags
-  sku: { name: 'Standard' }
+  sku: { name: sku }
   properties: {
     adminUserEnabled: false
     publicNetworkAccess: 'Enabled'

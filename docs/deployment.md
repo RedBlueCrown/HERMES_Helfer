@@ -4,6 +4,29 @@ How to set up HERMES Helfer in Azure (Increment 2). For the Azure platform team,
 
 Status: the templates compile and pass the linter in CI. They have **not yet been deployed** to a real subscription; the first deployment is part of Increment 2 (todo-later P07, P08, H03).
 
+## Quick test environment
+
+One script does all steps below with your own Azure CLI sign-in. It uses the smaller, removable settings in [`infra/test.bicepparam`](../infra/test.bicepparam) (database S0, no delete locks, no Defender) with the same security set-up as the pilot.
+
+In [Azure Cloud Shell](https://shell.azure.com) (Bash), or anywhere with the Azure CLI, `jq`, `git` and `curl`:
+
+```bash
+git clone https://github.com/RedBlueCrown/HERMES_Helfer.git && cd HERMES_Helfer
+git checkout claude/nice-mendel-7p50r6     # until the work is merged
+az login                                   # not needed in Cloud Shell
+scripts/deploy-azure.sh
+```
+
+It checks that the model is offered in the region, deploys the infrastructure, creates the app registrations, gives **you** the PMO role, builds the image in the registry, runs the migrations and waits until the app answers. At the end it prints the address. The first run takes about 20 to 30 minutes; run it again to deploy a new version.
+
+You need Owner on the subscription and, in Entra ID, Application Administrator (or Cloud Application Administrator). Options: `ENV_NAME`, `LOCATION`, `RESOURCE_GROUP`, `PARAMS` (see the top of the script).
+
+While it runs, the environment costs money even without use (container, private endpoints, database). Remove everything with:
+
+```bash
+ENV_NAME=test scripts/destroy-azure.sh
+```
+
 ## What gets created
 
 Everything is in one resource group in one EU region (default: the resource group's region, proposal Sweden Central, question F3).
@@ -55,7 +78,7 @@ Note the outputs `appUrl` and `registryName`. If the ledger digest upload fails 
 ```bash
 az deployment group create -g rg-hermes-helfer-pilot -f infra/entra.bicep \
   -p environmentName=pilot appUrl=<appUrl> \
-  -p roleGroups='{"HH.User":["<group id>"],"HH.PMO":["<group id>"],"HH.Portfolio":[],"HH.Admin":[]}'
+  -p roleMembers='{"HH.User":["<group id>"],"HH.PMO":["<group id>"],"HH.Portfolio":[],"HH.Admin":[]}'
 ```
 
 Note `apiClientId`, `webClientId` and `apiScope`. Only people in one of these groups get a token for the API ("assignment required").

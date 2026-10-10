@@ -113,7 +113,11 @@ jobs:
             az bicep build --file "$f" --stdout > /dev/null
             az bicep lint --file "$f"
           done
-          az bicep build-params --file pilot.bicepparam --stdout > /dev/null
+          for p in pilot.bicepparam test.bicepparam; do
+            az bicep build-params --file "$p" --stdout > /dev/null
+          done
+      - name: Shell scripts
+        run: shellcheck scripts/*.sh
       - name: Format
         run: |
           status=0

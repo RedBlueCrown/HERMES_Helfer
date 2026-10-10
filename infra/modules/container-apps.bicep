@@ -49,6 +49,12 @@ param ai {
 
 param appInsightsConnectionString string
 
+@description('CPU and memory of the API container: 1.0 and 2Gi for the pilot, 0.5 and 1Gi for a test.')
+param apiSize {
+  cpu: string
+  memory: string
+}
+
 var deployApp = !empty(image)
 var appName = 'ca-${name}-api'
 
@@ -127,7 +133,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (deployApp) {
         {
           name: 'api'
           image: image
-          resources: { cpu: json('1.0'), memory: '2Gi' }
+          resources: { cpu: json(apiSize.cpu), memory: apiSize.memory }
           env: filter(
             concat(sqlEnv, [
               { name: 'AZURE_CLIENT_ID', value: api.clientId }

@@ -51,9 +51,9 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | P04 | Demo projects and dev users (all fictional) | Import of the real project list (question F9). Dev users only locally. |
 | P05 | Participation catalogue and rules from the prototype | Review by the PMO |
 | P06 | German prompts for the assistant and the drafts | Review with the PMO, then an evaluation set per skill |
-| P07 | **Azure OpenAI provider**: written against the documented REST API, **not yet tested** against a real EU deployment | Test in Increment 2 (question F2 to F4) |
+| P07 | **Azure OpenAI provider**: uses the documented v1 API (no temperature, token limit per call), **not yet tested** against a real EU deployment | First run of `scripts/deploy-azure.sh` (question F2 to F4) |
 | P08 | **MSAL sign-in in the web app**: **not yet tested** against a real tenant | Test in Increment 2 with real app registrations |
-| P10 | **Azure templates** (`infra/`): compile and pass the linter, **not yet deployed** | First deployment in Increment 2 (docs/deployment.md) |
+| P10 | **Azure templates** (`infra/`) and `scripts/deploy-azure.sh`: compile and pass the linters, **not yet deployed** | First run of `scripts/deploy-azure.sh` (docs/deployment.md) |
 | P11 | **Model choice** in `infra/pilot.bicepparam` (gpt-5.1, Standard, Sweden Central) is a proposal | Decision F3/F4, then check availability and quota in the region |
 | P09 | Due dates of Auflagen are free text ("1 Woche", "bis zum nächsten Gate") | Real dates, reminders, and overdue status in the portfolio view |
 
@@ -77,4 +77,5 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | H14 | Pin GitHub Actions to commit SHAs, add ESLint (React hooks, security rules) | Increment 2 |
 | H15 | Remove the dev-only console warning "Keyborg instance … disposed incorrectly" (Fluent UI under React StrictMode) | When Fluent UI fixes it, or by updating the focus management setup |
 | H16 | The API keeps all events of all projects in memory (about 300 projects fit in 2 GB). Events shrink once drafts move to SharePoint (Increment 3); otherwise evict rarely used projects | Increment 3 |
+| H18 | `scripts/deploy-azure.sh` builds the image with ACR Tasks, which some subscription types (free trial, student) cannot use. The script then names the Docker commands | When the deployment runs from GitHub Actions (H03) |
 | H17 | `npm audit` reports `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) through `tedious`. Not exploitable here: tedious only passes fixed format strings. No fixed version exists yet | Watch for a tedious release |

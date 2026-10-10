@@ -171,8 +171,9 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     endpoint: "https://res.openai.azure.com/",
     draftDeployment: "d",
     chatDeployment: "c",
-    apiVersion: "2024-10-21",
+    apiVersion: "v1",
     regionLabel: "Sweden Central",
+    maxCompletionTokens: 16000,
   };
   const fakeFetch = (status: number, body: unknown) => {
     const calls: { url: string; init: RequestInit }[] = [];
@@ -207,12 +208,46 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     const out = await p.draft(req);
     expect(out.draft).toEqual(draft);
     expect(out.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
-    expect(calls[0]!.url).toBe(
-      "https://res.openai.azure.com/openai/deployments/d/chat/completions?api-version=2024-10-21",
-    );
+    expect(calls[0]!.url).toBe("https://res.openai.azure.com/openai/v1/chat/completions");
     expect((calls[0]!.init.headers as Record<string, string>).authorization).toBe("Bearer tok");
     const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body).toMatchObject({ model: "d", max_completion_tokens: 16000 });
     expect(body.response_format.json_schema.strict).toBe(true);
+    // Parameters that reasoning models reject are never sent.
+    expect(body).not.toHaveProperty("temperature");
+    expect(body).not.toHaveProperty("max_tokens");
+    expect(body).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("can use a dated api-version and a reasoning effort", async () => {
+    const draft = { summary: "S", sections: [], openPoints: [] };
+    const { fn, calls } = fakeFetch(200, {
+      choices: [{ finish_reason: "stop", message: { content: JSON.stringify(draft) } }],
+    });
+    const p = new AzureOpenAiProvider(
+      { ...cfg, apiVersion: "2025-04-01-preview", reasoningEffort: "low" },
+      async () => "tok",
+      fn,
+    );
+    await p.draft(req);
+    expect(calls[0]!.url).toBe(
+      "https://res.openai.azure.com/openai/deployments/d/chat/completions?api-version=2025-04-01-preview",
+    );
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body).not.toHaveProperty("model");
+    expect(body.reasoning_effort).toBe("low");
+  });
+
+  it("reports Azure's error code, and cut-off answers", async () => {
+    const fail = async (status: number, body: unknown) =>
+      new AzureOpenAiProvider(cfg, async () => "tok", fakeFetch(status, body).fn).draft(req).catch((e) => e);
+    const notFound = await fail(404, {
+      error: { code: "DeploymentNotFound", message: "no such deployment" },
+    });
+    expect(notFound).toBeInstanceOf(AiProviderError);
+    expect(notFound.message).toBe("Azure OpenAI 404 DeploymentNotFound: no such deployment");
+    const cut = await fail(200, { choices: [{ finish_reason: "length", message: { content: '{"summ' } }] });
+    expect(cut).toMatchObject({ reason: "invalid_output" });
   });
 
   it("maps rate limits, content filters and invalid output to provider errors", async () => {

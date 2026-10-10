@@ -3,7 +3,7 @@
 // Administrator), see docs/deployment.md step 3:
 //
 //   az deployment group create -g <rg> -f infra/entra.bicep \
-//     -p environmentName=pilot appUrl=<appUrl output of main.bicep>
+//     -p environmentName=pilot appUrl=<appUrl output of main.bicep> roleMembers=…
 //
 // Two registrations: the API (scope access_as_user, the four global app
 // roles, assignment required) and the web app (single-page app with
@@ -20,8 +20,8 @@ param appUrl string
 @description('More redirect addresses, for example http://localhost:5173 for developers testing sign-in.')
 param extraRedirectUris array = []
 
-@description('Object IDs of the Entra ID groups per app role.')
-param roleGroups {
+@description('Object IDs of Entra ID groups (or, for tests, users) per app role.')
+param roleMembers {
   'HH.User': string[]
   'HH.PMO': string[]
   'HH.Portfolio': string[]
@@ -64,9 +64,9 @@ var roleId = toObject(roles, r => r.value, r => guid(resourceGroup().id, 'hermes
 var assignments = flatten(map(
   roles,
   r =>
-    map(roleGroups[r.value], groupId => {
+    map(roleMembers[r.value], principalId => {
       role: r.value
-      groupId: groupId
+      principalId: principalId
     })
 ))
 
@@ -137,7 +137,7 @@ resource consent 'Microsoft.Graph/oauth2PermissionGrants@v1.0' = {
 resource groupRoles 'Microsoft.Graph/appRoleAssignedTo@v1.0' = [
   for a in assignments: {
     appRoleId: roleId[a.role]
-    principalId: a.groupId
+    principalId: a.principalId
     resourceId: apiPrincipal.id
   }
 ]

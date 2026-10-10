@@ -23,9 +23,14 @@ export interface AzureOpenAiConfig {
   endpoint: string;
   draftDeployment: string;
   chatDeployment: string;
+  /** "v1": the versionless v1 API (default). A date such as 2024-10-21: the older deployments path. */
   apiVersion: string;
   regionLabel: string;
   timeoutMs?: number;
+  /** Upper bound for reasoning and answer tokens per call (unbounded consumption, architecture §8.2). */
+  maxCompletionTokens?: number;
+  /** Only for reasoning models such as the GPT-5 series. */
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
 }
 
 export type TokenSource = () => Promise<string>;
@@ -96,6 +101,18 @@ const ApiResponse = z.object({
   usage: z.object({ prompt_tokens: z.number(), completion_tokens: z.number() }).optional(),
 });
 
+function errorSummary(body: string): string {
+  try {
+    const e = (JSON.parse(body) as { error?: { code?: unknown; message?: unknown } }).error;
+    return [e?.code, e?.message]
+      .filter((x) => typeof x === "string")
+      .join(": ")
+      .slice(0, 300);
+  } catch {
+    return "";
+  }
+}
+
 /** Entra ID token for Azure OpenAI, renewed two minutes before it expires. */
 export function entraTokenSource(credential: () => Promise<TokenCredential>): TokenSource {
   let cached: { token: string; expires: number } | undefined;
@@ -125,14 +142,24 @@ export class AzureOpenAiProvider implements AiProvider {
   }
 
   private async call(deployment: string, body: Record<string, unknown>) {
-    const url = `${this.cfg.endpoint.replace(/\/$/, "")}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(this.cfg.apiVersion)}`;
+    const base = this.cfg.endpoint.replace(/\/$/, "");
+    const v1 = this.cfg.apiVersion === "v1";
+    const url = v1
+      ? `${base}/openai/v1/chat/completions`
+      : `${base}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(this.cfg.apiVersion)}`;
+    const payload = {
+      ...(v1 ? { model: deployment } : {}),
+      ...body,
+      ...(this.cfg.maxCompletionTokens ? { max_completion_tokens: this.cfg.maxCompletionTokens } : {}),
+      ...(this.cfg.reasoningEffort ? { reasoning_effort: this.cfg.reasoningEffort } : {}),
+    };
     let res: Response;
     try {
       res = await this.fetchImpl(url, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${await this.token()}` },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 90_000),
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 180_000),
       });
     } catch (err) {
       const timeout = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
@@ -144,13 +171,18 @@ export class AzureOpenAiProvider implements AiProvider {
       if (res.status === 400 && /content_filter|ResponsibleAIPolicyViolation/i.test(text)) {
         throw new AiProviderError("blocked", "Azure OpenAI content filter");
       }
-      throw new AiProviderError("provider_error", `Azure OpenAI ${res.status}`);
+      // Azure's error code and message help operations (wrong deployment, unsupported
+      // parameter); they never contain prompt content.
+      throw new AiProviderError("provider_error", `Azure OpenAI ${res.status} ${errorSummary(text)}`.trim());
     }
     const parsed = ApiResponse.safeParse(await res.json());
     if (!parsed.success) throw new AiProviderError("invalid_output", "Unexpected Azure OpenAI response");
     const choice = parsed.data.choices[0]!;
     if (choice.finish_reason === "content_filter")
       throw new AiProviderError("blocked", "Azure OpenAI content filter");
+    if (choice.finish_reason === "length") {
+      throw new AiProviderError("invalid_output", "Answer cut off at max_completion_tokens");
+    }
     const usage: Usage | undefined = parsed.data.usage
       ? { inputTokens: parsed.data.usage.prompt_tokens, outputTokens: parsed.data.usage.completion_tokens }
       : undefined;

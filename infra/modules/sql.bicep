@@ -15,10 +15,13 @@ param admin {
   principalType: 'Application' | 'Group' | 'User'
 }
 
-@description('Serverless General Purpose: maximum vCores.')
+@description('serverless: General Purpose serverless (pilot). s0: Standard S0, enough for a test environment.')
+param tier 'serverless' | 's0'
+
+@description('Serverless: maximum vCores.')
 param maxVCores int
 
-@description('Minutes without activity before the database pauses; -1 never pauses (no cold starts).')
+@description('Serverless: minutes without activity before the database pauses; -1 never pauses (no cold starts).')
 param autoPauseDelay int
 
 param workspaceId string
@@ -62,19 +65,25 @@ resource database 'Microsoft.Sql/servers/databases@2025-01-01' = {
   name: 'sqldb-${name}'
   location: location
   tags: tags
-  sku: {
-    name: 'GP_S_Gen5'
-    tier: 'GeneralPurpose'
-    family: 'Gen5'
-    capacity: maxVCores
-  }
-  properties: {
-    autoPauseDelay: autoPauseDelay
-    minCapacity: json('0.5')
-    // Backups stay in the region, in three zones.
-    requestedBackupStorageRedundancy: 'Zone'
-    zoneRedundant: false
-  }
+  sku: tier == 'serverless'
+    ? {
+        name: 'GP_S_Gen5'
+        tier: 'GeneralPurpose'
+        family: 'Gen5'
+        capacity: maxVCores
+      }
+    : {
+        name: 'S0'
+        tier: 'Standard'
+      }
+  properties: union(
+    {
+      // Backups stay in the region, in three zones.
+      requestedBackupStorageRedundancy: 'Zone'
+      zoneRedundant: false
+    },
+    tier == 'serverless' ? { autoPauseDelay: autoPauseDelay, minCapacity: json('0.5') } : {}
+  )
 }
 
 // Storage Blob Data Contributor on the digest storage for the server's identity.

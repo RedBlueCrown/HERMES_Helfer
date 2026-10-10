@@ -39,6 +39,9 @@ param sqlAdmin {
   principalType: 'Application' | 'Group' | 'User'
 }?
 
+@description('serverless: General Purpose serverless (pilot). s0: Standard S0, enough for a test environment.')
+param sqlTier 'serverless' | 's0' = 'serverless'
+
 param sqlMaxVCores int = 2
 param sqlAutoPauseDelay int = -1
 param enableDefenderForSql bool = true
@@ -49,6 +52,17 @@ param lockDataResources bool = true
 
 @description('Days the ledger digests are kept unchangeable (architecture §9.6: project lifetime plus 10 years).')
 param ledgerDigestRetentionDays int = 3650
+
+param registrySku 'Basic' | 'Standard' = 'Standard'
+
+@description('CPU and memory of the API container.')
+param apiSize {
+  cpu: string
+  memory: string
+} = {
+  cpu: '1.0'
+  memory: '2Gi'
+}
 
 @description('Interactive retention of logs in Log Analytics.')
 param logRetentionDays int = 90
@@ -92,6 +106,7 @@ module registry 'modules/registry.bicep' = {
     location: location
     tags: tags
     pullPrincipalIds: [identities.outputs.apiPrincipalId, identities.outputs.migratePrincipalId]
+    sku: registrySku
   }
 }
 
@@ -125,6 +140,7 @@ module sql 'modules/sql.bicep' = {
       sid: identities.outputs.migrateClientId
       principalType: 'Application'
     }
+    tier: sqlTier
     maxVCores: sqlMaxVCores
     autoPauseDelay: sqlAutoPauseDelay
     workspaceId: monitoring.outputs.workspaceId
@@ -190,6 +206,7 @@ module apps 'modules/container-apps.bicep' = {
       regionLabel: aiRegionLabel
     }
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
+    apiSize: apiSize
   }
 }
 

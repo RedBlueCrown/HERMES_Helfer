@@ -30,6 +30,10 @@ docker exec hh-sql /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P '<your
 
 Then start the API with `STORE=sql SQL_SERVER=localhost SQL_DATABASE=hermes SQL_AUTH=password SQL_USER=sa SQL_PASSWORD=<your password> SQL_TRUST_SERVER_CERTIFICATE=true SQL_MIGRATE_ON_START=true` (see `apps/api/.env.example`). The SQL tests run with `TEST_SQL_SERVER=localhost TEST_SQL_PASSWORD=<your password> npm test -w apps/api`.
 
+### In Azure
+
+`scripts/deploy-azure.sh` sets up a complete test environment in your Azure subscription with one command: Entra ID sign-in, Azure SQL, Azure OpenAI in the EU. See [deployment steps](docs/deployment.md#quick-test-environment).
+
 ## What you can do
 
 1. Open a project and start a draft (for example the Kick-off). The agent writes it, and the Kritiker checks it.
