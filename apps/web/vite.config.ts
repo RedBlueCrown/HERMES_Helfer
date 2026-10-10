@@ -4,6 +4,8 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Explicit IPv4: "localhost" resolves to ::1 on some systems (e.g. GitHub runners).
+    host: "127.0.0.1",
     port: 5173,
     strictPort: true,
     proxy: { "/api": "http://127.0.0.1:3001" },
