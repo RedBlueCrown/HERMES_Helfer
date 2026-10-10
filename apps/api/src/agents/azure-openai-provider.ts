@@ -4,7 +4,7 @@
 // deployment (todo-later P07).
 
 import type { TokenCredential } from "@azure/identity";
-import { CR_FLAGS, type DraftContent, type Finding } from "@hermes-helfer/core";
+import { CR_FLAGS, PROJECT_ROLES, RISK_LEVELS, type DraftContent, type Finding } from "@hermes-helfer/core";
 import { z } from "zod";
 import {
   AiProviderError,
@@ -16,6 +16,8 @@ import {
   type CritiqueRequest,
   type DraftRequest,
   type ProviderInfo,
+  type RiskReview,
+  type RiskReviewRequest,
   type ToolSpec,
   type Usage,
 } from "./provider";
@@ -26,6 +28,8 @@ import {
   critiqueUserPrompt,
   draftSystemPrompt,
   draftUserPrompt,
+  riskReviewSystemPrompt,
+  riskReviewUserPrompt,
 } from "./prompts";
 
 export interface AzureOpenAiConfig {
@@ -85,6 +89,48 @@ const CHANGE_REQUEST_SCHEMA = {
   },
 } as const;
 
+const LEVEL_SCHEMA = { type: "string", enum: [...RISK_LEVELS] } as const;
+
+const RISK_REVIEW_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["newRisks", "reassessments"],
+  properties: {
+    newRisks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "description", "probability", "impact", "ownerRole", "mitigation", "reason"],
+        properties: {
+          title: { type: "string" },
+          description: { type: "string" },
+          probability: LEVEL_SCHEMA,
+          impact: LEVEL_SCHEMA,
+          ownerRole: { type: "string", enum: [...PROJECT_ROLES] },
+          mitigation: { type: "string" },
+          reason: { type: "string" },
+        },
+      },
+    },
+    reassessments: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["risk", "probability", "impact", "mitigation", "reason"],
+        properties: {
+          risk: { type: "string" },
+          probability: LEVEL_SCHEMA,
+          impact: LEVEL_SCHEMA,
+          mitigation: { type: "string" },
+          reason: { type: "string" },
+        },
+      },
+    },
+  },
+} as const;
+
 const CRITIQUE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -116,6 +162,33 @@ const ChangeRequestOut = DraftOut.extend({
     oberflaeche: FlagOut,
     extern: FlagOut,
   }),
+});
+const LevelOut = z.enum(RISK_LEVELS);
+const RiskReviewOut = z.object({
+  newRisks: z
+    .array(
+      z.object({
+        title: z.string().max(200),
+        description: z.string().max(2000),
+        probability: LevelOut,
+        impact: LevelOut,
+        ownerRole: z.enum(PROJECT_ROLES),
+        mitigation: z.string().max(1000),
+        reason: z.string().max(500),
+      }),
+    )
+    .max(20),
+  reassessments: z
+    .array(
+      z.object({
+        risk: z.string().max(20),
+        probability: LevelOut,
+        impact: LevelOut,
+        mitigation: z.string().max(1000),
+        reason: z.string().max(500),
+      }),
+    )
+    .max(20),
 });
 const CritiqueOut = z.object({
   findings: z
@@ -281,6 +354,18 @@ export class AzureOpenAiProvider implements AiProvider {
     );
     const { flags, ...content } = value;
     return { draft: { content, flags }, ...(usage ? { usage } : {}) };
+  }
+
+  async reviewRisks(req: RiskReviewRequest): Promise<{ review: RiskReview; usage?: Usage }> {
+    const { value, usage } = await this.structured(
+      this.cfg.draftDeployment,
+      riskReviewSystemPrompt(req),
+      riskReviewUserPrompt(req),
+      "risikopruefung",
+      RISK_REVIEW_SCHEMA,
+      RiskReviewOut,
+    );
+    return { review: value, ...(usage ? { usage } : {}) };
   }
 
   async critique(req: CritiqueRequest): Promise<{ findings: Finding[]; usage?: Usage }> {

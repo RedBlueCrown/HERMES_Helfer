@@ -6,6 +6,8 @@ import {
   canViewSkillContent,
   checkStartSkill,
   deliverableStatus,
+  openRisks,
+  riskLabel,
   type Actor,
   type AgentDef,
   type AgentId,
@@ -52,7 +54,7 @@ export interface Logger {
 export interface AiRunRecord {
   runId: string;
   projectId: string;
-  /** Skill id, or "cr.entwurf" for the Change-Request agent. */
+  /** Skill id, "cr.entwurf" for the Change-Request agent or "risiko.pruefung" for the Risiko agent. */
   skillId: string;
   agent: AgentId;
   outcome: "completed" | "failed";
@@ -105,7 +107,7 @@ export const agentActor = (agent: AgentDef): Actor => ({
   channel: "agent",
 });
 
-/** Background for a draft: released results the requester may read. */
+/** Background for a draft: released results the requester may read, and the open risks. */
 export function projectContext(s: ProjectState, model: HermesModel, viewer: Viewer): ProjectContext {
   const released: { name: string; summary: string; at: string }[] = [];
   for (const ph of model.phases) {
@@ -133,6 +135,18 @@ export function projectContext(s: ProjectState, model: HermesModel, viewer: View
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, 15)
       .map(({ name, summary }) => ({ name, summary })),
+    openRisks: openRisks(s)
+      .slice(0, 12)
+      .map((r) => ({
+        label: riskLabel(r.number),
+        title: r.title,
+        description: r.description.slice(0, 600),
+        probability: r.probability,
+        impact: r.impact,
+        status: r.status,
+        ownerRole: r.ownerRole,
+        mitigation: r.mitigation,
+      })),
   };
 }
 

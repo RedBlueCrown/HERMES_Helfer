@@ -209,7 +209,8 @@ Sign in with your account; you have the PMO role. Then (docs/staging.md):
 1. "Neues Vorhaben": create a project with yourself as project lead.
 2. "Beteiligte und Rollen" → "Mich selbst": give yourself more roles (e.g. Auftraggeber, ISM).
 3. Start a draft ("Entwurf erstellen"): Azure OpenAI ($MODEL) writes it, the Kritiker checks it.
-4. "Assistent fragen", e.g. «Was ist als Nächstes?», and "Change Requests" → "Mit dem Agenten ausarbeiten".
+4. "Assistent fragen", e.g. «Was ist als Nächstes?», "Change Requests" → "Mit dem Agenten ausarbeiten",
+   and "Risiken" → "Risiken prüfen lassen".
 Other people need one of the app roles: Entra admin center → Enterprise applications →
 "HERMES Helfer API ($ENV_NAME)" → Users and groups.
 

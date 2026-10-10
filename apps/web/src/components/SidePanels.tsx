@@ -42,8 +42,9 @@ const useStyles = makeStyles({
 export interface Navigate {
   openDeliverable(id: string): void;
   openGate(): void;
-  showTab(tab: "ergebnisse" | "beteiligung" | "aenderungen" | "verlauf"): void;
+  showTab(tab: "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "verlauf"): void;
   openChangeRequest(id: string): void;
+  openRisk(id: string): void;
 }
 
 export function NextStepCard({ code, view, nav }: { code: string; view: ProjectView; nav: Navigate }) {
@@ -100,6 +101,8 @@ function taskAction(t: TaskView, nav: Navigate): (() => void) | undefined {
     case "decide-cr":
     case "recheck":
       return t.crId ? () => nav.openChangeRequest(t.crId!) : undefined;
+    case "risk":
+      return t.riskId ? () => nav.openRisk(t.riskId!) : undefined;
     case "condition":
       return undefined;
   }

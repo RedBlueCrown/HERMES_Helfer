@@ -7,8 +7,12 @@ import type {
   DeliverableDef,
   DraftContent,
   Finding,
+  Level,
   PhaseId,
   ProjectProfile,
+  ProjectRole,
+  RiskStatus,
+  RiskTrigger,
   SkillDef,
 } from "@hermes-helfer/core";
 
@@ -31,6 +35,21 @@ export interface ProjectContext {
   profile: ProjectProfile;
   /** Released results the requester may read, as background for the draft. */
   releasedResults: { name: string; summary: string }[];
+  /** Open risks of the register, the most serious first. */
+  openRisks: RiskBrief[];
+}
+
+/** A risk of the register as the agents see it. */
+export interface RiskBrief {
+  /** R-01 … */
+  label: string;
+  title: string;
+  description: string;
+  probability: Level;
+  impact: Level;
+  status: RiskStatus;
+  ownerRole: ProjectRole;
+  mitigation: string;
 }
 
 export interface DraftRequest {
@@ -77,6 +96,43 @@ export interface ChangeRequestDraft {
   flags: Record<CrFlag, { value: boolean; reason: string }>;
 }
 
+export interface RiskReviewRequest {
+  agent: AgentDef;
+  project: ProjectContext;
+  /** Facts from the engine that may point to a risk (riskTriggers). */
+  triggers: readonly RiskTrigger[];
+  roles: readonly { id: ProjectRole; label: string }[];
+  /** At most this many new risks and this many reassessments. */
+  max: number;
+}
+
+/** A new risk the Risiko agent proposes; the PL accepts it or not. */
+export interface ProposedRisk {
+  title: string;
+  description: string;
+  probability: Level;
+  impact: Level;
+  ownerRole: ProjectRole;
+  mitigation: string;
+  /** Why: the fact from the project behind it. */
+  reason: string;
+}
+
+/** A new assessment of an open risk, named by its label (R-02). */
+export interface ProposedReassessment {
+  risk: string;
+  probability: Level;
+  impact: Level;
+  /** A new or sharper measure; empty keeps the current one. */
+  mitigation: string;
+  reason: string;
+}
+
+export interface RiskReview {
+  newRisks: ProposedRisk[];
+  reassessments: ProposedReassessment[];
+}
+
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
@@ -113,6 +169,8 @@ export interface AiProvider {
   critique(req: CritiqueRequest): Promise<{ findings: Finding[]; usage?: Usage }>;
   /** Agent A10: turns a rough wish into a change request. Never estimates effort or cost. */
   draftChangeRequest(req: ChangeRequestDraftRequest): Promise<{ draft: ChangeRequestDraft; usage?: Usage }>;
+  /** Agent A12: proposes new risks and reassessments of open ones. Never accepts them. */
+  reviewRisks(req: RiskReviewRequest): Promise<{ review: RiskReview; usage?: Usage }>;
   chat?(messages: ChatMessage[], tools: ToolSpec[]): Promise<ChatResponse>;
 }
 

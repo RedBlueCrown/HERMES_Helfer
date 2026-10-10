@@ -72,5 +72,6 @@ export { AGENTS } from "./agents";
 export { PHASES } from "./hermes-model";
 export * from "./change-requests";
 export * from "./participation";
+export * from "./risks";
 export * from "./roles";
 export * from "./types";

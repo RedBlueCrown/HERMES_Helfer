@@ -8,6 +8,7 @@ import {
   PROJECT_ROLES,
   canCreateProject,
   canViewProject,
+  checkAssessRisk,
   checkCompleteCondition,
   checkConfirmChecklistItem,
   checkConfirmRecheck,
@@ -19,7 +20,9 @@ import {
   checkMarkNotApplicable,
   checkReactivate,
   checkRecordParticipation,
+  checkRecordRisk,
   checkRelease,
+  checkReviewRisks,
   checkSetChangeReserve,
   checkStartSkill,
   checkSubmitChangeRequest,
@@ -28,6 +31,7 @@ import {
   contentVersion as currentContentVersion,
   findChecklist,
   nextCrNumber,
+  nextRiskNumber,
   openChecklistItems,
   rolesOf,
   validateDecision,
@@ -38,6 +42,7 @@ import {
   type CrFlags,
   type DecisionInput,
   type DraftContent,
+  type Level,
   type PhaseId,
   type Producer,
   type ProjectEvent,
@@ -46,6 +51,7 @@ import {
   type ProjectState,
   type RecheckOutcome,
   type RecheckRole,
+  type RiskStatus,
   type Viewer,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
@@ -89,6 +95,27 @@ export interface ChangeRequestInput {
   flags: CrFlags;
   content: DraftContent;
   /** "ai" when the requester used the Change-Request agent's draft. */
+  producer: Producer;
+}
+
+export interface RiskInput {
+  title: string;
+  description: string;
+  probability: Level;
+  impact: Level;
+  ownerRole: ProjectRole;
+  mitigation: string;
+  /** "ai" when the PL accepts a proposal of the Risiko agent. */
+  producer: Producer;
+}
+
+export interface RiskAssessmentInput {
+  probability: Level;
+  impact: Level;
+  status: RiskStatus;
+  ownerRole: ProjectRole;
+  mitigation: string;
+  note: string;
   producer: Producer;
 }
 
@@ -450,6 +477,74 @@ export class ProjectService {
     return this.command(code, ctx, (s) => {
       assertCheck(checkSetChangeReserve(s, this.model, ctx.viewer));
       return [{ type: "ChangeReserveSet", data: { amountChf } }];
+    });
+  }
+
+  // ---------- Risks ----------
+
+  recordRisk(code: string, ctx: RequestContext, input: RiskInput) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkRecordRisk(s, this.model, ctx.viewer));
+      // Accepting a proposal of the Risiko agent is the PL's decision (architecture §5).
+      if (input.producer.kind === "ai") assertCheck(checkReviewRisks(s, this.model, ctx.viewer));
+      return [
+        {
+          type: "RiskRecorded",
+          data: {
+            riskId: this.newId(),
+            number: nextRiskNumber(s),
+            title: input.title.trim(),
+            description: input.description.trim(),
+            probability: input.probability,
+            impact: input.impact,
+            ownerRole: input.ownerRole,
+            mitigation: input.mitigation.trim(),
+            producer: input.producer,
+          },
+        },
+      ];
+    });
+  }
+
+  /** A new assessment with all current values; closing and reopening need a reason. */
+  assessRisk(code: string, ctx: RequestContext, riskId: string, input: RiskAssessmentInput) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkAssessRisk(s, this.model, ctx.viewer, riskId));
+      if (input.producer.kind === "ai") assertCheck(checkReviewRisks(s, this.model, ctx.viewer));
+      const r = s.risks[riskId]!;
+      const note = input.note.trim();
+      const mitigation = input.mitigation.trim();
+      if (input.status === "geschlossen" && r.status !== "geschlossen" && note.length < 5) {
+        throw unprocessable("Bitte begründen, warum das Risiko geschlossen wird.");
+      }
+      if (r.status === "geschlossen" && input.status !== "geschlossen" && note.length < 5) {
+        throw unprocessable("Bitte begründen, warum das Risiko wieder offen ist.");
+      }
+      if (input.status === "in Bearbeitung" && mitigation.length < 5) {
+        throw unprocessable("Bitte die Massnahme nennen, an der gearbeitet wird.");
+      }
+      const unchanged =
+        input.probability === r.probability &&
+        input.impact === r.impact &&
+        input.status === r.status &&
+        input.ownerRole === r.ownerRole &&
+        mitigation === r.mitigation;
+      if (unchanged && !note) throw unprocessable("Es hat sich nichts geändert.");
+      return [
+        {
+          type: "RiskAssessed",
+          data: {
+            riskId,
+            probability: input.probability,
+            impact: input.impact,
+            status: input.status,
+            ownerRole: input.ownerRole,
+            mitigation,
+            note,
+            producer: input.producer,
+          },
+        },
+      ];
     });
   }
 

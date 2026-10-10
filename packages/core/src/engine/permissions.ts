@@ -312,6 +312,35 @@ export function checkSetChangeReserve(s: ProjectState, model: HermesModel, v: Vi
   return OK;
 }
 
+// ---------- Risks ----------
+
+/** Anyone with a role in the project may record a risk. */
+export function checkRecordRisk(s: ProjectState, model: HermesModel, v: Viewer): Check {
+  if (!rolesOf(s, v.userId).length) return forbidden("Risiken erfassen die Mitglieder des Vorhabens.");
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
+  return OK;
+}
+
+/** The PL or the role responsible for the risk assesses, updates and closes it. */
+export function checkAssessRisk(s: ProjectState, model: HermesModel, v: Viewer, riskId: string): Check {
+  const r = s.risks[riskId];
+  if (!r) return invalid("Dieses Risiko gibt es nicht.");
+  if (!isPL(s, v) && !rolesOf(s, v.userId).includes(r.ownerRole)) {
+    return forbidden(
+      `Dieses Risiko beurteilen die Projektleitung und die Rolle ${PROJECT_ROLE_LABELS[r.ownerRole]}.`,
+    );
+  }
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
+  return OK;
+}
+
+/** The PL asks the Risiko agent for proposals and decides which to accept. */
+export function checkReviewRisks(s: ProjectState, model: HermesModel, v: Viewer): Check {
+  if (!isPL(s, v)) return forbidden("Die Risikoprüfung durch den Agenten stösst die Projektleitung an.");
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
+  return OK;
+}
+
 export function canVerifyAudit(s: ProjectState, v: Viewer): boolean {
   return isPL(s, v) || hasGlobal(v, "HH.PMO");
 }

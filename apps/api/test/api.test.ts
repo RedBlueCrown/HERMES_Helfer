@@ -6,6 +6,7 @@ import {
   type ProjectEvent,
   type ProjectListItem,
   type ProjectView,
+  type RiskRegisterView,
 } from "@hermes-helfer/core";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MockProvider } from "../src/agents/mock-provider";
 import { AiProviderError } from "../src/agents/provider";
+import type { RiskReviewResult } from "../src/agents/risk-agent";
 import type { Authenticator } from "../src/auth";
 import { StoreUnavailableError } from "../src/store/event-store";
 import { testServer } from "./helpers";
@@ -543,6 +545,7 @@ describe("change requests", () => {
         draftChangeRequest: async () => {
           throw new AiProviderError("rate_limited", "Azure OpenAI 429");
         },
+        reviewRisks: (r) => mock.reviewRisks(r),
       },
     });
     const res = await server.as("u-nina").post("/api/projects/ERP/change-requests/draft", wish);
@@ -641,6 +644,160 @@ describe("change requests", () => {
     ).json();
     expect(reply.text).toContain("CR-02 Export der offenen Posten als CSV für die Revision");
     expect(reply.text).toContain("wartet auf den Projektausschuss");
+  });
+});
+
+describe("risks", () => {
+  const risks = async (s: Server, user: string, code: string) =>
+    (await s.as(user).get(`/api/projects/${code}/risks`)).json() as RiskRegisterView;
+  const review = (s: Server, user: string, code: string) =>
+    s.as(user).post(`/api/projects/${code}/risks/review`);
+  const record = (s: Server, user: string, code: string, extra: object = {}) =>
+    s.as(user).post(`/api/projects/${code}/risks`, {
+      title: "Lieferverzug des externen Lieferanten",
+      description: "Das Portal hängt von Lieferungen des Lieferanten ab.",
+      probability: "mittel",
+      impact: "hoch",
+      ownerRole: "PL",
+      mitigation: "Liefertermine vertraglich festhalten.",
+      ...extra,
+    });
+
+  it("proposes risks with the Risiko agent and stores nothing until the PL accepts one", async () => {
+    server = await testServer();
+    const res = await review(server, "u-anna", "KPO");
+    expect(res.statusCode).toBe(200);
+    const proposals = res.json() as RiskReviewResult;
+    expect(proposals.producer).toMatchObject({ kind: "ai", agent: "A12" });
+    expect(proposals.triggers.map((t) => t.id)).toEqual(
+      expect.arrayContaining(["profil:lieferant", "profil:cloud", "profil:extern"]),
+    );
+    const vendor = proposals.newRisks.find((r) => r.title === "Lieferverzug des externen Lieferanten");
+    expect(vendor).toMatchObject({ probability: "mittel", impact: "hoch", ownerRole: "PL", findings: [] });
+    expect(vendor!.reason).toContain("Ein externer Lieferant ist beteiligt.");
+    expect((await risks(server, "u-anna", "KPO")).items).toEqual([]);
+
+    // Only the PL asks the agent and accepts its proposals; members record risks themselves.
+    expect((await review(server, "u-jonas", "KPO")).statusCode).toBe(403);
+    expect((await review(server, "u-peter", "KPO")).statusCode).toBe(403);
+    expect((await record(server, "u-jonas", "KPO", { aiAssisted: true })).statusCode).toBe(403);
+    expect((await record(server, "u-anna", "KPO", { aiAssisted: true })).statusCode).toBe(201);
+    const [r1] = (await risks(server, "u-anna", "KPO")).items;
+    expect(r1).toMatchObject({
+      label: "R-01",
+      score: 6,
+      level: "hoch",
+      producer: { kind: "ai", agent: "A12" },
+    });
+
+    // The register now has this risk: the agent proposes a new assessment instead of a duplicate.
+    const again = (await review(server, "u-anna", "KPO")).json() as RiskReviewResult;
+    expect(again.newRisks.some((r) => r.title === "Lieferverzug des externen Lieferanten")).toBe(false);
+    expect(again.reassessments[0]).toMatchObject({
+      risk: "R-01",
+      riskId: r1!.id,
+      probability: "hoch",
+      current: { probability: "mittel", impact: "hoch" },
+    });
+  });
+
+  it("lets the PL or the responsible role assess and close a risk, always with a reason to close", async () => {
+    server = await testServer();
+    const reg = await risks(server, "u-nina", "ERP");
+    expect(reg.counts).toEqual({ open: 3, high: 2, closed: 1 });
+    expect(reg.items.map((r) => `${r.label} ${r.status}`)).toEqual([
+      "R-01 in Bearbeitung",
+      "R-02 offen",
+      "R-03 in Bearbeitung",
+      "R-04 geschlossen",
+    ]);
+    const testers = reg.items[1]!;
+    expect(testers).toMatchObject({ title: "Engpass bei Fachtestern im Monatsabschluss", ownerRole: "FACH" });
+    expect((await view(server, "u-nina", "ERP")).myTasks.map((t) => t.title)).toContain(
+      "Hohes Risiko R-02: Engpass bei Fachtestern im Monatsabschluss",
+    );
+
+    const assess = (user: string, body: object) =>
+      server!.as(user).post(`/api/projects/ERP/risks/${testers.id}/assessment`, {
+        probability: "hoch",
+        impact: "mittel",
+        ownerRole: "FACH",
+        status: "offen",
+        mitigation: "",
+        ...body,
+      });
+    expect((await assess("u-tim", { status: "in Bearbeitung", mitigation: "Testfenster" })).statusCode).toBe(
+      403,
+    );
+    const noMeasure = await assess("u-nina", { status: "in Bearbeitung" });
+    expect(noMeasure.statusCode).toBe(422);
+    expect(noMeasure.json().error.message).toMatch(/Massnahme/);
+    expect((await assess("u-nina", {})).statusCode).toBe(422);
+    const measure = "Testfenster vor dem Monatsabschluss reservieren.";
+    expect(
+      (
+        await assess("u-nina", {
+          status: "in Bearbeitung",
+          mitigation: measure,
+          note: "Mit der Fachstelle geklärt.",
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await view(server, "u-nina", "ERP")).myTasks.some((t) => t.kind === "risk")).toBe(false);
+    expect((await assess("u-jonas", { status: "geschlossen", mitigation: measure })).statusCode).toBe(422);
+    expect(
+      (await assess("u-jonas", { status: "geschlossen", mitigation: measure, note: "Tests abgeschlossen." }))
+        .statusCode,
+    ).toBe(200);
+    const closed = (await risks(server, "u-jonas", "ERP")).items.find((r) => r.id === testers.id)!;
+    expect(closed).toMatchObject({ status: "geschlossen", open: false });
+    expect(closed.history.map((h) => h.status)).toEqual(["offen", "in Bearbeitung", "geschlossen"]);
+
+    const events = (
+      await server.as("u-jonas").get("/api/projects/ERP/events?category=risiko&limit=2")
+    ).json();
+    expect(events.items.map((e: { text: string }) => e.text)).toEqual([
+      "R-02 geschlossen: Tests abgeschlossen.",
+      "R-02 neu beurteilt: Eintritt hoch, Auswirkung mittel, in Bearbeitung: Mit der Fachstelle geklärt.",
+    ]);
+    expect((await server.as("u-jonas").post("/api/projects/ERP/risks/abc/assessment", {})).statusCode).toBe(
+      422,
+    );
+    expect((await record(server, "u-nina", "ERP", { probability: "sehr hoch" })).statusCode).toBe(422);
+  });
+
+  it("flags projects with high risks in the portfolio and answers questions in the chat", async () => {
+    server = await testServer();
+    const flagged = (await server.as("u-peter").get("/api/projects?scope=all&signal=risiko-hoch")).json();
+    expect(flagged.items.map((p: { code: string }) => p.code)).toEqual(["ERP"]);
+    const reply = (
+      await server.as("u-nina").post("/api/projects/ERP/chat", { message: "Welche Risiken gibt es?" })
+    ).json();
+    expect(reply.text).toContain("3 offene Risiken, davon 2 hoch");
+    expect(reply.text).toContain("R-01 Lieferverzug beim Release-Upgrade des Herstellers");
+    const start = (
+      await server.as("u-jonas").post("/api/projects/ERP/chat", { message: "Starte die Risikoprüfung" })
+    ).json();
+    expect(start.text).toContain("«Risiken prüfen lassen»");
+    expect(start.actions).toEqual([]);
+  });
+
+  it("says so when the agent is unavailable, so risks can be recorded by hand", async () => {
+    const mock = new MockProvider(0);
+    server = await testServer({
+      provider: {
+        info: mock.info,
+        draft: (r) => mock.draft(r),
+        critique: (r) => mock.critique(r),
+        draftChangeRequest: (r) => mock.draftChangeRequest(r),
+        reviewRisks: async () => {
+          throw new AiProviderError("timeout", "Azure OpenAI timeout");
+        },
+      },
+    });
+    const res = await review(server, "u-anna", "KPO");
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.message).toMatch(/Zeitüberschreitung.*ohne den Agenten erfassen/);
   });
 });
 

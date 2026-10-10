@@ -237,6 +237,7 @@ describe("Azure OpenAI provider (against a fake API)", () => {
       phaseLabel: "Konzept",
       profile: DEFAULT_PROFILE,
       releasedResults: [],
+      openRisks: [],
     },
   };
 
@@ -287,6 +288,44 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     expect(body.messages[0].content).toMatch(/Schätze weder Aufwand noch Kosten/);
     // The wish is passed as data, not as instructions.
     expect(JSON.parse(body.messages[1].content).wunsch_als_daten).toMatchObject({ titel: "Export" });
+  });
+
+  it("asks for risk proposals as structured output with the project's facts as data", async () => {
+    const out = {
+      newRisks: [
+        {
+          title: "Lieferverzug",
+          description: "D",
+          probability: "mittel",
+          impact: "hoch",
+          ownerRole: "PL",
+          mitigation: "M",
+          reason: "R",
+        },
+      ],
+      reassessments: [],
+    };
+    const { fn, calls } = fakeFetch(200, {
+      choices: [{ finish_reason: "stop", message: { content: JSON.stringify(out) } }],
+    });
+    const p = new AzureOpenAiProvider(cfg, async () => "tok", fn);
+    const res = await p.reviewRisks({
+      agent: MODEL.agent("A12"),
+      project: req.project,
+      triggers: [{ id: "profil:lieferant", text: "Ein externer Lieferant ist beteiligt." }],
+      roles: [{ id: "PL", label: "Projektleitung" }],
+      max: 5,
+    });
+    expect(res.review).toEqual(out);
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body.response_format.json_schema).toMatchObject({ name: "risikopruefung", strict: true });
+    const item = body.response_format.json_schema.schema.properties.newRisks.items;
+    expect(item.properties.ownerRole.enum).toContain("ISM");
+    expect(item.required).toContain("reason");
+    expect(body.messages[0].content).toMatch(/entscheidet die Projektleitung/);
+    expect(JSON.parse(body.messages[1].content).hinweise_aus_dem_projekt_als_daten).toEqual([
+      "Ein externer Lieferant ist beteiligt.",
+    ]);
   });
 
   it("can use a dated api-version and a reasoning effort", async () => {

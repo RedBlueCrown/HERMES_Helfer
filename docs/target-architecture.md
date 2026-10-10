@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Draft v0.5. Includes the decisions of 2026-10-08 (§1.1), the Increment 2 groundwork, the portfolio view (§7.1) and Change Requests with agent A10 (§5.5) of 2026-10-10. |
+| Status | Draft v0.6. Includes the decisions of 2026-10-08 (§1.1), the Increment 2 groundwork, the portfolio view (§7.1), Change Requests with agent A10 (§5.5) and the risk register with agent A12 (§5.6) of 2026-10-10. |
 | Organisation | Firma Muster AG |
 | Basis | Clickable prototype v22 (UX and domain specification) |
 | Platform | Microsoft Entra ID, SharePoint Online, Microsoft 365, Azure (EU), Microsoft Foundry |
@@ -52,7 +52,7 @@
 | Systemskizze and Pattern-Pilot | 12 patterns, deviations per project, a versioned sketch | AI (Architektur) and the pattern catalogue |
 | Reifegrad | 8 artifacts × 6 maturity levels, with a target per phase | Engine |
 | Go-live and Readiness | 7 go-live criteria with a veto for Fachstelle and APM. Access tests that need evidence. | Engine checklists |
-| Risks, Statusbericht, Kommunikation | Risk register, HERMES status report with a 6-criterion Ampel, messages per audience | Engine data and AI drafting |
+| Risks, Statusbericht, Kommunikation | Risk register, HERMES status report with a 6-criterion Ampel, messages per audience | Risk register built (§5.6): the engine scores, agent A12 proposes, the PL accepts. Statusbericht and Kommunikation: engine data and AI drafting, open. |
 | Background checks | 10 agents that run on change or on a schedule | Mixed (Appendix A). After the pilot. |
 | Delivery-Assistent | Regex intent routing, an LLM fallback over project JSON, a `start_agent` tool, Autopilot | AI orchestrator (§5.4) |
 | Verlauf | Activity feed with actor and channel | User-facing view of the event log (§9) |
@@ -178,7 +178,7 @@ Thirteen agents. Each has many **skills**, one per deliverable or task (§5.1).
 | A9 | **Protokoll** | Protokoll | Meeting ended | Fach confirms | later |
 | A10 | **Change-Request** | Change-Request | Manual (any member), later also new requirements from meetings | PA with Konsent | ✓ |
 | A11 | **Kritiker** | Kritiker, Verifier, Reviewer (artifacts) | Every draft | (findings only) | ✓ |
-| A12 | **Risiko** | Risk | Weekly and on events | PL accepts | later |
+| A12 | **Risiko** | Risk | Manual (PL); later weekly and on events | PL accepts | ✓ |
 | A13 | **Wissen** | KnowHow, Lessons Learned, Document, Housekeeping | Questions, phase end | PMO curates | later |
 
 Some prototype agents describe work that people do in other systems: Executer (deployments) and Integrationstest (test runs). In the pilot they are **manual skills**. The responsible person records the result (for example the release version or the test summary) instead of an AI drafting it. Integrations with the pipelines follow later.
@@ -218,13 +218,14 @@ The deliverable lists the template sections the draft must contain. These are pl
 
 | Tool | Kind | Used by |
 |---|---|---|
-| `projekt_ueberblick`, `naechster_schritt`, `meine_aufgaben`, `gate_status`, `lieferergebnisse`, `ergebnis_details`, `change_requests` | Read, filtered by the user's roles. Without a model, the rule-based router also explains skills. | A1 |
+| `projekt_ueberblick`, `naechster_schritt`, `meine_aufgaben`, `gate_status`, `lieferergebnisse`, `ergebnis_details`, `change_requests`, `risiken` | Read, filtered by the user's roles. Without a model, the rule-based router also explains skills. | A1 |
 | `entwurf_anstossen(skill)` | Request. Runs the same permission and precondition checks as the button in the UI. | A1 |
 | Draft generation | Writes a draft for one deliverable | A2 to A8, inside a run started by a person |
 | Change request draft | Text and affected areas of a change request; returned to the person, stored only when they submit it | A10 |
+| Risk review | New risks and new assessments of open ones, each with its reason; returned to the PL, stored only for what they accept | A12 |
 | Critique | Writes findings for a draft | A11 |
 
-**Never available to any agent:** release, approve, decide a gate or a change request, confirm a recheck, mark "nicht zutreffend", confirm checklist items, record participation, change roles or the profile. The API checks for a human user with the matching project role on each of these operations.
+**Never available to any agent:** release, approve, decide a gate or a change request, confirm a recheck, record, assess or close a risk, mark "nicht zutreffend", confirm checklist items, record participation, change roles or the profile. The API checks for a human user with the matching project role on each of these operations.
 
 ### 5.3 Run lifecycle
 
@@ -262,6 +263,17 @@ A change to the agreed scope (HERMES: Änderungsmanagement). Ported from the pro
 5. **Recheck.** An approved request that touches personal data opens a recheck of SchuBAn, Datenschutz-Vorabklärung, ISDS-Konzept and DSFA. ISM and Datenschutz each confirm «keine Anpassung» or «Massnahme ergänzt». Until both have confirmed, the gate of the current phase stays closed (gate criterion «Neuprüfung nach Change Request»).
 
 The Projektausschuss gets a task per open request, ISM and Datenschutz one per pending recheck. The portfolio counts open requests and open rechecks (§7.1), and the assistant answers questions about them.
+
+### 5.6 Risks (second feature of Increment 4)
+
+The risk register of a project (HERMES: Risikomanagement). Ported from the prototype; the scale and the thresholds are proposals (question F33).
+
+1. **Register.** Every member records risks: what could happen, probability («Eintritt») and impact («Auswirkung»), each low, medium or high, the role that takes care of the measure, and the measure. The engine scores probability × impact (1 to 9): from 6 a risk is high, from 3 medium. The register shows a 3 × 3 matrix of the open risks and lists them, the most serious first (`engine/risks.ts`).
+2. **Assessment.** The PL or the responsible role assesses a risk again: new values, status «offen», «in Bearbeitung» or «geschlossen», a note. Every assessment stays in the risk's history; the trend compares the score with the one before. Closing and reopening need a reason, «in Bearbeitung» needs a measure.
+3. **Risiko agent (A12).** The PL asks the agent to review the register. The engine collects the facts that may point to a risk: a blocked or rejected gate, overdue Auflagen, missing roles or participants, open change requests and rechecks, the reserve, the project profile (supplier, personal data in the cloud, new technology, interfaces, external users, availability, protection needs). The agent proposes at most five new risks and five new assessments, each with the fact behind it; a deterministic check marks proposals similar to an open risk. The PL selects, adjusts and accepts; accepted proposals are recorded as proposed by the agent. Nothing else is stored.
+4. **Where risks show.** The responsible role gets a task for a high risk until someone works on the measure. The gate panel and the gate decision name the open high risks, without blocking the gate. The portfolio flags projects with high risks (§7.1), the assistant answers questions about the register, and the drafting agents get the open risks as background, for example for the section «Risiken» of the Projektgrundlagen.
+
+In the pilot the agent runs when the PL asks; a weekly review in the background follows with the durable queue (todo-later H20).
 
 ## 6. Identity and authorization
 
@@ -326,6 +338,7 @@ The page «Portfolio» answers two questions for the PMO and the Portfolio-Gremi
 | Auflagen überfällig | An Auflage is still open after its due date | high |
 | Gate zurückgewiesen | The last gate decision of the current phase was a rejection | medium |
 | Rollen unbesetzt | A role that decides in the current phase is held by nobody | medium |
+| Hohe Risiken | An open risk scores 6 or more (probability × impact, §5.6) | medium |
 | Neuprüfung offen | An approved change request touches personal data; SchuBAn, ISDS and DSFA are checked again and the gate stays closed | medium |
 | Ohne Aktivität | No new event in the Projektakte for 30 days | medium |
 | Change Request offen | A change request waits for the Projektausschuss | info |
@@ -452,7 +465,7 @@ Principles:
 | **1. Local vertical slice** | Monorepo, engine with tests, API with dev sign-in and Entra token validation, event store with hash chain, manual skill runs with Kritiker (mock model), orchestrator chat, web UI: project list (300+), phase view, deliverables, decisions, gate, participation, roles, Verlauf, end-to-end tests | Done |
 | 2. Azure pilot environment | Infrastructure as code (Bicep): Container Apps, Azure SQL (ledger), App Insights, private network. Entra app registrations, real sign-in, Azure OpenAI in the EU. Later in this increment: Front Door/WAF, APIM, Sentinel connection. The tool's own SchuBAn, ISDS-Konzept and DSFA. | Built and tested in CI: SQL event store, image, telemetry, templates. Deployment needs F2 to F4 and F25 to F28 |
 | 3. SharePoint | Site provisioning or linking per project, drafts as .docx from templates, OBO access, sources in drafts, decision PDFs as records | Needs F9, templates |
-| 4. Collaboration | Protokoll (Teams transcripts), Change Requests, Risiko, Wissen, Teams notifications | Change Requests built (§5.5). Open: Protokoll, Risiko, Wissen, Teams notifications; they need F11 to F15 |
+| 4. Collaboration | Protokoll (Teams transcripts), Change Requests, Risiko, Wissen, Teams notifications | Change Requests (§5.5) and risks (§5.6) built. Open: Protokoll, Wissen, Teams notifications; they need F11 to F15 |
 | 5. Portfolio | Overview of all projects with drill-down, KPIs | First version built (§7.1): signals, phase and gate overview, due dates of Auflagen, filters, drill-down. Open: trends, export, Teams digest, data from portfolio planning. Needs F11, F29, F30 |
 
 ---
@@ -489,6 +502,6 @@ All open questions are in German in [`offene-fragen.md`](offene-fragen.md).
 
 Events per project stream (`packages/core/src/engine/events.ts`):
 
-`ProjectCreated`, `MemberRoleAssigned`, `MemberRoleRemoved`, `ProfileUpdated`, `SkillRunRequested`, `SkillRunCompleted`, `SkillRunFailed`, `DraftEdited`, `DeliverableReleased`, `SkillDecisionRecorded`, `DeliverableMarkedNotApplicable`, `DeliverableReactivated`, `ParticipationRecorded`, `ChecklistItemConfirmed`, `GateDecisionRecorded`, `ConditionCompleted`, `ChangeRequestSubmitted`, `ChangeRequestWithdrawn`, `ChangeRequestDecided`, `ChangeRecheckConfirmed`, `ChangeReserveSet`
+`ProjectCreated`, `MemberRoleAssigned`, `MemberRoleRemoved`, `ProfileUpdated`, `SkillRunRequested`, `SkillRunCompleted`, `SkillRunFailed`, `DraftEdited`, `DeliverableReleased`, `SkillDecisionRecorded`, `DeliverableMarkedNotApplicable`, `DeliverableReactivated`, `ParticipationRecorded`, `ChecklistItemConfirmed`, `GateDecisionRecorded`, `ConditionCompleted`, `ChangeRequestSubmitted`, `ChangeRequestWithdrawn`, `ChangeRequestDecided`, `ChangeRecheckConfirmed`, `ChangeReserveSet`, `RiskRecorded`, `RiskAssessed`
 
 Every event carries the actor (user ID, name, roles at that moment, channel), the timestamp, the correlation ID and the hash chain (`prevHash`, `hash`). The project state is computed by applying the events in order (`applyEvent`). That function is pure and unit-tested.

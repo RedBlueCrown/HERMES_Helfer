@@ -9,6 +9,7 @@ import {
   deliverableDetailView,
   formatChf,
   projectView,
+  riskRegister,
   rolesOf,
   type DeliverableRowView,
   type HermesModel,
@@ -184,6 +185,12 @@ export class Orchestrator {
         parameters: none,
       },
       {
+        name: "risiken",
+        description:
+          "Risikoregister des Vorhabens: offene Risiken mit Eintritt, Auswirkung, Bewertung, Massnahme und Verantwortung, die höchsten zuerst.",
+        parameters: none,
+      },
+      {
         name: "entwurf_anstossen",
         description:
           "Stösst den Entwurf eines Schritts der aktuellen Phase an. Nur auf ausdrücklichen Wunsch der Person.",
@@ -271,6 +278,28 @@ export class Orchestrator {
             auswirkung: c.impactSummary,
             neupruefung: c.recheck ? (c.recheck.done ? "abgeschlossen" : "offen") : "nicht nötig",
           })),
+        };
+      }
+      case "risiken": {
+        const s = await this.projects.requireProject(code, ctx.viewer);
+        const r = riskRegister(s, this.model, ctx.viewer);
+        return {
+          offen: r.counts.open,
+          hoch: r.counts.high,
+          geschlossen: r.counts.closed,
+          risiken: r.items
+            .filter((x) => x.open)
+            .slice(0, 10)
+            .map((x) => ({
+              risiko: x.label,
+              titel_als_daten: x.title,
+              eintritt: x.probability,
+              auswirkung: x.impact,
+              bewertung: `${x.score} (${x.level})`,
+              status: x.status,
+              verantwortlich: x.ownerLabel,
+              massnahme_als_daten: x.mitigation || "keine erfasst",
+            })),
         };
       }
       case "entwurf_anstossen": {
@@ -385,6 +414,7 @@ export class Orchestrator {
             "deine Aufgaben auflisten (Entscheide, Freigaben, Auflagen)",
             "das Gate und die offenen Lieferergebnisse erklären",
             "Change Requests und ihre Auswirkungen zeigen",
+            "die offenen Risiken zeigen",
             "Entwürfe anstossen, z. B. «Starte Kick-off»",
           ]),
           "Entscheide triffst du selbst; ich bereite nur vor.",
@@ -419,6 +449,11 @@ export class Orchestrator {
     if (startVerb) {
       used.push("entwurf_anstossen");
       const skill = findSkillInText(this.model, s, message);
+      if (!skill && has(/risik/)) {
+        return reply(
+          "Die Prüfung durch den Risiko-Agenten stösst die Projektleitung im Register «Risiken» an: «Risiken prüfen lassen». Dort übernimmt sie die passenden Vorschläge.",
+        );
+      }
       if (!skill) {
         const ready = phase.deliverables.filter((d) => d.action?.kind === "start" && d.action.enabled);
         return reply(
@@ -438,6 +473,32 @@ export class Orchestrator {
       return reply(
         `Ich habe «${skill.name}» angestossen. Der Entwurf «${skill.outputDoc}» erscheint in den Lieferergebnissen, sobald er fertig ist. Prüfen und freigeben musst du (bzw. die zuständige Rolle) ihn selbst.`,
         [{ kind: "run_started", skillId: skill.id, runId: res.runId, label: skill.outputDoc }],
+      );
+    }
+
+    // The register, unless the question names a result about risks («Beurteilung Einführungsrisiken»).
+    const named = findSkillInText(this.model, s, message, true);
+    const namesRiskResult =
+      !!named &&
+      [named.name, named.outputDoc, ...this.model.deliverablesOfSkill(named.id).map((d) => d.name)].some(
+        (x) => normalize(x).includes("risik"),
+      );
+    if (has(/risik|\brisks?\b|\br-\d/) && !namesRiskResult) {
+      used.push("risiken");
+      const r = riskRegister(s, this.model, ctx.viewer);
+      const top = r.items.filter((x) => x.open).slice(0, 5);
+      return reply(
+        [
+          top.length
+            ? `${r.counts.open} offene ${r.counts.open === 1 ? "Risiko" : "Risiken"}, davon ${r.counts.high} hoch. Die wichtigsten:\n${bullets(
+                top.map(
+                  (x) =>
+                    `${x.label} ${x.title}: Eintritt ${x.probability}, Auswirkung ${x.impact}, ${x.status}${x.mitigation ? `. Massnahme: ${x.mitigation}` : ", noch ohne Massnahme"}`,
+                ),
+              )}`
+            : "Im Risikoregister sind keine offenen Risiken erfasst.",
+          "Risiken erfasst ihr im Register «Risiken»; der Risiko-Agent schlägt dort neue Risiken vor (Projektleitung).",
+        ].join("\n"),
       );
     }
 

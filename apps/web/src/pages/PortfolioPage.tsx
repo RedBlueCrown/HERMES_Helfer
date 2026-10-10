@@ -69,7 +69,7 @@ const useStyles = makeStyles({
   section: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS },
   tiles: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fill, minmax(136px, 1fr))",
     gap: tokens.spacingHorizontalM,
   },
   tile: {
@@ -342,6 +342,8 @@ function tileDetail(sig: SignalFigures, data: Portfolio): string {
       return "Nacharbeit vor dem nächsten Entscheid";
     case "rollen-fehlen":
       return "Entscheid so nicht möglich";
+    case "risiko-hoch":
+      return "Eintritt mal Auswirkung 6 oder mehr";
     case "ohne-aktivitaet":
       return `Seit ${INACTIVE_AFTER_DAYS} Tagen oder länger`;
     case "cr-offen":

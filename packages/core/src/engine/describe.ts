@@ -5,10 +5,12 @@ import { PARTICIPANT_CATALOG } from "../model/participation";
 import { PROJECT_ROLE_LABELS } from "../model/roles";
 import { crLabel, formatChf } from "./change-requests";
 import { findChecklist } from "./permissions";
+import { riskLabel } from "./risks";
 import type { StoredEvent } from "./events";
+import type { ProjectState } from "./state";
 
 export type EventCategory =
-  "entscheid" | "entwurf" | "freigabe" | "beteiligung" | "rollen" | "vorhaben" | "aenderung";
+  "entscheid" | "entwurf" | "freigabe" | "beteiligung" | "rollen" | "vorhaben" | "aenderung" | "risiko";
 
 export const EVENT_CATEGORIES: readonly EventCategory[] = [
   "entscheid",
@@ -18,6 +20,7 @@ export const EVENT_CATEGORIES: readonly EventCategory[] = [
   "rollen",
   "vorhaben",
   "aenderung",
+  "risiko",
 ];
 
 export function eventCategory(e: StoredEvent): EventCategory {
@@ -50,24 +53,42 @@ export function eventCategory(e: StoredEvent): EventCategory {
     case "ChangeRecheckConfirmed":
     case "ChangeReserveSet":
       return "aenderung";
+    case "RiskRecorded":
+    case "RiskAssessed":
+      return "risiko";
   }
 }
 
 const decisionText = (d: string) =>
   d === "freigegeben" ? "freigegeben" : d === "mit Auflagen" ? "mit Auflagen freigegeben" : "zurückgewiesen";
 
-/** The project's change requests by id, for their numbers in the texts. */
-export type CrNumbers = ReadonlyMap<string, number>;
+/** Numbers of the project's change requests and risks by id, for the texts. */
+export interface EventRefs {
+  crNumbers?: ReadonlyMap<string, number>;
+  riskNumbers?: ReadonlyMap<string, number>;
+}
 
-export function describeEvent(e: StoredEvent, model: HermesModel, crNumbers: CrNumbers = new Map()): string {
+export function eventRefs(s: ProjectState): EventRefs {
+  return {
+    crNumbers: new Map(Object.values(s.changeRequests).map((c) => [c.id, c.number])),
+    riskNumbers: new Map(Object.values(s.risks).map((r) => [r.id, r.number])),
+  };
+}
+
+export function describeEvent(e: StoredEvent, model: HermesModel, refs: EventRefs = {}): string {
   const skillName = (id: string) => model.findSkill(id)?.name ?? id;
   const docName = (id: string) => model.findSkill(id)?.outputDoc ?? id;
   const delivName = (id: string) => model.findDeliverable(id)?.name ?? id;
   const withReason = (r: string) => (r.trim() ? `: ${r.trim()}` : ".");
   const crName = (crId: string) => {
-    const n = crNumbers.get(crId);
+    const n = refs.crNumbers?.get(crId);
     return n ? crLabel(n) : "Change Request";
   };
+  const riskName = (riskId: string) => {
+    const n = refs.riskNumbers?.get(riskId);
+    return n ? riskLabel(n) : "Risiko";
+  };
+  const byAgent = (p: { kind: string }, text: string) => (p.kind === "ai" ? text : "");
   switch (e.type) {
     case "ProjectCreated":
       return `Vorhaben «${e.data.name}» angelegt (Phase ${model.phase(e.data.phase).label}).`;
@@ -121,5 +142,13 @@ export function describeEvent(e: StoredEvent, model: HermesModel, crNumbers: CrN
       return `Neuprüfung nach ${crName(e.data.crId)} durch ${PROJECT_ROLE_LABELS[e.data.role]}: ${e.data.outcome}${e.data.note ? ` (${e.data.note})` : ""}.`;
     case "ChangeReserveSet":
       return `Reserve für Change Requests: ${formatChf(e.data.amountChf)}.`;
+    case "RiskRecorded":
+      return `${riskLabel(e.data.number)} «${e.data.title}» erfasst (Eintritt ${e.data.probability}, Auswirkung ${e.data.impact}, verantwortlich ${PROJECT_ROLE_LABELS[e.data.ownerRole]}${byAgent(e.data.producer, "; vom Risiko-Agenten vorgeschlagen")}).`;
+    case "RiskAssessed": {
+      const name = riskName(e.data.riskId);
+      const note = e.data.note ? `: ${e.data.note}` : ".";
+      if (e.data.status === "geschlossen") return `${name} geschlossen${note}`;
+      return `${name} neu beurteilt: Eintritt ${e.data.probability}, Auswirkung ${e.data.impact}, ${e.data.status}${byAgent(e.data.producer, " (Vorschlag des Risiko-Agenten)")}${note}`;
+    }
   }
 }

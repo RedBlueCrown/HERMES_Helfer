@@ -3,7 +3,8 @@
 // Events are facts. Never change the meaning of an existing event type; add a new one.
 
 import type { CrFlags, RecheckOutcome, RecheckRole } from "../model/change-requests";
-import type { AgentId, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
+import type { RiskStatus } from "../model/risks";
+import type { AgentId, Level, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
 
 export type Decision = "freigegeben" | "mit Auflagen" | "zurückgewiesen";
 export const DECISIONS: readonly Decision[] = ["freigegeben", "mit Auflagen", "zurückgewiesen"];
@@ -130,7 +131,40 @@ export type ProjectEvent =
       type: "ChangeRecheckConfirmed";
       data: { crId: string; role: RecheckRole; outcome: RecheckOutcome; note: string };
     }
-  | { type: "ChangeReserveSet"; data: { amountChf: number } };
+  | { type: "ChangeReserveSet"; data: { amountChf: number } }
+  | {
+      type: "RiskRecorded";
+      data: {
+        riskId: string;
+        /** Running number in the project: R-01, R-02 … */
+        number: number;
+        title: string;
+        description: string;
+        probability: Level;
+        impact: Level;
+        /** The role that takes care of the measure. */
+        ownerRole: ProjectRole;
+        /** Empty until someone defines it. */
+        mitigation: string;
+        /** "ai": proposed by the Risiko agent, reviewed and accepted by a person. */
+        producer: Producer;
+      };
+    }
+  | {
+      /** A new assessment: the current values, not a difference. Closing is status «geschlossen». */
+      type: "RiskAssessed";
+      data: {
+        riskId: string;
+        probability: Level;
+        impact: Level;
+        status: RiskStatus;
+        ownerRole: ProjectRole;
+        mitigation: string;
+        note: string;
+        /** "ai": proposed by the Risiko agent, accepted by a person. */
+        producer: Producer;
+      };
+    };
 
 export type EventType = ProjectEvent["type"];
 

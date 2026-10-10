@@ -4,7 +4,7 @@ Things we deliberately postponed: error cases that still need proper handling, p
 
 When an item is done, delete it here and mention it in the pull request.
 
-Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event store, the container image, telemetry and the Azure templates are built and tested in CI; the first deployment to Azure is still open ([staging.md](staging.md)). Increment 4: Change Requests with agent A10 are built (architecture §5.5). Increment 5: the first version of the portfolio view is built (§7.1).
+Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event store, the container image, telemetry and the Azure templates are built and tested in CI; the first deployment to Azure is still open ([staging.md](staging.md)). Increment 4: Change Requests with agent A10 and the risk register with agent A12 are built (architecture §5.5, §5.6). Increment 5: the first version of the portfolio view is built (§7.1).
 
 ---
 
@@ -40,8 +40,10 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | E26 | **Assigning a role needs the person's Entra ID object ID** | The PL types the ID and the name; the API does not check them against the directory. «Mich selbst» fills in one's own ID (to try the app alone). | A people picker using Microsoft Graph (on behalf of the PL) that only offers internal accounts. |
 | E27 | **The app starts before the migration job ran** (first deployment, new schema) | The app cannot sign in to the database or finds an older schema; it does not become ready and Container Apps restarts it. The previous revision keeps serving. | Run the job automatically in the deployment pipeline before the new revision starts. |
 | E28 | **A model version is retired by Microsoft** | Deployments are pinned (`NoAutoUpgrade`); after the retirement date the calls fail and runs end with "Modell nicht erreichbar". | Watch the retirement schedule, alert 60 days ahead, and plan the upgrade with the evaluation set (H11). |
-| E30 | **A model answer takes very long** (reasoning models, high load) | The assistant's chat and the Change-Request agent answer within the request; Azure's ingress ends requests after 240 seconds, and the person sees an error. The Change-Request agent leaves out the Kritiker's review after 90 seconds. Drafts of deliverables run in the background and are not affected. | Stream the answer, or run the chat and the change request draft as background runs like drafts. |
+| E30 | **A model answer takes very long** (reasoning models, high load) | The assistant's chat, the Change-Request agent and the Risiko agent answer within the request; Azure's ingress ends requests after 240 seconds, and the person sees an error. The Change-Request agent leaves out the Kritiker's review after 90 seconds. Drafts of deliverables run in the background and are not affected. | Stream the answer, or run the chat and the change request draft as background runs like drafts. |
 | E31 | **A submitted change request needs a correction** | It cannot be edited; the requester withdraws it and submits a new one. | Edit until the Projektausschuss decides, versioned like drafts, with the decision naming the version (principle 5). |
+| E32 | **The PL closes the Risiko agent's proposals without accepting them** | Nothing was stored; the next review calls the model again. | Keep the last review per project for a few days, or store the proposals of a weekly background review (H20). |
+| E33 | **A risk's title or description needs a correction** | Title and description cannot be changed; the PL or the responsible role closes the risk with a reason and records a new one. | Edit them, versioned, with the change in the risk's history. |
 | E29 | **A gate is passed while Auflagen due at it are still open** | Allowed: the gate criterion "Auflagen erledigt" does not block. The Auflagen are then overdue in the project and in the portfolio. | As decided in F30: block the gate, or ask the decider to confirm the open Auflagen. |
 
 ## 2. Placeholders to replace
@@ -61,6 +63,7 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | P09 | Due dates of Auflagen are three fixed options ("1 Woche", "2 Wochen", "bis zum nächsten Gate"); the app computes the due date and the overdue state from them | A date the decider picks, and reminders before it (questions F15, F30) |
 | P12 | Portfolio signals and their levels, and the 30 days without activity (`packages/core/src/engine/portfolio.ts`) are proposals | Decision F29 |
 | P13 | Change requests: 1,200 CHF per person-day, the five areas and the impact rules come from the prototype (`packages/core/src/model/change-requests.ts`, `engine/change-requests.ts`) | Decisions F31 and F32 |
+| P14 | Risks: the scale (probability × impact, 1 to 3 each), high from 6 and medium from 3, the statuses, and at most five proposals per review (`packages/core/src/model/risks.ts`); the offline Risiko agent's typical risks (`apps/api/src/agents/mock-provider.ts`) | Decisions F33 and F34 |
 
 ## 3. Hardening and deferred technology
 
@@ -84,4 +87,5 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | H16 | The API keeps all events of all projects in memory (about 300 projects fit in 2 GB). Events shrink once drafts move to SharePoint (Increment 3); otherwise evict rarely used projects | Increment 3 |
 | H18 | `scripts/deploy-azure.sh` builds the image with ACR Tasks, which some subscription types (free trial, student) cannot use. The script then names the Docker commands | When the deployment runs from GitHub Actions (H03) |
 | H17 | `npm audit` reports `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) through `tedious`. Not exploitable here: tedious only passes fixed format strings. No fixed version exists yet | Watch for a tedious release |
+| H20 | The Risiko agent runs only when the PL asks for it. Planned: a weekly review and one after events (rejected gate, accepted change request) as a background agent that stores its proposals and notifies the PL (F15, F33) | With H02 |
 | H19 | The portfolio read model (one summary per project) lives in the API's memory and is rebuilt from the cached events after a restart. Keep the summaries in a SQL table, updated with each append, once H16 evicts events | With H16 |

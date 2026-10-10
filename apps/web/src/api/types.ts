@@ -6,11 +6,14 @@ import type {
   DraftContent,
   Finding,
   GlobalRole,
+  Level,
   PhaseId,
   PortfolioOverview,
   Producer,
   ProjectListItem,
   ProjectRole,
+  RiskStatus,
+  RiskTrigger,
 } from "@hermes-helfer/core";
 
 export type {
@@ -27,6 +30,8 @@ export type {
   PortfolioOverview,
   ProjectListItem,
   ProjectView,
+  RiskRegisterView,
+  RiskView,
   SignalId,
   SkillView,
   TaskView,
@@ -55,6 +60,44 @@ export interface Reference {
     sections: string[];
     recheckOutcomes: string[];
   };
+  risks: { levels: Level[]; statuses: RiskStatus[]; scoreHigh: number; scoreMedium: number };
+}
+
+/** A new risk the Risiko agent proposes (not stored until the PL accepts it). */
+export interface RiskProposal {
+  title: string;
+  description: string;
+  probability: Level;
+  impact: Level;
+  ownerRole: ProjectRole;
+  mitigation: string;
+  reason: string;
+  findings: Finding[];
+}
+
+/** A new assessment of an open risk the Risiko agent proposes. */
+export interface ReassessmentProposal {
+  risk: string;
+  riskId: string;
+  title: string;
+  probability: Level;
+  impact: Level;
+  mitigation: string;
+  reason: string;
+  current: {
+    probability: Level;
+    impact: Level;
+    status: RiskStatus;
+    ownerRole: ProjectRole;
+    mitigation: string;
+  };
+}
+
+export interface RiskReviewResult {
+  newRisks: RiskProposal[];
+  reassessments: ReassessmentProposal[];
+  triggers: RiskTrigger[];
+  producer: Producer;
 }
 
 /** The Change-Request agent's proposal (not stored until submitted). */

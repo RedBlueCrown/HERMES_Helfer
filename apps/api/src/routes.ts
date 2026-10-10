@@ -13,6 +13,10 @@ import {
   PHASE_IDS,
   PROJECT_ROLES,
   PROJECT_ROLE_LABELS,
+  RISK_LEVELS,
+  RISK_SCORE_HIGH,
+  RISK_SCORE_MEDIUM,
+  RISK_STATUSES,
   SIGNAL_IDS,
   canCreateProject,
   canVerifyAudit,
@@ -20,8 +24,10 @@ import {
   describeEvent,
   deliverableDetailView,
   eventCategory,
+  eventRefs,
   portfolioOverview,
   projectView,
+  riskRegister,
   rolesOf,
   seesAllProjects,
   type GlobalRole,
@@ -33,6 +39,7 @@ import { z } from "zod";
 import type { ChangeRequestAgent } from "./agents/change-request-agent";
 import type { Orchestrator } from "./agents/orchestrator";
 import type { ProviderInfo } from "./agents/provider";
+import type { RiskAgent } from "./agents/risk-agent";
 import type { RunService } from "./agents/runner";
 import type { Authenticator, DevUser } from "./auth";
 import { HttpError, notFound, parse } from "./errors";
@@ -54,6 +61,7 @@ export interface RouteDeps {
   runs: RunService;
   orchestrator: Orchestrator;
   changeRequestAgent: ChangeRequestAgent;
+  riskAgent: RiskAgent;
   authenticator: Authenticator;
   provider: ProviderInfo;
   devUsers: readonly DevUser[];
@@ -115,6 +123,13 @@ const CrFlagsBody = z.object({
   extern: z.boolean(),
 });
 const CrTitle = z.string().trim().min(4, "Bitte einen Titel erfassen (mindestens 4 Zeichen).").max(200);
+const RiskValues = {
+  probability: Level,
+  impact: Level,
+  ownerRole: Role,
+  mitigation: z.string().max(1000).default(""),
+  aiAssisted: z.boolean().default(false),
+};
 
 export const MAX_CHAT_CHARS = 2000;
 const ChatBody = z.object({
@@ -194,6 +209,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       flags: CR_FLAGS.map((id) => ({ id, ...CR_FLAG_LABELS[id] })),
       sections: CR_SECTIONS,
       recheckOutcomes: RECHECK_OUTCOMES,
+    },
+    risks: {
+      levels: RISK_LEVELS,
+      statuses: RISK_STATUSES,
+      scoreHigh: RISK_SCORE_HIGH,
+      scoreMedium: RISK_SCORE_MEDIUM,
     },
     involvementOptions: INVOLVEMENT_OPTIONS,
     agents: AGENTS,
@@ -372,7 +393,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       req.query,
     );
     const s = await projects.requireProject(code, ctx(req).viewer);
-    const crNumbers = new Map(Object.values(s.changeRequests).map((c) => [c.id, c.number]));
+    const refs = eventRefs(s);
     const all = (await repo.events(s.projectId)).filter(
       (e) => (!q.before || e.seq < q.before) && (!q.category || eventCategory(e) === q.category),
     );
@@ -383,7 +404,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         at: e.at,
         type: e.type,
         category: eventCategory(e),
-        text: describeEvent(e, model, crNumbers),
+        text: describeEvent(e, model, refs),
         actor: {
           displayName: e.actor.displayName,
           roles: e.actor.roles.map(roleLabel).filter((x): x is string => !!x),
@@ -486,6 +507,68 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const { code } = params(req, z.object({ code: Code }));
     const body = parse(z.object({ amountChf: z.number().int().min(0).max(1_000_000_000) }), req.body);
     return projects.setChangeReserve(code, ctx(req), body.amountChf);
+  });
+
+  // ---------- Risks ----------
+
+  app.get("/api/projects/:code/risks", async (req) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const c = ctx(req);
+    return riskRegister(await projects.requireProject(code, c.viewer), model, c.viewer);
+  });
+
+  // Agent A12 proposes new risks and reassessments; nothing is stored until the PL accepts one.
+  app.post(
+    "/api/projects/:code/risks/review",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (req) => {
+      const { code } = params(req, z.object({ code: Code }));
+      return deps.riskAgent.review(code, ctx(req));
+    },
+  );
+
+  const riskProducer = (aiAssisted: boolean) =>
+    aiAssisted
+      ? ({ kind: "ai", agent: "A12", provider: deps.provider.provider, model: deps.provider.model } as const)
+      : ({ kind: "human" } as const);
+
+  app.post("/api/projects/:code/risks", async (req, reply) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const body = parse(
+      z.object({
+        title: z.string().trim().min(4, "Bitte das Risiko benennen (mindestens 4 Zeichen).").max(200),
+        description: z.string().max(2000).default(""),
+        ...RiskValues,
+      }),
+      req.body,
+    );
+    const result = await projects.recordRisk(code, ctx(req), {
+      title: body.title,
+      description: body.description,
+      probability: body.probability,
+      impact: body.impact,
+      ownerRole: body.ownerRole,
+      mitigation: body.mitigation,
+      producer: riskProducer(body.aiAssisted),
+    });
+    return reply.code(201).send(result);
+  });
+
+  app.post("/api/projects/:code/risks/:riskId/assessment", async (req) => {
+    const { code, riskId } = params(req, z.object({ code: Code, riskId: z.uuid() }));
+    const body = parse(
+      z.object({ ...RiskValues, status: z.enum(RISK_STATUSES), note: z.string().max(2000).default("") }),
+      req.body,
+    );
+    return projects.assessRisk(code, ctx(req), riskId, {
+      probability: body.probability,
+      impact: body.impact,
+      status: body.status,
+      ownerRole: body.ownerRole,
+      mitigation: body.mitigation,
+      note: body.note,
+      producer: riskProducer(body.aiAssisted),
+    });
   });
 
   app.post(

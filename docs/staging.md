@@ -22,6 +22,7 @@ The agents that work in this environment:
 | Kritiker (A11) | Automatically, after every draft | Checks structure and content; its hints appear with the draft |
 | Delivery-Assistent (A1) | «Assistent fragen» | Answers free-text questions about the project from the engine's data and starts drafts on request; never decides |
 | Change-Request (A10) | Change Requests → «Mit dem Agenten ausarbeiten» | Turns a rough wish into a change request and says which areas it touches; the impact is computed, the Projektausschuss decides |
+| Risiko (A12) | Risiken → «Risiken prüfen lassen» (project lead) | Reviews the risk register against the project's state and proposes new risks and new assessments, each with its reason; the project lead accepts what fits |
 
 ## Before you start
 
@@ -68,8 +69,9 @@ Example: `MODEL_CAPACITY=10 REASONING_EFFORT=low scripts/deploy-azure.sh`. To sw
 4. **Let an agent draft.** Lieferergebnisse → «Kick-off-Roundtable» → «Entwurf erstellen». After 10 to 60 seconds the draft appears as «Entwurf (KI)»; the drawer names the model and shows the Kritiker's hints. Edit it if you like, then «Freigeben».
 5. **Ask the assistant.** «Assistent fragen». Its header shows «KI-Modell … (Sweden Central (regional))»: it understands free text, for example «Was fehlt noch bis zum Gate?» or «Starte Projektgrundlagen».
 6. **Change request.** «Change Requests» → «Neuer Change Request». Describe a wish in two sentences, click «Mit dem Agenten ausarbeiten», check the text and the areas, estimate the effort, «Einreichen». Then decide it as Projektausschuss (with Konsent) and, if it touches personal data, confirm the recheck as ISM and Datenschutz. Until then the gate stays closed.
-7. **Portfolio.** «Portfolio» shows your projects with their signals, for example the open change request.
-8. **Invite colleagues.** Entra admin center → Enterprise applications → «HERMES Helfer API (test)» → Users and groups → add people or groups with the role *HH.User* (or *HH.PMO*, *HH.Portfolio*). To give them a role in a project, you need their Entra object ID (Entra admin center → Users → the person → Object ID); a people picker follows later (todo-later E26).
+7. **Risks.** «Risiken» → «Risiken prüfen lassen»: the agent names the facts it looked at and proposes risks. Select the ones that fit, adjust them, «Ausgewählte übernehmen». A high risk gives the responsible role a task; open a risk to assess it again or close it.
+8. **Portfolio.** «Portfolio» shows your projects with their signals, for example the open change request or a high risk.
+9. **Invite colleagues.** Entra admin center → Enterprise applications → «HERMES Helfer API (test)» → Users and groups → add people or groups with the role *HH.User* (or *HH.PMO*, *HH.Portfolio*). To give them a role in a project, you need their Entra object ID (Entra admin center → Users → the person → Object ID); a people picker follows later (todo-later E26).
 
 ## Check that the agents use Azure OpenAI
 
@@ -92,7 +94,7 @@ Example: `MODEL_CAPACITY=10 REASONING_EFFORT=low scripts/deploy-azure.sh`. To sw
 | The script stops: «Not enough quota» | Too little quota for the model | `MODEL_CAPACITY=10`, or request more in the Foundry portal |
 | The deployment fails with *InsufficientQuota* or a note on registration | The model needs approval or more quota | Request it, or pick another model |
 | `az acr build` fails | Some subscription types (free trial, student) cannot use ACR Tasks | The script prints the `docker build` and `docker push` commands; then run it with `SKIP_BUILD=1 TAG=…` |
-| Sign-in shows *AADSTS50105* | Your account has no app role | Assign a role (step 8); the script gives it to the person who runs it |
+| Sign-in shows *AADSTS50105* | Your account has no app role | Assign a role (step 9); the script gives it to the person who runs it |
 | Drafts fail with «Das KI-Modell ist gerade nicht erreichbar» right after the first deployment | The app's permission on the model takes a few minutes to become effective | Wait 10 minutes and try again; the logs show the status code (401/403) |
 | Drafts fail with «… keinen gültigen Entwurf geliefert» | The answer was cut off at the token limit | `REASONING_EFFORT=low`, or raise `AZURE_OPENAI_MAX_COMPLETION_TOKENS` on the container app |
 | The assistant answers «aus den festen Regeln» | The chat model call failed | As above; the logs show «chat model failed» |

@@ -11,6 +11,7 @@ import type { PhaseId, ProjectRole } from "../model/types";
 import { openChangeRequests, openRechecks } from "./change-requests";
 import { conditionDue } from "./conditions";
 import { rolesOf, type Viewer } from "./permissions";
+import { highRisks, openRisks } from "./risks";
 import type { ProjectState } from "./state";
 import {
   gateStatus,
@@ -34,6 +35,7 @@ export const SIGNAL_IDS = [
   "neupruefung",
   "gate-zurueckgewiesen",
   "rollen-fehlen",
+  "risiko-hoch",
   "ohne-aktivitaet",
   "cr-offen",
   "gate-bereit",
@@ -74,6 +76,12 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
     label: "Rollen unbesetzt",
     level: "mittel",
     description: "Eine Rolle, die in der aktuellen Phase entscheidet, hat niemand im Vorhaben.",
+  },
+  "risiko-hoch": {
+    label: "Hohe Risiken",
+    level: "mittel",
+    description:
+      "Mindestens ein offenes Risiko mit hoher Bewertung (Eintritt mal Auswirkung 6 oder mehr, z. B. Eintritt mittel und Auswirkung hoch).",
   },
   "ohne-aktivitaet": {
     label: "Ohne Aktivität",
@@ -124,6 +132,9 @@ export interface ProjectSummary {
   openChangeRequests: number;
   /** Accepted change requests whose recheck (SchuBAn, ISDS, DSFA) is not complete. */
   openRechecks: number;
+  openRisks: number;
+  /** Open risks with a score from RISK_SCORE_HIGH on. */
+  highRisks: number;
   projectLeads: string[];
   finished: boolean;
   createdAt: string;
@@ -166,6 +177,8 @@ export function projectSummary(s: ProjectState, model: HermesModel): ProjectSumm
     gateRejected: current && s.gateDecisions[s.phase]?.at(-1)?.decision === "zurückgewiesen",
     openChangeRequests: openChangeRequests(s).length,
     openRechecks: openRechecks(s).length,
+    openRisks: openRisks(s).length,
+    highRisks: highRisks(s).length,
     projectLeads: Object.values(s.members)
       .filter((m) => m.roles.includes("PL"))
       .map((m) => m.displayName),
@@ -196,6 +209,7 @@ export function projectSignals(p: ProjectSummary, now: Date): SignalId[] {
     neupruefung: !p.finished && p.openRechecks > 0,
     "gate-zurueckgewiesen": !p.finished && p.gateRejected,
     "rollen-fehlen": !p.finished && p.missingRoles.length > 0,
+    "risiko-hoch": !p.finished && p.highRisks > 0,
     "ohne-aktivitaet": !p.finished && inactiveDays(p, now) >= INACTIVE_AFTER_DAYS,
     "cr-offen": !p.finished && p.openChangeRequests > 0,
     "gate-bereit": !p.finished && p.gateStatus === "ready",

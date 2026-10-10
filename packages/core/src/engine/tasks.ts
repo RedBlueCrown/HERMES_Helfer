@@ -12,6 +12,7 @@ import {
   rolesOf,
   type Viewer,
 } from "./permissions";
+import { highRisks } from "./risks";
 import type { ProjectState } from "./state";
 import {
   deliverableStatus,
@@ -33,7 +34,8 @@ export type MyTask =
   | { kind: "involve"; phase: PhaseId; participantId: string }
   | { kind: "assign-role"; role: ProjectRole }
   | { kind: "decide-cr"; crId: string }
-  | { kind: "recheck"; crId: string; role: RecheckRole };
+  | { kind: "recheck"; crId: string; role: RecheckRole }
+  | { kind: "risk"; riskId: string };
 
 export function myTasks(s: ProjectState, model: HermesModel, v: Viewer): MyTask[] {
   const out: MyTask[] = [];
@@ -71,6 +73,13 @@ export function myTasks(s: ProjectState, model: HermesModel, v: Viewer): MyTask[
 
   for (const c of Object.values(s.conditions)) {
     if (!c.doneAt && roles.includes(c.ownerRole)) out.push({ kind: "condition", conditionId: c.id });
+  }
+
+  // High risks nobody works on yet: the responsible role defines and starts the measure.
+  if (!isFinished(s, model)) {
+    for (const r of highRisks(s)) {
+      if (r.status === "offen" && roles.includes(r.ownerRole)) out.push({ kind: "risk", riskId: r.id });
+    }
   }
 
   if (current) {

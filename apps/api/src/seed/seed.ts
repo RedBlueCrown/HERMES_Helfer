@@ -8,7 +8,9 @@ import {
   DUE_OPTIONS,
   MODEL_VERSION,
   NO_FLAGS,
+  RISK_LEVELS,
   nextCrNumber,
+  nextRiskNumber,
   gateStatus,
   openParticipation,
   rolesOf,
@@ -16,10 +18,12 @@ import {
   type ConditionSpec,
   type CrFlags,
   type Decision,
+  type Level,
   type PhaseId,
   type ProjectEvent,
   type ProjectProfile,
   type ProjectRole,
+  type RiskValues,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
 import { checkChangeRequest, checkDraftStructure, mergeFindings } from "../agents/kritiker";
@@ -291,6 +295,70 @@ class Seeder {
     );
   }
 
+  /** A risk; `ai`: proposed by the Risiko agent (offline variant) and accepted by the PL. */
+  async risk(
+    projectId: string,
+    by: Person,
+    r: {
+      title: string;
+      description?: string;
+      probability: Level;
+      impact: Level;
+      ownerRole: ProjectRole;
+      mitigation?: string;
+      ai?: boolean;
+    },
+  ): Promise<string> {
+    const s = (await this.repo.get(projectId))!;
+    const riskId = randomUUID();
+    await this.append(
+      projectId,
+      [
+        {
+          type: "RiskRecorded",
+          data: {
+            riskId,
+            number: nextRiskNumber(s),
+            title: r.title,
+            description: r.description ?? "",
+            probability: r.probability,
+            impact: r.impact,
+            ownerRole: r.ownerRole,
+            mitigation: r.mitigation ?? "",
+            producer: r.ai
+              ? { kind: "ai", agent: "A12", provider: "mock", model: "mock (ohne KI-Modell)" }
+              : { kind: "human" },
+          },
+        },
+      ],
+      await this.actor(projectId, by),
+    );
+    return riskId;
+  }
+
+  async assessRisk(projectId: string, riskId: string, by: Person, change: Partial<RiskValues>, note: string) {
+    const r = (await this.repo.get(projectId))!.risks[riskId]!;
+    await this.append(
+      projectId,
+      [
+        {
+          type: "RiskAssessed",
+          data: {
+            riskId,
+            probability: change.probability ?? r.probability,
+            impact: change.impact ?? r.impact,
+            status: change.status ?? r.status,
+            ownerRole: change.ownerRole ?? r.ownerRole,
+            mitigation: change.mitigation ?? r.mitigation,
+            note,
+            producer: { kind: "human" },
+          },
+        },
+      ],
+      await this.actor(projectId, by),
+    );
+  }
+
   async completeCondition(projectId: string, conditionId: string, by: Person, note = "") {
     const text = (await this.repo.get(projectId))!.conditions[conditionId]?.text ?? "";
     await this.append(
@@ -405,6 +473,14 @@ export async function seedDemo(repo: ProjectRepository, now = new Date()): Promi
   await seed.run(crm, "konzept.architekt", david);
   await seed.run(crm, "konzept.security-engineering", marco);
   await seed.run(crm, "konzept.isds", marco);
+  await seed.risk(crm, anna, {
+    title: "Datenmigration aus dem Alt-CRM unvollständig",
+    description: "Kundenhistorie und Notizen liegen im Alt-CRM in uneinheitlichen Formaten vor.",
+    probability: "mittel",
+    impact: "mittel",
+    ownerRole: "APM",
+    mitigation: "Probemigration mit einem Teilbestand durchführen und die Abweichungen bereinigen.",
+  });
 
   // 3. Realisierung with a partly confirmed readiness check.
   const erp = await seed.project(
@@ -452,6 +528,42 @@ export async function seedDemo(repo: ProjectRepository, now = new Date()): Promi
       "Die externe Revision möchte die offenen Posten mit Kreditorennamen und Adressen als CSV-Export erhalten.",
     ai: true,
   });
+  // Risks: one proposed by the Risiko agent and in work, a high one without a measure
+  // (a task for the Fachvertretung), one in work and one closed.
+  const vendor = await seed.risk(erp, jonas, {
+    title: "Lieferverzug beim Release-Upgrade des Herstellers",
+    description: "Das Upgrade hängt vom Liefertermin des Herstellers für Release 2.4 ab.",
+    probability: "mittel",
+    impact: "hoch",
+    ownerRole: "PL",
+    mitigation:
+      "Liefertermin im Wartungsvertrag festhalten und einen Eskalationskontakt beim Hersteller bestimmen.",
+    ai: true,
+  });
+  await seed.assessRisk(erp, vendor, jonas, { status: "in Bearbeitung" }, "Eskalationskontakt bestimmt.");
+  await seed.risk(erp, nina, {
+    title: "Engpass bei Fachtestern im Monatsabschluss",
+    description: "Die Abnahmetests fallen in den Monatsabschluss der Finanzbuchhaltung.",
+    probability: "hoch",
+    impact: "mittel",
+    ownerRole: "FACH",
+  });
+  const legacy = await seed.risk(erp, laura, {
+    title: "Formatfehler im Altdatenbestand",
+    probability: "mittel",
+    impact: "mittel",
+    ownerRole: "APM",
+    mitigation: "Bereinigung durch die Fachstelle vor der Migration.",
+  });
+  await seed.assessRisk(erp, legacy, laura, { status: "in Bearbeitung" }, "Bereinigung läuft.");
+  const licence = await seed.risk(erp, jonas, {
+    title: "Lizenzkosten höher als budgetiert",
+    probability: "niedrig",
+    impact: "mittel",
+    ownerRole: "PL",
+    mitigation: "Rahmenvertrag nachverhandeln.",
+  });
+  await seed.assessRisk(erp, licence, jonas, { status: "geschlossen" }, "Rahmenvertrag nachverhandelt.");
 
   // 4. Einführung: go-live check waiting for criteria and the veto roles.
   const dap = await seed.project(
@@ -555,6 +667,14 @@ const CONDITION_TEXTS = [
   "Betriebsübergabe mit dem Applikationsmanagement terminieren",
 ];
 const PL_ROLES: ProjectRole[] = ["PL", "BC", "FACH", "TEST", "ARCH", "APM", "INFRA"];
+const RISK_TEXTS: [string, ProjectRole, string][] = [
+  ["Verzögerung beim Lieferanten", "PL", "Liefertermine vertraglich festhalten."],
+  ["Engpass bei Fachpersonen für die Tests", "FACH", "Testfenster früh reservieren."],
+  ["Unklare Anforderungen der Fachstelle", "BC", "Anforderungsworkshop durchführen."],
+  ["Ungenügende Datenqualität im Altsystem", "APM", "Bereinigung vor der Migration planen."],
+  ["Verzögerte Schnittstelle zum Umsystem", "ARCH", "Schnittstelle früh spezifizieren und testen."],
+  ["Offene Budgetfreigabe für das Folgejahr", "PA", "Antrag früh im Budgetprozess stellen."],
+];
 const DAY_MS = 24 * 3600_000;
 
 /**
@@ -567,6 +687,9 @@ export async function seedSynthetic(repo: ProjectRepository, count: number, now 
   const rnd = prng(42);
   const pick = <T>(list: readonly T[]) => list[Math.floor(rnd() * list.length)]!;
   const chance = (p: number) => rnd() < p;
+  // Risks draw from their own sequence, so the other synthetic data stays as it was.
+  const riskRnd = prng(7);
+  const level = () => RISK_LEVELS[Math.floor(riskRnd() * RISK_LEVELS.length)]!;
   const model = repo.model;
   const seed = new Seeder(repo, now);
   seed.step = 1;
@@ -680,6 +803,19 @@ export async function seedSynthetic(repo: ProjectRepository, count: number, now 
           "Variantenvergleich unvollständig (synthetisch).",
           pa,
         );
+      }
+    }
+    // About half of the projects have risks, some of them high.
+    if (riskRnd() < 0.5) {
+      const n = 1 + Math.floor(riskRnd() * 3);
+      for (const [title, ownerRole, mitigation] of RISK_TEXTS.slice(0, n)) {
+        await seed.risk(projectId, pl, {
+          title,
+          probability: level(),
+          impact: level(),
+          ownerRole,
+          mitigation: riskRnd() < 0.7 ? mitigation : "",
+        });
       }
     }
     // Some projects wait for an ISDS or go-live veto.

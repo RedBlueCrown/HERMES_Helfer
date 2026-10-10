@@ -2,7 +2,7 @@
 
 Leads projects of Firma Muster AG through the HERMES project management method. AI agents draft deliverables and check their quality. People release results and make every decision, and the app records each step in a tamper-evident project record (Projektakte).
 
-Status: **Increment 1** (local vertical slice) is done. **Increment 2** (Azure pilot) is built and tested in CI: event store on Azure SQL with a ledger table, container image, telemetry, Bicep templates and Entra ID registrations. The first deployment to Azure is open ([deployment steps](docs/deployment.md), [roadmap](docs/target-architecture.md#10-increments)). Built ahead of their increments: the portfolio view ([description](docs/target-architecture.md#71-portfolio-view-first-version)) and Change Requests with their agent ([description](docs/target-architecture.md#55-change-requests-first-feature-of-increment-4)).
+Status: **Increment 1** (local vertical slice) is done. **Increment 2** (Azure pilot) is built and tested in CI: event store on Azure SQL with a ledger table, container image, telemetry, Bicep templates and Entra ID registrations. The first deployment to Azure is open ([deployment steps](docs/deployment.md), [roadmap](docs/target-architecture.md#10-increments)). Built ahead of their increments: the portfolio view ([description](docs/target-architecture.md#71-portfolio-view-first-version)), Change Requests with their agent ([description](docs/target-architecture.md#55-change-requests-first-feature-of-increment-4)) and the risk register with the Risiko agent ([description](docs/target-architecture.md#56-risks-second-feature-of-increment-4)).
 
 ## Try it locally
 
@@ -44,6 +44,7 @@ Then start the API with `STORE=sql SQL_SERVER=localhost SQL_DATABASE=hermes SQL_
 6. Follow every step in **Verlauf**, and check the hash chain with «Integrität prüfen».
 7. Open **Portfolio** as Peter Graf or Rita Vogel: see where projects need attention (open vetoes, overdue Auflagen, gates ready for a decision …), filter by phase and gate, and jump into a project.
 8. Open **Change Requests** in a project (for example ERP as Nina Huber): describe a wish, let the agent work it out, see the impact in eight areas; decide it as Thomas Meier (Projektausschuss), recheck it as Marco Bianchi (ISM) and Sandra Roth (Datenschutz).
+9. Open **Risiken** in a project: record a risk and see it in the matrix, or, as project lead (Anna Keller in the Kundenportal), let the Risiko agent review the project and accept the proposals that fit. The responsible role (for example Nina Huber in ERP) gets a task for a high risk.
 
 ## Repository layout
 

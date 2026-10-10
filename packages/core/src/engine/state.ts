@@ -4,7 +4,8 @@
 
 import type { HermesModel } from "../model";
 import type { CrFlags, RecheckOutcome, RecheckRole } from "../model/change-requests";
-import type { PhaseId, ProjectProfile, ProjectRole } from "../model/types";
+import type { RiskStatus } from "../model/risks";
+import type { Level, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
 import type { Actor, ConditionSpec, Decision, DraftContent, Finding, Producer, StoredEvent } from "./events";
 
 export interface ActorRef {
@@ -95,6 +96,37 @@ export interface ChangeRequestState {
   recheck?: Partial<Record<RecheckRole, { outcome: RecheckOutcome; note: string; at: string; by: ActorRef }>>;
 }
 
+/** The values of a risk at one point in time. */
+export interface RiskValues {
+  probability: Level;
+  impact: Level;
+  status: RiskStatus;
+  ownerRole: ProjectRole;
+  mitigation: string;
+}
+
+export interface RiskAssessmentRecord extends RiskValues {
+  note: string;
+  producer: Producer;
+  at: string;
+  by: ActorRef;
+}
+
+export interface RiskState extends RiskValues {
+  id: string;
+  number: number;
+  title: string;
+  description: string;
+  /** Who proposed it: a person, or the Risiko agent (accepted by a person). */
+  producer: Producer;
+  /** Phase in which the risk was recorded. */
+  phase: PhaseId;
+  recordedAt: string;
+  recordedBy: ActorRef;
+  /** Values at recording, then one entry per assessment; the last one is current. */
+  history: RiskAssessmentRecord[];
+}
+
 export interface GateDecisionRecord {
   decision: Decision;
   reason: string;
@@ -133,6 +165,7 @@ export interface ProjectState {
   changeRequests: Record<string, ChangeRequestState>;
   /** Reserve for changes from the project order, in CHF; undefined until the PL records it. */
   changeReserveChf?: number;
+  risks: Record<string, RiskState>;
 }
 
 export const participationKey = (phase: PhaseId, participantId: string) => `${phase}:${participantId}`;
@@ -363,6 +396,42 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
     case "ChangeReserveSet":
       s.changeReserveChf = e.data.amountChf;
       return;
+    case "RiskRecorded": {
+      const values: RiskValues = {
+        probability: e.data.probability,
+        impact: e.data.impact,
+        status: "offen",
+        ownerRole: e.data.ownerRole,
+        mitigation: e.data.mitigation,
+      };
+      s.risks[e.data.riskId] = {
+        id: e.data.riskId,
+        number: e.data.number,
+        title: e.data.title,
+        description: e.data.description,
+        producer: e.data.producer,
+        phase: s.phase,
+        recordedAt: e.at,
+        recordedBy: ref(e.actor),
+        ...values,
+        history: [{ ...values, note: "", producer: e.data.producer, at: e.at, by: ref(e.actor) }],
+      };
+      return;
+    }
+    case "RiskAssessed": {
+      const r = s.risks[e.data.riskId];
+      if (!r) return;
+      const values: RiskValues = {
+        probability: e.data.probability,
+        impact: e.data.impact,
+        status: e.data.status,
+        ownerRole: e.data.ownerRole,
+        mitigation: e.data.mitigation,
+      };
+      Object.assign(r, values);
+      r.history.push({ ...values, note: e.data.note, producer: e.data.producer, at: e.at, by: ref(e.actor) });
+      return;
+    }
     default: {
       const unknown: never = e;
       throw new Error(`Unknown event type ${(unknown as StoredEvent).type}`);
@@ -398,6 +467,7 @@ export function foldEvents(events: readonly StoredEvent[], model: HermesModel): 
     passed: [],
     conditions: {},
     changeRequests: {},
+    risks: {},
   };
   for (let i = 1; i < events.length; i++) {
     const e = events[i]!;

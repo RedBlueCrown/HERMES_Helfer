@@ -13,7 +13,8 @@ Stand: 10. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-arc
 - **Protokollierung:** F21 bis F24
 - **Betrieb der Pilotumgebung:** F25 bis F28
 - **Portfolio:** F29 und F30
-- **Change Requests:** F31 und F32 (neu)
+- **Change Requests:** F31 und F32
+- **Risiken:** F33 und F34 (neu)
 
 ---
 
@@ -382,6 +383,7 @@ Heute gelten diese Signale:
 | Neuprüfung offen | Ein angenommener Change Request betrifft Personendaten; SchuBAn, ISDS und DSFA werden neu geprüft, das Gate bleibt bis dahin zu. | mittel |
 | Gate zurückgewiesen | Der letzte Gate-Entscheid der aktuellen Phase lautet «zurückgewiesen». | mittel |
 | Rollen unbesetzt | Eine Rolle, die in der aktuellen Phase entscheidet, hat im Vorhaben niemand. | mittel |
+| Hohe Risiken | Mindestens ein offenes Risiko mit Eintritt mal Auswirkung 6 oder mehr (siehe F33). | mittel |
 | Ohne Aktivität | Seit 30 Tagen kein neuer Eintrag in der Projektakte. | mittel |
 | Change Request offen | Ein Change Request wartet auf den Entscheid des Projektausschusses. | Hinweis |
 | Gate-Entscheid fällig | Alle Kriterien sind erfüllt, das Gate wartet auf den Entscheid. | Hinweis |
@@ -437,5 +439,33 @@ Change Requests sind gebaut, wie im Prototyp: Ein Mitglied des Vorhabens beschre
 3. Die Neuprüfung nach einer Änderung an Personendaten bestätigen ISM und Datenschutz je einzeln. Reicht das, oder braucht es dafür einen eigenen Entscheid mit Begründung?
 
 **Meine Empfehlung:** 1. alle Mitglieder; 2. ab Überschreiten der Reserve zusätzlich das Portfolio-Gremium; 3. so lassen.
+
+**Antwort:**
+
+---
+
+## Teil H: Risiken
+
+Das Risikoregister ist gebaut, wie im Prototyp: Jedes Mitglied des Vorhabens erfasst Risiken mit Eintritt und Auswirkung (je niedrig, mittel oder hoch), einer verantwortlichen Rolle und einer Massnahme. Die Projektleitung lässt den Risiko-Agenten das Register prüfen; er schlägt anhand des Projektstands neue Risiken und neue Beurteilungen vor, und die Projektleitung entscheidet, was sie übernimmt. Beschreibung in [`target-architecture.md`](target-architecture.md), Abschnitt 5.6.
+
+### F33 · Bewertung von Risiken
+
+1. Die App bewertet ein Risiko mit **Eintritt mal Auswirkung** auf einer Skala von 1 bis 3 (Werte aus dem Prototyp). Ab **6** gilt ein Risiko als hoch, ab **3** als mittel. Verwendet ihr eine andere Skala, zum Beispiel 1 bis 5 oder Beträge in CHF?
+2. Bei einem hohen Risiko erhält die verantwortliche Rolle eine Aufgabe, bis jemand die Massnahme in Bearbeitung nimmt. Hohe Risiken erscheinen im Portfolio (F29) und beim Gate-Entscheid als Hinweis, blockieren das Gate aber nicht. Passt das?
+3. Wie oft soll das Register geprüft werden? Heute prüft der Risiko-Agent nur, wenn die Projektleitung ihn anstösst. Möglich wäre eine wöchentliche Prüfung mit einer Meldung an die Projektleitung (siehe F15).
+
+**Meine Empfehlung:** 1. die Skala aus dem Prototyp für den Pilot; 2. so lassen; 3. wöchentlich, sobald die Benachrichtigungen gebaut sind.
+
+**Antwort:**
+
+---
+
+### F34 · Wer sieht und bearbeitet Risiken?
+
+1. Heute sehen alle Mitglieder eines Vorhabens sowie PMO und Portfolio-Gremium das ganze Register. Gibt es Risiken, die nur ein Teil sehen darf, zum Beispiel zu Personen, Lieferantenverträgen oder Sicherheitslücken?
+2. Heute erfasst jedes Mitglied Risiken; beurteilen und schliessen dürfen die Projektleitung und die verantwortliche Rolle. Soll das so bleiben?
+3. Die Texte des Registers gehen als Hintergrund an das KI-Modell, wenn ein Agent einen Entwurf schreibt (zum Beispiel den Abschnitt «Risiken» der Projektgrundlagen). Einverstanden?
+
+**Meine Empfehlung:** 1. alle Mitglieder; heikle Sicherheitsrisiken gehören ins ISDS-Konzept, das nur berechtigte Rollen sehen. 2. so lassen. 3. ja.
 
 **Antwort:**

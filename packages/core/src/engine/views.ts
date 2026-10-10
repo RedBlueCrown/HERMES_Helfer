@@ -10,12 +10,14 @@ import {
   type RecheckOutcome,
   type RecheckRole,
 } from "../model/change-requests";
+import { RISK_SCORE_HIGH, RISK_SCORE_MEDIUM, type RiskStatus } from "../model/risks";
 import { PROJECT_ROLE_LABELS } from "../model/roles";
 import type {
   AgentId,
   ApproverDef,
   ChecklistDef,
   DeliverableDef,
+  Level,
   Origin,
   PhaseId,
   ProjectProfile,
@@ -54,7 +56,10 @@ import {
   checkMarkNotApplicable,
   checkReactivate,
   checkRecordParticipation,
+  checkAssessRisk,
+  checkRecordRisk,
   checkRelease,
+  checkReviewRisks,
   checkSetChangeReserve,
   checkStartSkill,
   checkSubmitChangeRequest,
@@ -74,7 +79,21 @@ import {
   type ChangeRequestStatus,
   type ConditionState,
   type ProjectState,
+  type RiskState,
 } from "./state";
+import {
+  compareRisks,
+  highRisks,
+  isOpenRisk,
+  openRisks,
+  riskLabel,
+  riskMatrix,
+  riskReviewedAt,
+  riskScore,
+  riskTrend,
+  scoreLevel,
+  type RiskTrend,
+} from "./risks";
 import {
   checklistAvailable,
   contentVersion,
@@ -253,6 +272,7 @@ export interface TaskView {
   phase?: PhaseId;
   participantId?: string;
   crId?: string;
+  riskId?: string;
 }
 
 export interface NextStepView {
@@ -294,6 +314,8 @@ export interface ProjectView {
   myTasks: TaskView[];
   /** For the tab of the register; the requests themselves: changeRequestRegister. */
   changeRequests: { total: number; open: number; openRechecks: number };
+  /** For the tab of the risk register; the risks themselves: riskRegister. */
+  risks: { total: number; open: number; high: number };
   can: { manageMembers: boolean; verifyAudit: boolean };
 }
 
@@ -340,6 +362,62 @@ export interface ChangeRequestRegisterView {
   canSubmit: Check;
   /** Newest first. */
   items: ChangeRequestView[];
+}
+
+export interface RiskHistoryView {
+  probability: Level;
+  impact: Level;
+  score: number;
+  status: RiskStatus;
+  ownerRole: ProjectRole;
+  ownerLabel: string;
+  mitigation: string;
+  note: string;
+  producer: Producer;
+  at: string;
+  by: ActorRef;
+}
+
+export interface RiskView {
+  id: string;
+  number: number;
+  /** R-01 … */
+  label: string;
+  title: string;
+  description: string;
+  probability: Level;
+  impact: Level;
+  /** Probability × impact, 1 to 9. */
+  score: number;
+  level: Level;
+  status: RiskStatus;
+  open: boolean;
+  ownerRole: ProjectRole;
+  ownerLabel: string;
+  mitigation: string;
+  /** Change with the last assessment; absent before the first one. */
+  trend?: RiskTrend;
+  producer: Producer;
+  phase: PhaseId;
+  phaseLabel: string;
+  recordedAt: string;
+  recordedBy: ActorRef;
+  reviewedAt: string;
+  /** Oldest first; the first entry is the recording. */
+  history: RiskHistoryView[];
+  canAssess: Check;
+}
+
+export interface RiskRegisterView {
+  scoreHigh: number;
+  scoreMedium: number;
+  canRecord: Check;
+  canReview: Check;
+  /** Open risks per cell: matrix[probability][impact], both in the order niedrig, mittel, hoch. */
+  matrix: number[][];
+  counts: { open: number; high: number; closed: number };
+  /** Open risks (most serious first), then closed ones (last closed first). */
+  items: RiskView[];
 }
 
 export interface ChecklistItemView {
@@ -685,6 +763,18 @@ function taskView(s: ProjectState, model: HermesModel, t: MyTask, now: Date): Ta
         role: t.role,
       };
     }
+    case "risk": {
+      const r = s.risks[t.riskId]!;
+      return {
+        kind: t.kind,
+        title: `Hohes Risiko ${riskLabel(r.number)}: ${r.title}`,
+        detail: r.mitigation
+          ? `Massnahme umsetzen und das Risiko auf «in Bearbeitung» setzen: ${r.mitigation}`
+          : "Eine Massnahme festlegen und das Risiko auf «in Bearbeitung» setzen.",
+        riskId: r.id,
+        role: r.ownerRole,
+      };
+    }
   }
 }
 
@@ -838,6 +928,11 @@ export function projectView(
       open: openChangeRequests(s).length,
       openRechecks: openRechecks(s).length,
     },
+    risks: {
+      total: Object.keys(s.risks).length,
+      open: openRisks(s).length,
+      high: highRisks(s).length,
+    },
     can: { manageMembers: checkManageMembers(s, v).ok, verifyAudit: canVerifyAudit(s, v) },
   };
 }
@@ -919,6 +1014,64 @@ export function changeRequestRegister(
     items: Object.values(s.changeRequests)
       .sort((a, b) => b.number - a.number)
       .map((c) => changeRequestView(s, model, v, c, now)),
+  };
+}
+
+export function riskView(s: ProjectState, model: HermesModel, v: Viewer, r: RiskState): RiskView {
+  const score = riskScore(r.probability, r.impact);
+  const trend = riskTrend(r);
+  return {
+    id: r.id,
+    number: r.number,
+    label: riskLabel(r.number),
+    title: r.title,
+    description: r.description,
+    probability: r.probability,
+    impact: r.impact,
+    score,
+    level: scoreLevel(score),
+    status: r.status,
+    open: isOpenRisk(r),
+    ownerRole: r.ownerRole,
+    ownerLabel: roleLabel(r.ownerRole),
+    mitigation: r.mitigation,
+    ...(trend ? { trend } : {}),
+    producer: r.producer,
+    phase: r.phase,
+    phaseLabel: model.phase(r.phase).label,
+    recordedAt: r.recordedAt,
+    recordedBy: r.recordedBy,
+    reviewedAt: riskReviewedAt(r),
+    history: r.history.map((h) => ({
+      probability: h.probability,
+      impact: h.impact,
+      score: riskScore(h.probability, h.impact),
+      status: h.status,
+      ownerRole: h.ownerRole,
+      ownerLabel: roleLabel(h.ownerRole),
+      mitigation: h.mitigation,
+      note: h.note,
+      producer: h.producer,
+      at: h.at,
+      by: h.by,
+    })),
+    canAssess: checkAssessRisk(s, model, v, r.id),
+  };
+}
+
+export function riskRegister(s: ProjectState, model: HermesModel, v: Viewer): RiskRegisterView {
+  const all = Object.values(s.risks);
+  const closed = all
+    .filter((r) => !isOpenRisk(r))
+    .sort((a, b) => riskReviewedAt(b).localeCompare(riskReviewedAt(a)) || compareRisks(a, b));
+  return {
+    scoreHigh: RISK_SCORE_HIGH,
+    scoreMedium: RISK_SCORE_MEDIUM,
+    canRecord: checkRecordRisk(s, model, v),
+    canReview: checkReviewRisks(s, model, v),
+    matrix: riskMatrix(s),
+    counts: { open: all.length - closed.length, high: highRisks(s).length, closed: closed.length },
+    items: [...openRisks(s), ...closed].map((r) => riskView(s, model, v, r)),
   };
 }
 

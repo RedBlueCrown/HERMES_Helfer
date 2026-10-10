@@ -12,6 +12,7 @@ import {
   checkWithdrawChangeRequest,
   describeEvent,
   eventCategory,
+  eventRefs,
   gateCriteria,
   gateStatus,
   impactContext,
@@ -321,13 +322,11 @@ describe("change requests in views, the record and the portfolio", () => {
     const st = team("konzept");
     submit(st, "cr-1", {}, 4);
     decide(st, "cr-1");
-    const numbersById = new Map([["cr-1", st.state().changeRequests["cr-1"]!.number]]);
+    const refs = eventRefs(st.state());
     const [submitted, decided] = st.events.slice(-2);
     expect(eventCategory(submitted!)).toBe("aenderung");
-    expect(describeEvent(submitted!, MODEL, numbersById)).toBe(
-      "CR-01 «Änderung cr-1» erfasst (4 Personentage).",
-    );
-    expect(describeEvent(decided!, MODEL, numbersById)).toBe(
+    expect(describeEvent(submitted!, MODEL, refs)).toBe("CR-01 «Änderung cr-1» erfasst (4 Personentage).");
+    expect(describeEvent(decided!, MODEL, refs)).toBe(
       "CR-01 freigegeben durch den Projektausschuss (Konsent festgestellt): Im Rahmen der Reserve.",
     );
   });

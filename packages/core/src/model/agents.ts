@@ -72,8 +72,9 @@ export const AGENTS: readonly AgentDef[] = [
   {
     id: "A12",
     name: "Risiko",
-    description: "Schlägt neue oder geänderte Risiken vor.",
-    active: false,
+    description:
+      "Prüft das Risikoregister anhand des Projektstands und schlägt neue Risiken und neue Beurteilungen vor. Übernehmen entscheidet die Projektleitung.",
+    active: true,
   },
   {
     id: "A13",

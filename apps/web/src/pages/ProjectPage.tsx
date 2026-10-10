@@ -22,10 +22,11 @@ import { ChatPanel } from "../components/ChatPanel";
 import { DeliverableDrawer } from "../components/DeliverableDrawer";
 import { ParticipationTab } from "../components/ParticipationTab";
 import { DeliverableList, GatePanel, PhaseTimeline } from "../components/PhaseOverview";
+import { NewRiskDrawer, RiskDrawer, RiskReviewDrawer, RisksTab } from "../components/Risks";
 import { ConditionsCard, MyTasksCard, NextStepCard, type Navigate } from "../components/SidePanels";
 import { ErrorView } from "../components/ui";
 
-type TabId = "ergebnisse" | "beteiligung" | "aenderungen" | "verlauf";
+type TabId = "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "verlauf";
 
 const useStyles = makeStyles({
   page: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL },
@@ -73,6 +74,9 @@ export function ProjectPage() {
   const [chatOpen, setChatOpen] = useState(false);
   const [changeRequest, setChangeRequest] = useState<string | null>(null);
   const [newChangeRequest, setNewChangeRequest] = useState(false);
+  const [risk, setRisk] = useState<string | null>(null);
+  const [newRisk, setNewRisk] = useState(false);
+  const [riskReview, setRiskReview] = useState(false);
 
   if (project.isPending) return <Spinner label="Vorhaben wird geladen …" />;
   if (project.isError) return <ErrorView error={project.error} onRetry={() => void project.refetch()} />;
@@ -93,6 +97,10 @@ export function ProjectPage() {
     openChangeRequest: (id) => {
       setTab("aenderungen");
       setChangeRequest(id);
+    },
+    openRisk: (id) => {
+      setTab("risiken");
+      setRisk(id);
     },
   };
   const crPending = v.changeRequests.open + v.changeRequests.openRechecks;
@@ -151,6 +159,20 @@ export function ProjectPage() {
             </Badge>
           ) : null}
         </Tab>
+        <Tab value="risiken">
+          Risiken
+          {v.risks.high ? (
+            <Badge
+              appearance="filled"
+              color="danger"
+              size="small"
+              aria-label={`${v.risks.high} hoch`}
+              className={s.tabBadge}
+            >
+              {v.risks.high}
+            </Badge>
+          ) : null}
+        </Tab>
         <Tab value="verlauf">Verlauf</Tab>
       </TabList>
 
@@ -169,6 +191,8 @@ export function ProjectPage() {
               <GatePanel
                 code={code}
                 phase={selected}
+                highRisks={selected.current ? v.risks.high : 0}
+                onShowRisks={() => setTab("risiken")}
                 open={gateOpen && selected.current}
                 onOpenChange={setGateOpen}
               />
@@ -181,6 +205,14 @@ export function ProjectPage() {
               code={code}
               onOpen={(id) => setChangeRequest(id)}
               onNew={() => setNewChangeRequest(true)}
+            />
+          ) : null}
+          {tab === "risiken" ? (
+            <RisksTab
+              code={code}
+              onOpen={(id) => setRisk(id)}
+              onNew={() => setNewRisk(true)}
+              onReview={() => setRiskReview(true)}
             />
           ) : null}
           {tab === "verlauf" ? <ActivityTab code={code} view={v} /> : null}
@@ -200,6 +232,9 @@ export function ProjectPage() {
         open={newChangeRequest}
         onClose={() => setNewChangeRequest(false)}
       />
+      <RiskDrawer code={code} riskId={risk} onClose={() => setRisk(null)} />
+      <NewRiskDrawer code={code} open={newRisk} onClose={() => setNewRisk(false)} />
+      <RiskReviewDrawer code={code} open={riskReview} onClose={() => setRiskReview(false)} />
       <ChatPanel
         // A new project starts a new conversation.
         key={code}

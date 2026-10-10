@@ -8,6 +8,8 @@ import {
   DialogContent,
   DialogSurface,
   DialogTitle,
+  MessageBar,
+  MessageBarBody,
   Subtitle1,
   Subtitle2,
   Text,
@@ -35,6 +37,7 @@ import {
 } from "./ui";
 
 const useStyles = makeStyles({
+  inlineLink: { padding: 0, minWidth: 0, height: "auto", color: tokens.colorBrandForegroundLink },
   timeline: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
@@ -145,11 +148,16 @@ export function PhaseTimeline({
 export function GatePanel({
   code,
   phase,
+  highRisks = 0,
+  onShowRisks,
   open,
   onOpenChange,
 }: {
   code: string;
   phase: PhaseView;
+  /** Open high risks of the project; the decider should know them (no gate criterion). */
+  highRisks?: number;
+  onShowRisks?(): void;
   open: boolean;
   onOpenChange(open: boolean): void;
 }) {
@@ -197,6 +205,18 @@ export function GatePanel({
           ))}
         </ul>
       ) : null}
+      {highRisks ? (
+        <Caption1 block>
+          <Warning16Filled color={tokens.colorPaletteDarkOrangeForeground1} />{" "}
+          {highRisks === 1 ? "1 hohes Risiko ist" : `${highRisks} hohe Risiken sind`} offen; kein Kriterium,
+          aber für den Entscheid wichtig.{" "}
+          {onShowRisks ? (
+            <Button appearance="transparent" size="small" className={s.inlineLink} onClick={onShowRisks}>
+              Zu den Risiken
+            </Button>
+          ) : null}
+        </Caption1>
+      ) : null}
       {g.decisions.map((d, i) => (
         <Caption1 key={i} block>
           <Info16Regular />{" "}
@@ -221,6 +241,14 @@ export function GatePanel({
                   ? "Für den Entscheid des Projektausschusses muss der Konsent festgestellt sein."
                   : ""}
               </Body1>
+              {highRisks ? (
+                <MessageBar intent="warning">
+                  <MessageBarBody>
+                    {highRisks === 1 ? "1 hohes Risiko ist" : `${highRisks} hohe Risiken sind`} offen. Prüfe
+                    sie vor dem Entscheid und halte nötige Massnahmen als Auflagen fest.
+                  </MessageBarBody>
+                </MessageBar>
+              ) : null}
               <DecisionForm
                 gateKonsent={g.requiresKonsent}
                 rejectLabel="Nicht freigeben"
