@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test of the container image (used in CI): it serves the web app and
 # the API, runs as a non-root user, refuses unsafe production settings, and
-# ships the migration job but no web source maps.
+# ships the migration job but no package manager, shell or web source maps.
 #
 #   scripts/image-smoke.sh <image>
 set -euo pipefail
@@ -30,6 +30,10 @@ if docker run --rm "$IMAGE" dist/migrate.js >/tmp/hh-migrate.log 2>&1; then
   echo "expected the migration job to ask for its settings"; exit 1
 fi
 grep -q "SQL_SERVER" /tmp/hh-migrate.log
+
+echo "--- no package manager"
+docker run --rm --entrypoint node "$IMAGE" -e \
+  "const fs=require('fs'); if (['/usr/lib/node_modules','/usr/bin/npm','/usr/bin/sh'].some((p)=>fs.existsSync(p))) process.exit(1)"
 
 echo "--- no web source maps"
 docker run --rm --entrypoint node "$IMAGE" -e \

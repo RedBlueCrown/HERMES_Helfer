@@ -6,12 +6,9 @@
 #
 # Base images: Microsoft's Azure Linux images with Node.js 24 LTS from
 # mcr.microsoft.com, pinned by digest (Dependabot proposes updates). The
-# runtime image is distroless: no shell, no package manager, runs as nonroot.
+# runtime image has no shell and no package manager, and runs as nonroot.
 
-ARG BUILD_IMAGE=mcr.microsoft.com/azurelinux/base/nodejs:24.21.0-1-azl3.0.20261005@sha256:c30e39a396fb0ad2c7bf2fe6b4e2fe1598a9b79f09831c07d763fe09927e8779
-ARG RUNTIME_IMAGE=mcr.microsoft.com/azurelinux/distroless/nodejs:24.21.0-1-nonroot-azl3.0.20261005@sha256:be12f1235ae675a4246ac2a276ac20aac8b573e70914f726c17b96615a573ced
-
-FROM ${BUILD_IMAGE} AS build
+FROM mcr.microsoft.com/azurelinux/base/nodejs:24.21.0-1-azl3.0.20261005@sha256:c30e39a396fb0ad2c7bf2fe6b4e2fe1598a9b79f09831c07d763fe09927e8779 AS build
 WORKDIR /src
 # Dependencies first, so this layer is cached until a package file changes.
 COPY package.json package-lock.json ./
@@ -29,12 +26,22 @@ RUN npm run build \
   && rm -rf node_modules \
   && npm ci --omit=dev --workspace @hermes-helfer/api --no-audit --no-fund
 
-FROM ${RUNTIME_IMAGE}
-WORKDIR /app
-ENV NODE_ENV=production \
+FROM mcr.microsoft.com/azurelinux/distroless/nodejs:24.21.0-1-nonroot-azl3.0.20261005@sha256:be12f1235ae675a4246ac2a276ac20aac8b573e70914f726c17b96615a573ced AS distroless
+
+# The distroless image still contains npm and corepack, with their own bundled
+# dependencies. The app never uses them, so the runtime image leaves them out.
+FROM build AS runtime-root
+COPY --from=distroless / /rootfs
+RUN rm -rf /rootfs/usr/lib/node_modules /rootfs/usr/bin/npm /rootfs/usr/bin/npx /rootfs/usr/bin/corepack
+
+FROM scratch
+COPY --from=runtime-root /rootfs /
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8080 \
     WEB_DIST_DIR=/app/web
+WORKDIR /app
 COPY --from=build /src/node_modules ./node_modules
 COPY --from=build /src/apps/api/dist ./dist
 COPY --from=build /src/apps/web/dist ./web
