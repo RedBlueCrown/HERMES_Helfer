@@ -253,7 +253,7 @@ Die Unterlagen gibt es bereits (bis dahin arbeite ich mit Platzhaltern).
 2. Wer pflegt sie, und wer gibt neue Versionen frei?
 3. Wo liegt der Katalog der Architektur-Patterns?
 
-**Antwort:**
+**Antwort:** 1. Word-Vorlagen (10. Oktober 2026). Offen sind noch 2 und 3.
 
 ---
 
