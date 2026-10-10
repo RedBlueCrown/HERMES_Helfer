@@ -40,5 +40,7 @@ COPY --from=build /src/apps/api/dist ./dist
 COPY --from=build /src/apps/web/dist ./web
 USER nonroot
 EXPOSE 8080
-ENTRYPOINT ["node", "--enable-source-maps"]
+# telemetry.js loads first so it can instrument the other modules; it is a no-op
+# without APPLICATIONINSIGHTS_CONNECTION_STRING.
+ENTRYPOINT ["node", "--enable-source-maps", "--import", "./dist/telemetry.js"]
 CMD ["dist/main.js"]

@@ -15,12 +15,24 @@ import {
   type SkillDef,
   type Viewer,
 } from "@hermes-helfer/core";
+import { metrics } from "@opentelemetry/api";
 import { randomUUID } from "node:crypto";
 import { HttpError, assertCheck, notFound } from "../errors";
 import type { ProjectRepository } from "../projects/repository";
 import { PROJECT_NOT_FOUND, actorFor, type ProjectService, type RequestContext } from "../projects/service";
 import { checkDraftStructure, mergeFindings } from "./kritiker";
 import { AiProviderError, USER_FACING_REASON, type AiProvider, type ProjectContext } from "./provider";
+
+// No-op unless telemetry is on (telemetry.ts).
+const meter = metrics.getMeter("hermes-helfer");
+const RUN_DURATION = meter.createHistogram("hh.ai_run.duration", {
+  unit: "ms",
+  description: "Duration of agent runs",
+});
+const RUN_TOKENS = meter.createCounter("hh.ai_run.tokens", {
+  unit: "{token}",
+  description: "Model tokens used by agent runs",
+});
 
 export interface Logger {
   info(obj: object, msg?: string): void;
@@ -175,6 +187,14 @@ export class RunService {
       await this.repo.append(projectId, cur.lastSeq, [event], agentActor(agent), ctx.correlationId);
     });
 
+    const outcome = event.type === "SkillRunCompleted" ? "completed" : "failed";
+    const durationMs = Date.now() - started;
+    // Metrics without people or projects: no per-person evaluation (architecture §9.6).
+    const dimensions = { skill: skill.id, agent: agent.id, outcome, model: info.model };
+    RUN_DURATION.record(durationMs, dimensions);
+    RUN_TOKENS.add(usage.inputTokens, { ...dimensions, direction: "input" });
+    RUN_TOKENS.add(usage.outputTokens, { ...dimensions, direction: "output" });
+
     // Stream 2 of the audit design (architecture §9): metadata only, no content.
     this.log.info(
       {
@@ -186,9 +206,9 @@ export class RunService {
         provider: info.provider,
         model: info.model,
         region: info.region,
-        outcome: event.type === "SkillRunCompleted" ? "completed" : "failed",
+        outcome,
         findings: event.type === "SkillRunCompleted" ? event.data.findings.length : 0,
-        durationMs: Date.now() - started,
+        durationMs,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
         requestedBy: ctx.viewer.userId,

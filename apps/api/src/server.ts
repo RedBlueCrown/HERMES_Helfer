@@ -1,6 +1,7 @@
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
+import { trace } from "@opentelemetry/api";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { resolve, sep } from "node:path";
@@ -84,6 +85,19 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     },
   });
   await app.register(rateLimit, { max: 600, timeWindow: "1 minute" });
+
+  // Telemetry: name requests by route instead of URL, and keep the correlation id
+  // that users see in error messages. No-op without telemetry (telemetry.ts).
+  app.addHook("onRequest", async (req) => {
+    const span = trace.getActiveSpan();
+    if (!span) return;
+    const route = req.routeOptions.url;
+    if (route) {
+      span.updateName(`${req.method} ${route}`);
+      span.setAttribute("http.route", route);
+    }
+    span.setAttribute("hh.correlation_id", req.id);
+  });
 
   app.decorateRequest("user", null);
   app.addHook("onRequest", async (req) => {
