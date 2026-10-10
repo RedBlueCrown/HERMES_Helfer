@@ -250,11 +250,11 @@ describe("drafts, releases and decisions", () => {
     const release = (contentVersion: string) =>
       server!.as("u-anna").post("/api/projects/KPO/deliverables/kickoff/release", { contentVersion });
     expect((await release("init.kick-off@1")).statusCode).toBe(409);
-    const row = (await view(server, "u-anna", "KPO")).phases[0]!.deliverables.find(
+    const kickoff = (await view(server, "u-anna", "KPO")).phases[0]!.deliverables.find(
       (d) => d.id === "kickoff",
     )!;
-    expect(row.contentVersion).toBe("init.kick-off@2");
-    expect((await release(row.contentVersion)).statusCode).toBe(200);
+    expect(kickoff.contentVersion).toBe("init.kick-off@2");
+    expect((await release(kickoff.contentVersion)).statusCode).toBe(200);
 
     // The ISM opened version 1; the result was edited meanwhile.
     await server.as("u-nina").put("/api/projects/KPO/skills/init.datenklassifizierung/draft", {
@@ -287,7 +287,7 @@ describe("drafts, releases and decisions", () => {
         .as("u-anna")
         .post("/api/projects/KPO/deliverables/kickoff/release", { contentVersion: "init.kick-off@1" }),
     ]);
-    expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
+    expect([a.statusCode, b.statusCode].sort((x, y) => x - y)).toEqual([200, 409]);
   });
 
   it("decides a gate and moves the project to the next phase", async () => {

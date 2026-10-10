@@ -156,7 +156,7 @@ export function eventStoreContract(store: () => EventStore): void {
     const [e] = await store().read(id);
     expect(() => {
       (e as { seq: number }).seq = 99;
-    }).toThrow();
+    }).toThrow(TypeError);
   });
 }
 

@@ -91,7 +91,7 @@ export class MemoryEventStore implements EventStore {
     if (!stream) return;
     this.streams.set(
       projectId,
-      stream.map((e) => (e.seq === seq ? patch(structuredClone(e) as StoredEvent) : e)),
+      stream.map((e) => (e.seq === seq ? patch(structuredClone(e)) : e)),
     );
   }
 }

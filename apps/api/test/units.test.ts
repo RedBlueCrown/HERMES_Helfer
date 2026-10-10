@@ -196,7 +196,7 @@ describe("Azure OpenAI provider (against a fake API)", () => {
       "https://res.openai.azure.com/openai/deployments/d/chat/completions?api-version=2024-10-21",
     );
     expect((calls[0]!.init.headers as Record<string, string>).authorization).toBe("Bearer tok");
-    const body = JSON.parse(String(calls[0]!.init.body));
+    const body = JSON.parse(calls[0]!.init.body as string);
     expect(body.response_format.json_schema.strict).toBe(true);
   });
 
@@ -239,6 +239,6 @@ describe("Azure OpenAI provider (against a fake API)", () => {
       [{ name: "meine_aufgaben", description: "x", parameters: { type: "object", properties: {} } }],
     );
     expect(res.toolCalls).toEqual([{ id: "t1", name: "meine_aufgaben", arguments: "{}" }]);
-    expect(JSON.parse(String(calls[0]!.init.body)).tools[0].function.name).toBe("meine_aufgaben");
+    expect(JSON.parse(calls[0]!.init.body as string).tools[0].function.name).toBe("meine_aufgaben");
   });
 });

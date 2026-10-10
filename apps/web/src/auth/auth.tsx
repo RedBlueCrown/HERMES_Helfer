@@ -84,7 +84,7 @@ function EntraAuthProvider({ settings, children }: { settings: EntraSettings; ch
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const msal = await import("@azure/msal-browser");
         const pca = new msal.PublicClientApplication({
@@ -166,18 +166,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<ClientConfig | { error: string }>();
   useEffect(() => {
     let cancelled = false;
-    createApi(async () => ({}))
-      .get<unknown>("/api/config")
-      .then(
-        (c) =>
-          validConfig(c)
-            ? c
-            : { error: "Die Anmeldung ist nicht vollständig konfiguriert (Betrieb informieren)." },
-        (err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }),
-      )
-      .then((c) => {
-        if (!cancelled) setConfig(c);
-      });
+    void (async () => {
+      let loaded: ClientConfig | { error: string };
+      try {
+        const c = await createApi(async () => ({})).get<unknown>("/api/config");
+        loaded = validConfig(c)
+          ? c
+          : { error: "Die Anmeldung ist nicht vollständig konfiguriert (Betrieb informieren)." };
+      } catch (err) {
+        loaded = { error: err instanceof Error ? err.message : String(err) };
+      }
+      if (!cancelled) setConfig(loaded);
+    })();
     return () => {
       cancelled = true;
     };

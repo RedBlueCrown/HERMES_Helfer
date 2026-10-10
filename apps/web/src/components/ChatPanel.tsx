@@ -66,10 +66,6 @@ export function ChatPanel({
   const start = useProjectCommand(code, commands.startSkill(code));
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setMessages([]);
-    setSuggestions(START);
-  }, [code]);
   useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [messages, chat.isPending]);
 
   const send = (text: string) => {

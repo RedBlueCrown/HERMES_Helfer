@@ -63,7 +63,7 @@ export class Stream {
       correlationId: "c-test",
       prevHash: "",
       hash: "",
-    } as StoredEvent);
+    });
     return this;
   }
 

@@ -185,7 +185,7 @@ describe("checklists and preconditions", () => {
   it("keeps the readiness deliverable in 'confirm' until all access tests are confirmed", () => {
     const st = new Stream("real").run("real.technische-koordination");
     expect(deliverableStatus(st.state(), MODEL, d("readiness"))).toBe("confirm");
-    for (const it of d("readiness").checklist!.items) st.confirm("readiness", it.id);
+    for (const item of d("readiness").checklist!.items) st.confirm("readiness", item.id);
     expect(deliverableStatus(st.state(), MODEL, d("readiness"))).toBe("draft");
   });
 
@@ -224,7 +224,7 @@ describe("checklists and preconditions", () => {
       ),
     ).toBeNull();
 
-    for (const it of sk("einf.go-live-check").checklist!.items) st.confirm("einf.go-live-check", it.id);
+    for (const item of sk("einf.go-live-check").checklist!.items) st.confirm("einf.go-live-check", item.id);
     st.decide("einf.go-live-check", "FACH").decide("einf.go-live-check", "APM");
     expect(checkStartSkill(st.state(), MODEL, pl, sk("einf.betrieb")).ok).toBe(true);
   });

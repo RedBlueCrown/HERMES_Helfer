@@ -208,5 +208,5 @@ function toEvent(projectId: string, row: { seq: number; hash: string; body: stri
   if (typeof parsed !== "object" || parsed === null) {
     throw new CorruptStreamError(projectId, row.seq, "not an object");
   }
-  return deepFreeze({ ...parsed, projectId, seq: row.seq, hash: row.hash } as StoredEvent);
+  return deepFreeze({ ...parsed, projectId, seq: row.seq, hash: row.hash });
 }

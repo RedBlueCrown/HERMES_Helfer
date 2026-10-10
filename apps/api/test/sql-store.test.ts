@@ -41,6 +41,8 @@ describe.skipIf(!server)("SQL event store on SQL Server", () => {
   let owner: Mssql.ConnectionPool;
   let app: Mssql.ConnectionPool;
   let store: SqlEventStore;
+  let versionBefore: number;
+  let applied: number[];
 
   beforeAll(async () => {
     admin = await connectSql(settings("master"), noop);
@@ -52,8 +54,8 @@ describe.skipIf(!server)("SQL event store on SQL Server", () => {
         `ALTER DATABASE [${db}] SET ALLOW_SNAPSHOT_ISOLATION ON; ALTER DATABASE [${db}] SET READ_COMMITTED_SNAPSHOT ON;`,
       );
     owner = await connectSql(settings(db), noop);
-    expect(await schemaVersion(owner)).toBe(0);
-    expect(await migrate(owner)).toEqual(MIGRATIONS.map((m) => m.version));
+    versionBefore = await schemaVersion(owner);
+    applied = await migrate(owner);
 
     await admin
       .request()
@@ -105,6 +107,11 @@ describe.skipIf(!server)("SQL event store on SQL Server", () => {
   });
 
   describe("as the database owner", () => {
+    it("migrated the empty database to the current schema", () => {
+      expect(versionBefore).toBe(0);
+      expect(applied).toEqual(MIGRATIONS.map((m) => m.version));
+    });
+
     it("cannot change or delete events either: the ledger table is append-only", async () => {
       await store.append({
         projectId: "p-ledger",

@@ -12,27 +12,31 @@ describe("HERMES model", () => {
     for (const ph of MODEL.phases) {
       for (const d of ph.deliverables) {
         for (const sid of d.skills) expect(MODEL.skill(sid).phase).toBe(ph.id);
-        if (!d.preExisting) expect(d.skills.length).toBeGreaterThan(0);
+      }
+      for (const d of ph.deliverables.filter((x) => !x.preExisting)) {
+        expect(d.skills.length).toBeGreaterThan(0);
       }
       for (const s of ph.skills) expect(MODEL.deliverablesOfSkill(s.id).length).toBeGreaterThan(0);
     }
   });
 
   it("uses only known roles, agents and references", () => {
-    for (const s of MODEL.phases.flatMap((p) => p.skills)) {
+    const skills = MODEL.phases.flatMap((p) => p.skills);
+    for (const agent of skills.flatMap((s) => (s.agent ? [s.agent] : []))) {
+      expect(MODEL.agent(agent).active).toBe(true);
+    }
+    for (const s of skills.filter((x) => !x.agent)) expect(s.mode).toBe("manual");
+    for (const s of skills) {
       for (const r of s.mayStart) expect(PROJECT_ROLES).toContain(r);
       for (const a of s.approvers) expect(PROJECT_ROLES).toContain(a.role);
-      if (s.agent) expect(MODEL.agent(s.agent).active).toBe(true);
-      else expect(s.mode).toBe("manual");
       for (const pre of s.requiresApproved ?? []) expect(MODEL.findSkill(pre)).toBeDefined();
       expect(s.sections.length).toBeGreaterThan(0);
     }
-    for (const owner of [
+    const checklists = [
       ...MODEL.phases.flatMap((p) => p.skills),
       ...MODEL.phases.flatMap((p) => p.deliverables),
-    ]) {
-      if (owner.checklist) expect(MODEL.findSkill(owner.checklist.availableAfterSkill)).toBeDefined();
-    }
+    ].flatMap((owner) => (owner.checklist ? [owner.checklist] : []));
+    for (const c of checklists) expect(MODEL.findSkill(c.availableAfterSkill)).toBeDefined();
   });
 
   it("references only known participants in rules", () => {

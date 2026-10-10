@@ -8,21 +8,29 @@ on:
 permissions:
   contents: read
 
+# Actions are pinned to commit SHAs (Dependabot keeps them current); checkouts
+# do not keep the token, so later steps and dependency scripts cannot use it.
+
 jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run format:check
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Known vulnerabilities in production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
   sql:
     # Event store against a real SQL Server: contract and permission tests,
@@ -49,8 +57,10 @@ jobs:
     env:
       SA_PASSWORD: Hh-ci-Throwaway-1
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: npm
@@ -67,23 +77,34 @@ jobs:
           SQLCMD: docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd
 
   image:
-    # The production container: build it and check how it behaves (scripts/image-smoke.sh).
+    # The production container: build it, check how it behaves (scripts/image-smoke.sh)
+    # and scan it for known vulnerabilities that have a fix.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: check
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - name: Build image
         run: docker build --pull -t hermes-helfer:ci .
       - name: Smoke test image
         run: scripts/image-smoke.sh hermes-helfer:ci
+      - name: Vulnerability scan (Trivy)
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+          image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress
+          hermes-helfer:ci
 
   infra:
     # Bicep templates: compile, lint (important rules are errors, infra/bicepconfig.json), format.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - run: az bicep install --version v0.48.1
       - name: Build and lint
         working-directory: infra
@@ -106,8 +127,10 @@ jobs:
     timeout-minutes: 20
     needs: check
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
           cache: npm
@@ -115,7 +138,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
         working-directory: apps/web
       - run: npm run e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
           name: playwright-results

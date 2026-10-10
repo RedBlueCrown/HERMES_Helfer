@@ -153,6 +153,8 @@ export function ProjectPage() {
 
       <DeliverableDrawer code={code} deliverableId={deliverable} onClose={() => setDeliverable(null)} />
       <ChatPanel
+        // A new project starts a new conversation.
+        key={code}
         code={code}
         open={chatOpen}
         onClose={() => setChatOpen(false)}

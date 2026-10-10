@@ -345,9 +345,9 @@ function SkillSection({ code, skill }: { code: string; skill: SkillView }) {
           {changedSinceReview ? (
             <MessageBar intent="warning">
               <MessageBarBody>
-                Der Entwurf wurde inzwischen geändert (jetzt Version {out!.version}). Bitte die neue Fassung
+                Der Entwurf wurde inzwischen geändert (jetzt Version {out.version}). Bitte die neue Fassung
                 prüfen.{" "}
-                <Button size="small" onClick={() => setReviewed(out!.version)}>
+                <Button size="small" onClick={() => setReviewed(out.version)}>
                   Neue Fassung geprüft
                 </Button>
               </MessageBarBody>

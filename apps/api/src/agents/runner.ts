@@ -221,7 +221,7 @@ export class RunService {
 
   /** Resolves when no run is in flight (tests, graceful shutdown). */
   async idle(): Promise<void> {
-    while (this.inFlight.size) await Promise.allSettled([...this.inFlight]);
+    while (this.inFlight.size) await Promise.allSettled(this.inFlight);
   }
 
   /**

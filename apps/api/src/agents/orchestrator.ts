@@ -285,7 +285,7 @@ export class Orchestrator {
           phaseLabel: this.model.phase(s.phase).label,
         }),
       },
-      ...history.slice(-8).map((t) => ({ role: t.role, content: t.text }) as ChatMessage),
+      ...history.slice(-8).map((t) => ({ role: t.role, content: t.text })),
       { role: "user", content: message },
     ];
     const specs = this.toolSpecs();
@@ -489,7 +489,9 @@ export class Orchestrator {
           `**${skill.name}** (${this.model.phase(skill.phase).label}): ${skill.description}`,
           bullets([
             `Ergebnis: ${skill.outputDoc}`,
-            `${skill.agent ? `Agent: ${this.model.agent(skill.agent).name}` : "Erfasst von der zuständigen Person"}`,
+            skill.agent
+              ? `Agent: ${this.model.agent(skill.agent).name}`
+              : "Erfasst von der zuständigen Person",
             `Anstossen: ${who}`,
             `Entscheid: ${decides}${skill.veto ? " (mit Vetorecht)" : ""}`,
           ]),
