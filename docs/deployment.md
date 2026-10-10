@@ -12,8 +12,7 @@ In [Azure Cloud Shell](https://shell.azure.com) (Bash), or anywhere with the Azu
 
 ```bash
 git clone https://github.com/RedBlueCrown/HERMES_Helfer.git && cd HERMES_Helfer
-git checkout claude/nice-mendel-7p50r6     # until the work is merged
-az login                                   # not needed in Cloud Shell
+az login        # not needed in Cloud Shell
 scripts/deploy-azure.sh
 ```
 

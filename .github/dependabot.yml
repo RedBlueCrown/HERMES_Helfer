@@ -8,6 +8,10 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # The types follow the oldest supported Node.js (22); newer ones would allow APIs it lacks.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # Minor and patch updates together; major versions one by one.
       minor-and-patch:
