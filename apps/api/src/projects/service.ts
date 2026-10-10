@@ -41,7 +41,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { checkDraftStructure } from "../agents/kritiker";
 import { HttpError, assertCheck, notFound, unprocessable } from "../errors";
-import type { ProjectRepository } from "./repository";
+import { projectIdForCode, type ProjectRepository } from "./repository";
 
 export interface RequestContext {
   viewer: Viewer;
@@ -92,8 +92,8 @@ export class ProjectService {
   }
 
   /** The project if the viewer may see it. Unknown and forbidden look the same (todo-later E04). */
-  requireProject(code: string, viewer: Viewer): ProjectState {
-    const s = this.repo.findByCode(code);
+  async requireProject(code: string, viewer: Viewer): Promise<ProjectState> {
+    const s = await this.repo.findByCode(code);
     if (!s || !canViewProject(s, viewer)) throw notFound(PROJECT_NOT_FOUND);
     return s;
   }
@@ -104,9 +104,10 @@ export class ProjectService {
     ctx: RequestContext,
     build: (s: ProjectState) => ProjectEvent[],
   ): Promise<CommandResult> {
-    const { projectId } = this.requireProject(code, ctx.viewer);
+    const { projectId } = await this.requireProject(code, ctx.viewer);
     return this.repo.withLock(projectId, async () => {
-      const s = this.repo.get(projectId)!;
+      const s = await this.repo.get(projectId);
+      if (!s) throw notFound(PROJECT_NOT_FOUND);
       const events = build(s);
       const stored = await this.repo.append(
         projectId,
@@ -128,9 +129,9 @@ export class ProjectService {
     if (!/^[A-Z0-9][A-Z0-9-]{1,19}$/.test(code)) {
       throw unprocessable("Das Kürzel besteht aus 2 bis 20 Zeichen: Buchstaben, Ziffern, Bindestrich.");
     }
-    if (this.repo.codeExists(code))
-      throw new HttpError(409, "conflict", `Das Kürzel ${code} ist bereits vergeben.`);
-    const projectId = `p-${this.newId()}`;
+    const taken = () => new HttpError(409, "conflict", `Das Kürzel ${code} ist bereits vergeben.`);
+    if (await this.repo.findByCode(code)) throw taken();
+    const projectId = projectIdForCode(code);
     const events: ProjectEvent[] = [
       {
         type: "ProjectCreated",
@@ -150,9 +151,15 @@ export class ProjectService {
         data: { userId: input.projectLead.userId, displayName: input.projectLead.displayName, role: "PL" },
       });
     }
-    await this.repo.withLock(projectId, () =>
-      this.repo.append(projectId, 0, events, actorFor(undefined, ctx), ctx.correlationId),
-    );
+    try {
+      await this.repo.withLock(projectId, () =>
+        this.repo.append(projectId, 0, events, actorFor(undefined, ctx), ctx.correlationId),
+      );
+    } catch (err) {
+      // Someone created the same code at the same time, or a locked project uses it.
+      if (err instanceof HttpError && (err.code === "conflict" || err.code === "locked")) throw taken();
+      throw err;
+    }
     return { projectId, code };
   }
 

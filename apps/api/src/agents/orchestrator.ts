@@ -87,7 +87,7 @@ export class Orchestrator {
   }
 
   async respond(code: string, ctx: RequestContext, message: string, history: ChatTurn[]): Promise<ChatReply> {
-    const s = this.projects.requireProject(code, ctx.viewer);
+    const s = await this.projects.requireProject(code, ctx.viewer);
     const used: string[] = [];
     let reply: ChatReply;
     if (this.provider.chat) {
@@ -119,8 +119,8 @@ export class Orchestrator {
 
   // ---------- Tools (shared by both modes) ----------
 
-  private view(code: string, ctx: RequestContext): ProjectView {
-    return projectView(this.projects.requireProject(code, ctx.viewer), this.model, ctx.viewer);
+  private async view(code: string, ctx: RequestContext): Promise<ProjectView> {
+    return projectView(await this.projects.requireProject(code, ctx.viewer), this.model, ctx.viewer);
   }
 
   private currentPhase(v: ProjectView) {
@@ -196,7 +196,7 @@ export class Orchestrator {
     ctx: RequestContext,
     actions: ChatAction[],
   ): Promise<unknown> {
-    const v = this.view(code, ctx);
+    const v = await this.view(code, ctx);
     const phase = this.currentPhase(v);
     switch (name) {
       case "projekt_ueberblick":
@@ -231,7 +231,7 @@ export class Orchestrator {
         const args = z.object({ ergebnis_id: z.string().max(40) }).safeParse(JSON.parse(rawArgs || "{}"));
         const d = args.success ? this.model.findDeliverable(args.data.ergebnis_id) : undefined;
         if (!d) return { fehler: "Unbekanntes Ergebnis." };
-        const s = this.projects.requireProject(code, ctx.viewer);
+        const s = await this.projects.requireProject(code, ctx.viewer);
         const detail = deliverableDetailView(s, this.model, ctx.viewer, d);
         actions.push({ kind: "open_deliverable", deliverableId: d.id, label: `«${d.name}» öffnen` });
         return {
@@ -248,7 +248,7 @@ export class Orchestrator {
       }
       case "entwurf_anstossen": {
         const args = z.object({ schritt: z.string().max(200) }).safeParse(JSON.parse(rawArgs || "{}"));
-        const s = this.projects.requireProject(code, ctx.viewer);
+        const s = await this.projects.requireProject(code, ctx.viewer);
         const skill = args.success ? findSkillInText(this.model, s, args.data.schritt) : undefined;
         if (!skill) return { fehler: "Kein passender Schritt in der aktuellen Phase." };
         const res = await this.startDraft(code, ctx, skill);
@@ -340,8 +340,8 @@ export class Orchestrator {
       actions,
       suggestions,
     });
-    const s = this.projects.requireProject(code, ctx.viewer);
-    const v = this.view(code, ctx);
+    const s = await this.projects.requireProject(code, ctx.viewer);
+    const v = await this.view(code, ctx);
     const phase = this.currentPhase(v);
 
     if (

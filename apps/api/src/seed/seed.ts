@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { checkDraftStructure, mergeFindings } from "../agents/kritiker";
 import { mockDraft, mockFindings } from "../agents/mock-provider";
 import { agentActor, projectContext } from "../agents/runner";
-import type { ProjectRepository } from "../projects/repository";
+import { projectIdForCode, type ProjectRepository } from "../projects/repository";
 import { DEV_USERS } from "./dev-users";
 
 const PROFILE: ProjectProfile = {
@@ -63,8 +63,8 @@ class Seeder {
     return new Date(this.clock).toISOString();
   }
 
-  private actor(projectId: string, p: Person): Actor {
-    const s = this.repo.get(projectId);
+  private async actor(projectId: string, p: Person): Promise<Actor> {
+    const s = await this.repo.get(projectId);
     return {
       userId: p.id,
       displayName: p.displayName,
@@ -74,7 +74,7 @@ class Seeder {
   }
 
   private async append(projectId: string, events: ProjectEvent[], actor: Actor) {
-    const s = this.repo.get(projectId);
+    const s = await this.repo.get(projectId);
     await this.repo.append(projectId, s?.lastSeq ?? 0, events, actor, `seed-${randomUUID()}`, this.tick());
   }
 
@@ -87,7 +87,7 @@ class Seeder {
     members: [Person, ...ProjectRole[]][],
     by: Person,
   ): Promise<string> {
-    const projectId = `p-${randomUUID()}`;
+    const projectId = projectIdForCode(code);
     const events: ProjectEvent[] = [
       {
         type: "ProjectCreated",
@@ -116,11 +116,11 @@ class Seeder {
     await this.append(
       projectId,
       [{ type: "SkillRunRequested", data: { runId, skillId } }],
-      this.actor(projectId, by),
+      await this.actor(projectId, by),
     );
     const model = this.repo.model;
     const skill = model.skill(skillId);
-    const s = this.repo.get(projectId)!;
+    const s = (await this.repo.get(projectId))!;
     const agent = model.agent(skill.agent!);
     const draft = mockDraft({
       agent,
@@ -172,7 +172,7 @@ class Seeder {
           },
         },
       ],
-      this.actor(projectId, by),
+      await this.actor(projectId, by),
     );
   }
 
@@ -188,7 +188,7 @@ class Seeder {
     await this.append(
       projectId,
       [{ type: "SkillDecisionRecorded", data: { skillId, role, decision, reason, konsent, conditions: [] } }],
-      this.actor(projectId, by),
+      await this.actor(projectId, by),
     );
   }
 
@@ -196,7 +196,7 @@ class Seeder {
     await this.append(
       projectId,
       [{ type: "DeliverableReleased", data: { deliverableId } }],
-      this.actor(projectId, by),
+      await this.actor(projectId, by),
     );
   }
 
@@ -204,7 +204,7 @@ class Seeder {
     await this.append(
       projectId,
       [{ type: "ParticipationRecorded", data: { phase, participantId, how } }],
-      this.actor(projectId, by),
+      await this.actor(projectId, by),
     );
   }
 
@@ -212,7 +212,7 @@ class Seeder {
     await this.append(
       projectId,
       [{ type: "ChecklistItemConfirmed", data: { checklistOwnerId: ownerId, itemId, note } }],
-      this.actor(projectId, by),
+      await this.actor(projectId, by),
     );
   }
 }
@@ -429,7 +429,7 @@ export async function seedSynthetic(repo: ProjectRepository, count: number, now 
     // Each project gets its own time slot in the past 60 days.
     seed.setClock(new Date(start + (i - 1) * slot));
     const code = `P-${String(i).padStart(4, "0")}`;
-    if (repo.codeExists(code)) continue;
+    if (await repo.findByCode(code)) continue;
     let r = rnd();
     const phase = PHASE_WEIGHTS.find(([, w]) => (r -= w) < 0)?.[0] ?? "init";
     const pl = { id: `x-pl-${i}`, displayName: `${pick(FIRST)} ${pick(LAST)}`, globalRoles: [] };
@@ -453,7 +453,7 @@ export async function seedSynthetic(repo: ProjectRepository, count: number, now 
     const done = Math.floor(rnd() * mandatory.length);
     for (const d of mandatory.slice(0, done)) {
       for (const sid of d.skills) {
-        const st = repo.get(projectId)!;
+        const st = (await repo.get(projectId))!;
         if (st.skills[sid]?.output) continue;
         const skill = repo.model.skill(sid);
         if (skill.requiresApproved?.length || skill.checklist) continue;
@@ -464,7 +464,7 @@ export async function seedSynthetic(repo: ProjectRepository, count: number, now 
           await seed.decide(projectId, sid, a.role, by, "Geprüft (synthetische Daten).");
         }
       }
-      if (repo.get(projectId)!.unreleased[d.id]) await seed.release(projectId, d.id, pl);
+      if ((await repo.get(projectId))!.unreleased[d.id]) await seed.release(projectId, d.id, pl);
     }
   }
 }

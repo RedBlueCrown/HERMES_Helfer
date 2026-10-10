@@ -3,6 +3,7 @@
 // Written against the documented REST API and not yet tested against a real
 // deployment (todo-later P07).
 
+import type { TokenCredential } from "@azure/identity";
 import type { DraftContent, Finding } from "@hermes-helfer/core";
 import { z } from "zod";
 import {
@@ -95,18 +96,12 @@ const ApiResponse = z.object({
   usage: z.object({ prompt_tokens: z.number(), completion_tokens: z.number() }).optional(),
 });
 
-/** Token source via @azure/identity, loaded only when this provider is used. */
-export function entraTokenSource(): TokenSource {
+/** Entra ID token for Azure OpenAI, renewed two minutes before it expires. */
+export function entraTokenSource(credential: () => Promise<TokenCredential>): TokenSource {
   let cached: { token: string; expires: number } | undefined;
-  let credential:
-    { getToken(scope: string): Promise<{ token: string; expiresOnTimestamp: number } | null> } | undefined;
   return async () => {
     if (cached && cached.expires - Date.now() > 120_000) return cached.token;
-    if (!credential) {
-      const { DefaultAzureCredential } = await import("@azure/identity");
-      credential = new DefaultAzureCredential();
-    }
-    const t = await credential.getToken("https://cognitiveservices.azure.com/.default");
+    const t = await (await credential()).getToken("https://cognitiveservices.azure.com/.default");
     if (!t) throw new AiProviderError("provider_error", "No token for Azure OpenAI");
     cached = { token: t.token, expires: t.expiresOnTimestamp };
     return t.token;

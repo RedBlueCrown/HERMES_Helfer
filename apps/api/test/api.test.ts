@@ -204,7 +204,7 @@ describe("drafts, releases and decisions", () => {
 
   it("decides a gate and moves the project to the next phase", async () => {
     server = await testServer();
-    const s = server.repo.findByCode("KPO")!;
+    const s = (await server.repo.findByCode("KPO"))!;
     // Fast-forward: complete all mandatory results and participation of Initialisierung.
     const model = server.repo.model;
     const events: ProjectEvent[] = [];
@@ -287,7 +287,7 @@ describe("audit trail", () => {
     });
     expect((await server.as("u-nina").post("/api/projects/CRM/audit/verify")).statusCode).toBe(403);
 
-    const crm = server.repo.findByCode("CRM")!;
+    const crm = (await server.repo.findByCode("CRM"))!;
     server.store.tamperForTest(crm.projectId, 3, (e) => ({
       ...e,
       actor: { ...e.actor, displayName: "Jemand anderes" },
@@ -298,7 +298,7 @@ describe("audit trail", () => {
 
   it("closes runs that a restart interrupted", async () => {
     server = await testServer();
-    const kpo = server.repo.findByCode("KPO")!;
+    const kpo = (await server.repo.findByCode("KPO"))!;
     await server.repo.append(
       kpo.projectId,
       kpo.lastSeq,
@@ -307,7 +307,7 @@ describe("audit trail", () => {
       "c-test-1234",
     );
     expect(await server.runs.recover()).toBe(1);
-    const state = server.repo.findByCode("KPO")!;
+    const state = (await server.repo.findByCode("KPO"))!;
     expect(state.skills["init.kick-off"]?.lastError?.reason).toBe("Abgebrochen durch Neustart");
     expect(row(await view(server, "u-anna", "KPO"), "kickoff").status).toBe("open");
   });

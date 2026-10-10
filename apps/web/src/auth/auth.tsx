@@ -1,11 +1,21 @@
-// Sign-in. "dev": fictional users for local development (the API refuses this
-// mode in production). "entra": Microsoft Entra ID with MSAL, loaded only then.
+// Sign-in. The API tells the web app at runtime which mode applies
+// (GET /api/config), so one build serves every environment.
+// "dev": fictional users for local development (the API refuses this mode in
+// production). "entra": Microsoft Entra ID with MSAL, loaded only then.
 // MSAL sign-in is not yet tested against a real tenant (todo-later P08).
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createApi } from "../api/client";
 
 export type AuthMode = "dev" | "entra";
-export const AUTH_MODE: AuthMode = import.meta.env.VITE_AUTH_MODE === "entra" ? "entra" : "dev";
+
+interface EntraSettings {
+  tenantId: string;
+  clientId: string;
+  apiScope: string;
+}
+
+type ClientConfig = { authMode: "dev" } | { authMode: "entra"; entra: EntraSettings };
 
 const DEV_USER_KEY = "hh:devUser";
 const DEFAULT_DEV_USER = "u-anna";
@@ -63,14 +73,14 @@ function DevAuthProvider({ children }: { children: ReactNode }) {
 
 type Msal = typeof import("@azure/msal-browser");
 
-function EntraAuthProvider({ children }: { children: ReactNode }) {
+function EntraAuthProvider({ settings, children }: { settings: EntraSettings; children: ReactNode }) {
   const [state, setState] = useState<{
     ready: boolean;
     error?: string;
     msal?: Msal;
     pca?: InstanceType<Msal["PublicClientApplication"]>;
   }>({ ready: false });
-  const scope = import.meta.env.VITE_API_SCOPE as string;
+  const scope = settings.apiScope;
 
   useEffect(() => {
     let cancelled = false;
@@ -79,8 +89,8 @@ function EntraAuthProvider({ children }: { children: ReactNode }) {
         const msal = await import("@azure/msal-browser");
         const pca = new msal.PublicClientApplication({
           auth: {
-            clientId: import.meta.env.VITE_ENTRA_CLIENT_ID as string,
-            authority: `https://login.microsoftonline.com/${import.meta.env.VITE_ENTRA_TENANT_ID as string}`,
+            clientId: settings.clientId,
+            authority: `https://login.microsoftonline.com/${settings.tenantId}`,
             redirectUri: window.location.origin,
           },
           cache: { cacheLocation: "sessionStorage" },
@@ -106,7 +116,7 @@ function EntraAuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [scope]);
+  }, [scope, settings.clientId, settings.tenantId]);
 
   const value = useMemo<AuthState>(
     () => ({
@@ -134,9 +144,50 @@ function EntraAuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+/** Not signed in yet: the sign-in settings are loading or could not be loaded. */
+function pending(error?: string): AuthState {
+  return {
+    mode: "dev",
+    ready: false,
+    ...(error ? { error } : {}),
+    setDevUser: () => undefined,
+    headers: async () => ({}),
+    signOut: () => undefined,
+  };
+}
+
+function validConfig(c: unknown): c is ClientConfig {
+  const v = c as Partial<{ authMode: string; entra: Partial<EntraSettings> }>;
+  if (v?.authMode === "dev") return true;
+  return v?.authMode === "entra" && !!v.entra?.tenantId && !!v.entra.clientId && !!v.entra.apiScope;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  return AUTH_MODE === "entra" ? (
-    <EntraAuthProvider>{children}</EntraAuthProvider>
+  const [config, setConfig] = useState<ClientConfig | { error: string }>();
+  useEffect(() => {
+    let cancelled = false;
+    createApi(async () => ({}))
+      .get<unknown>("/api/config")
+      .then(
+        (c) =>
+          validConfig(c)
+            ? c
+            : { error: "Die Anmeldung ist nicht vollständig konfiguriert (Betrieb informieren)." },
+        (err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }),
+      )
+      .then((c) => {
+        if (!cancelled) setConfig(c);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!config || "error" in config) {
+    return <AuthContext.Provider value={pending(config?.error)}>{children}</AuthContext.Provider>;
+  }
+  return config.authMode === "entra" ? (
+    <EntraAuthProvider settings={config.entra}>{children}</EntraAuthProvider>
   ) : (
     <DevAuthProvider>{children}</DevAuthProvider>
   );

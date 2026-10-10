@@ -18,7 +18,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { HttpError, assertCheck, notFound } from "../errors";
 import type { ProjectRepository } from "../projects/repository";
-import { actorFor, type ProjectService, type RequestContext } from "../projects/service";
+import { PROJECT_NOT_FOUND, actorFor, type ProjectService, type RequestContext } from "../projects/service";
 import { checkDraftStructure, mergeFindings } from "./kritiker";
 import { AiProviderError, USER_FACING_REASON, type AiProvider, type ProjectContext } from "./provider";
 
@@ -88,10 +88,11 @@ export class RunService {
     if (skill.mode === "manual" || !skill.agent) {
       throw new HttpError(409, "invalid_state", `«${skill.name}» erfasst die zuständige Person selbst.`);
     }
-    const { projectId } = this.projects.requireProject(code, ctx.viewer);
+    const { projectId } = await this.projects.requireProject(code, ctx.viewer);
     const runId = randomUUID();
     const snapshot = await this.repo.withLock(projectId, async () => {
-      const s = this.repo.get(projectId)!;
+      const s = await this.repo.get(projectId);
+      if (!s) throw notFound(PROJECT_NOT_FOUND);
       assertCheck(checkStartSkill(s, this.model, ctx.viewer, skill));
       await this.repo.append(
         projectId,
@@ -100,7 +101,7 @@ export class RunService {
         actorFor(s, ctx),
         ctx.correlationId,
       );
-      return this.repo.get(projectId)!;
+      return (await this.repo.get(projectId))!;
     });
     const job = this.execute(projectId, runId, skill, snapshot, ctx).catch((err: unknown) => {
       this.log.error({ err, runId, projectId }, "agent run crashed");
@@ -168,9 +169,9 @@ export class RunService {
     }
 
     await this.repo.withLock(projectId, async () => {
-      const cur = this.repo.get(projectId)!;
+      const cur = await this.repo.get(projectId);
       // Only close runs that are still open (a restart may have closed it already).
-      if (cur.runs[runId]?.status !== "running") return;
+      if (cur?.runs[runId]?.status !== "running") return;
       await this.repo.append(projectId, cur.lastSeq, [event], agentActor(agent), ctx.correlationId);
     });
 
@@ -203,14 +204,19 @@ export class RunService {
     while (this.inFlight.size) await Promise.allSettled([...this.inFlight]);
   }
 
-  /** Close runs that were interrupted by a restart (todo-later E10). */
+  /**
+   * Close runs that were interrupted by a restart (todo-later E10). Assumes one
+   * API instance: with several, this would also close runs another instance is
+   * still working on (durable run queue, todo-later H02).
+   */
   async recover(): Promise<number> {
     let closed = 0;
-    for (const s of this.repo.all()) {
+    for (const s of await this.repo.all()) {
       const open = Object.values(s.runs).filter((r) => r.status === "running");
       if (!open.length) continue;
       await this.repo.withLock(s.projectId, async () => {
-        const cur = this.repo.get(s.projectId)!;
+        const cur = await this.repo.get(s.projectId);
+        if (!cur) return;
         const events: ProjectEvent[] = open
           .filter((r) => cur.runs[r.runId]?.status === "running")
           .map((r) => ({

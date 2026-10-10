@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsx watch --clear-screen=false --env-file=dev.env src/main.ts",
     "start": "node dist/main.js",
+    "migrate": "node dist/migrate.js",
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
@@ -19,9 +20,12 @@
     "@hermes-helfer/core": "*",
     "fastify": "^5.12.5",
     "jose": "^6.2.12",
+    "mssql": "^12.7.4",
+    "pino": "^10.4.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@types/mssql": "^12.3.0",
     "@types/node": "^22.19.0",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",

@@ -28,7 +28,15 @@ import { HttpError, notFound, parse } from "./errors";
 import type { ProjectRepository } from "./projects/repository";
 import type { ProjectService, RequestContext } from "./projects/service";
 
+/** Sign-in settings for the web app, served before sign-in. Contains no secrets. */
+export type ClientConfig =
+  | { authMode: "dev" }
+  | { authMode: "entra"; entra: { tenantId: string; clientId: string; apiScope: string } };
+
 export interface RouteDeps {
+  clientConfig: ClientConfig;
+  /** Throws if the app cannot serve requests (readiness probe). */
+  ready: () => Promise<void>;
   repo: ProjectRepository;
   projects: ProjectService;
   runs: RunService;
@@ -106,7 +114,21 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   };
   const params = <S extends z.ZodType>(req: FastifyRequest, schema: S) => parse(schema, req.params);
 
+  // Liveness: the process runs. Readiness: the event store answers too.
   app.get("/api/health", async () => ({ status: "ok" }));
+  app.get("/api/ready", async (req, reply) => {
+    try {
+      await deps.ready();
+      return { status: "ready" };
+    } catch (err) {
+      req.log.warn({ err }, "not ready");
+      return reply.code(503).send({ status: "unavailable" });
+    }
+  });
+  app.get("/api/config", async (_req, reply) => {
+    reply.header("cache-control", "no-cache");
+    return deps.clientConfig;
+  });
 
   if (deps.authenticator.mode === "dev") {
     app.get("/api/dev/users", async () =>
@@ -151,8 +173,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const viewer = ctx(req).viewer;
     const all = q.scope === "all" && seesAllProjects(viewer);
     const term = q.q?.trim().toLowerCase();
-    const items = repo
-      .all()
+    const items = (await repo.all())
       .map((s) => ({ s, item: projectListItem(s, model, viewer) }))
       .filter(({ item }) => (all ? true : item.myRoles.length > 0))
       .filter(({ item }) => !q.phase || item.phase === q.phase)
@@ -186,13 +207,13 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get("/api/projects/:code", async (req) => {
     const { code } = params(req, z.object({ code: Code }));
     const c = ctx(req);
-    return projectView(projects.requireProject(code, c.viewer), model, c.viewer);
+    return projectView(await projects.requireProject(code, c.viewer), model, c.viewer);
   });
 
   app.get("/api/projects/:code/deliverables/:deliverableId", async (req) => {
     const { code, deliverableId } = params(req, z.object({ code: Code, deliverableId: Id }));
     const c = ctx(req);
-    const s = projects.requireProject(code, c.viewer);
+    const s = await projects.requireProject(code, c.viewer);
     const d = model.findDeliverable(deliverableId);
     if (!d) throw notFound("Dieses Ergebnis gibt es nicht.");
     return deliverableDetailView(s, model, c.viewer, d);
@@ -312,10 +333,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       }),
       req.query,
     );
-    const s = projects.requireProject(code, ctx(req).viewer);
-    const all = repo
-      .events(s.projectId)
-      .filter((e) => (!q.before || e.seq < q.before) && (!q.category || eventCategory(e) === q.category));
+    const s = await projects.requireProject(code, ctx(req).viewer);
+    const all = (await repo.events(s.projectId)).filter(
+      (e) => (!q.before || e.seq < q.before) && (!q.category || eventCategory(e) === q.category),
+    );
     const page = all.slice(-q.limit).reverse();
     return {
       items: page.map((e) => ({
@@ -337,7 +358,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.post("/api/projects/:code/audit/verify", async (req) => {
     const { code } = params(req, z.object({ code: Code }));
     const c = ctx(req);
-    const s = projects.requireProject(code, c.viewer);
+    const s = await projects.requireProject(code, c.viewer);
     if (!canVerifyAudit(s, c.viewer)) {
       throw new HttpError(403, "forbidden", "Die Integrität prüfen können Projektleitung und PMO.");
     }

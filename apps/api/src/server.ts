@@ -1,7 +1,7 @@
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { Orchestrator } from "./agents/orchestrator";
@@ -12,7 +12,8 @@ import type { Config } from "./config";
 import { HttpError } from "./errors";
 import type { ProjectRepository } from "./projects/repository";
 import { ProjectService } from "./projects/service";
-import { registerRoutes } from "./routes";
+import { registerRoutes, type ClientConfig } from "./routes";
+import { StoreUnavailableError, type EventStore } from "./store/event-store";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -23,11 +24,12 @@ declare module "fastify" {
 export interface ServerDeps {
   config: Config;
   repo: ProjectRepository;
+  store: EventStore;
   provider: AiProvider;
   authenticator: Authenticator;
   devUsers?: readonly DevUser[];
-  /** false: no logging (tests). */
-  logger?: boolean;
+  /** The process logger; false: no logging (tests). */
+  logger?: FastifyBaseLogger | false;
 }
 
 export interface Server {
@@ -36,16 +38,19 @@ export interface Server {
   runs: RunService;
 }
 
-const PUBLIC_PATHS = new Set(["/api/health", "/api/dev/users"]);
+const PUBLIC_PATHS = new Set(["/api/health", "/api/ready", "/api/config", "/api/dev/users"]);
 const CORRELATION_ID = /^[A-Za-z0-9._-]{8,64}$/;
 
 export async function buildServer(deps: ServerDeps): Promise<Server> {
   const { config } = deps;
   const app = Fastify({
-    logger:
-      deps.logger === false
-        ? false
-        : { level: config.LOG_LEVEL, redact: ["req.headers.authorization", "req.headers.cookie"] },
+    ...(deps.logger === false
+      ? { logger: false }
+      : deps.logger
+        ? { loggerInstance: deps.logger }
+        : {
+            logger: { level: config.LOG_LEVEL, redact: ["req.headers.authorization", "req.headers.cookie"] },
+          }),
     genReqId: (req) => {
       const h = req.headers["x-correlation-id"];
       return typeof h === "string" && CORRELATION_ID.test(h) ? h : randomUUID();
@@ -97,6 +102,15 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
       if (err.status >= 500) req.log.error({ err }, "request failed");
       return send(err.status, err.code, err.message);
     }
+    if (err instanceof StoreUnavailableError) {
+      req.log.error({ err }, "event store unavailable");
+      reply.header("retry-after", "5");
+      return send(
+        503,
+        "unavailable",
+        "Die Datenbank ist vorübergehend nicht erreichbar. Bitte gleich nochmals versuchen.",
+      );
+    }
     const status = (err as { statusCode?: number }).statusCode;
     if (status === 413) return send(413, "too_large", "Die Anfrage ist zu gross.");
     if (status === 429) return send(429, "rate_limited", "Zu viele Anfragen. Bitte einen Moment warten.");
@@ -105,7 +119,21 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     return send(500, "internal", "Unerwarteter Fehler. Bitte später erneut versuchen.");
   });
 
+  const clientConfig: ClientConfig =
+    deps.authenticator.mode === "entra"
+      ? {
+          authMode: "entra",
+          entra: {
+            tenantId: config.ENTRA_TENANT_ID ?? "",
+            clientId: config.ENTRA_WEB_CLIENT_ID ?? "",
+            apiScope: `api://${config.ENTRA_API_CLIENT_ID ?? ""}/${config.ENTRA_REQUIRED_SCOPE}`,
+          },
+        }
+      : { authMode: "dev" };
+
   registerRoutes(app, {
+    clientConfig,
+    ready: () => deps.store.ping(),
     repo: deps.repo,
     projects,
     runs,

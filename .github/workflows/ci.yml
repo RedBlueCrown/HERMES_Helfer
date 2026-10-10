@@ -24,6 +24,48 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  sql:
+    # Event store against a real SQL Server: contract and permission tests,
+    # ledger checks, then the built migration job and API (scripts/sql-smoke.sh).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: check
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_PID: Developer
+          # Throwaway password of a database that exists only during this job.
+          MSSQL_SA_PASSWORD: Hh-ci-Throwaway-1
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Hh-ci-Throwaway-1 -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-start-period 20s
+          --health-retries 12
+    env:
+      SA_PASSWORD: Hh-ci-Throwaway-1
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: SQL event store tests
+        run: npm test -w apps/api
+        env:
+          TEST_SQL_SERVER: localhost
+          TEST_SQL_PASSWORD: ${{ env.SA_PASSWORD }}
+      - run: npm run build
+      - name: Migration job and API on SQL Server
+        run: scripts/sql-smoke.sh
+        env:
+          SQLCMD: docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20

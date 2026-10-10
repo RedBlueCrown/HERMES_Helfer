@@ -1,8 +1,5 @@
-import { MODEL, type Actor, type ProjectEvent } from "@hermes-helfer/core";
+import { DEFAULT_PROFILE, MODEL } from "@hermes-helfer/core";
 import { exportJWK, generateKeyPair, SignJWT, createLocalJWKSet } from "jose";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AzureOpenAiProvider } from "../src/agents/azure-openai-provider";
 import { checkDraftStructure } from "../src/agents/kritiker";
@@ -10,104 +7,58 @@ import { AiProviderError } from "../src/agents/provider";
 import { createEntraAuthenticator } from "../src/auth";
 import { loadConfig } from "../src/config";
 import { HttpError } from "../src/errors";
-import { MemoryEventStore, verifyChain } from "../src/store/event-store";
-import { canonicalJson } from "../src/util/canonical-json";
-
-const ACTOR: Actor = { userId: "u-test", displayName: "Test", roles: ["PL"], channel: "web" };
-const created: ProjectEvent = {
-  type: "ProjectCreated",
-  data: {
-    code: "T1",
-    name: "Test",
-    description: "",
-    phase: "init",
-    modelVersion: "x",
-    profile: {
-      schutzbedarf: "mittel",
-      personendaten: false,
-      cloud: false,
-      schnittstellen: 0,
-      lieferant: false,
-      verfuegbarkeit: "mittel",
-      neueTechnologie: false,
-      externeNutzende: false,
-    },
-  },
-};
 
 describe("configuration guards", () => {
-  it("refuses dev sign-in and the mock model in production", () => {
-    expect(() => loadConfig({ NODE_ENV: "production", AUTH_MODE: "dev" })).toThrow(/AUTH_MODE=dev/);
-    expect(() =>
-      loadConfig({
-        NODE_ENV: "production",
-        AUTH_MODE: "entra",
-        ENTRA_TENANT_ID: "t",
-        ENTRA_API_CLIENT_ID: "c",
-      }),
-    ).toThrow(/AI_PROVIDER=mock/);
+  const production = {
+    NODE_ENV: "production",
+    AUTH_MODE: "entra",
+    ENTRA_TENANT_ID: "t",
+    ENTRA_API_CLIENT_ID: "api",
+    ENTRA_WEB_CLIENT_ID: "web",
+    AI_PROVIDER: "azure-openai",
+    AZURE_OPENAI_ENDPOINT: "https://example.openai.azure.com",
+    AZURE_OPENAI_DEPLOYMENT_DRAFT: "draft",
+    AZURE_OPENAI_DEPLOYMENT_CHAT: "chat",
+    STORE: "sql",
+    SQL_SERVER: "sql.example",
+    SQL_DATABASE: "hh",
+  };
+
+  it("accepts a complete production configuration", () => {
+    const c = loadConfig(production);
+    expect(c).toMatchObject({
+      STORE: "sql",
+      SQL_AUTH: "entra",
+      SEED_DEMO: false,
+      SQL_MIGRATE_ON_START: false,
+    });
+  });
+
+  it("refuses unsafe settings in production", () => {
+    const bad: [Record<string, string>, RegExp][] = [
+      [{ AUTH_MODE: "dev" }, /AUTH_MODE=dev/],
+      [{ AI_PROVIDER: "mock" }, /AI_PROVIDER=mock/],
+      [{ STORE: "memory" }, /STORE=sql/],
+      [{ SQL_AUTH: "password", SQL_USER: "u", SQL_PASSWORD: "p" }, /SQL_AUTH=entra/],
+      [{ SQL_TRUST_SERVER_CERTIFICATE: "true" }, /SQL_TRUST_SERVER_CERTIFICATE/],
+      [{ SEED_DEMO: "true" }, /Demo data/],
+      [{ SEED_SYNTHETIC_PROJECTS: "10" }, /Demo data/],
+    ];
+    for (const [change, message] of bad) {
+      expect(() => loadConfig({ ...production, ...change }), JSON.stringify(change)).toThrow(message);
+    }
+  });
+
+  it("needs the settings of the chosen modes", () => {
     expect(() => loadConfig({ AUTH_MODE: "entra" })).toThrow(/ENTRA_TENANT_ID/);
-    expect(loadConfig({}).AUTH_MODE).toBe("dev");
-  });
-});
-
-describe("event store", () => {
-  it("hashes canonically, chains events and rejects stale writes", async () => {
-    expect(canonicalJson({ b: 1, a: { d: [1, { f: 2, e: 1 }], c: undefined } })).toBe(
-      '{"a":{"d":[1,{"e":1,"f":2}]},"b":1}',
+    expect(() => loadConfig({ AUTH_MODE: "entra", ENTRA_TENANT_ID: "t", ENTRA_API_CLIENT_ID: "a" })).toThrow(
+      /ENTRA_WEB_CLIENT_ID/,
     );
-    const store = new MemoryEventStore();
-    await store.append({
-      projectId: "p1",
-      expectedSeq: 0,
-      events: [created],
-      actor: ACTOR,
-      correlationId: "c1",
-    });
-    await store.append({
-      projectId: "p1",
-      expectedSeq: 1,
-      events: [{ type: "DeliverableReleased", data: { deliverableId: "kickoff" } }],
-      actor: ACTOR,
-      correlationId: "c2",
-    });
-    const events = store.read("p1");
-    expect(events[1]!.prevHash).toBe(events[0]!.hash);
-    expect(verifyChain(events).ok).toBe(true);
-    await expect(
-      store.append({ projectId: "p1", expectedSeq: 1, events: [created], actor: ACTOR, correlationId: "c3" }),
-    ).rejects.toThrow(/Concurrent/);
-    expect(() => {
-      (events[0] as { seq: number }).seq = 99;
-    }).toThrow();
-  });
-
-  it("persists to JSON lines and quarantines a manipulated project on load", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hh-store-"));
-    const store = new MemoryEventStore({ dataDir: dir });
-    await store.append({
-      projectId: "p1",
-      expectedSeq: 0,
-      events: [created],
-      actor: ACTOR,
-      correlationId: "c1",
-    });
-    await store.append({
-      projectId: "p2",
-      expectedSeq: 0,
-      events: [created],
-      actor: ACTOR,
-      correlationId: "c1",
-    });
-    expect(new MemoryEventStore({ dataDir: dir }).read("p1")).toHaveLength(1);
-
-    const file = join(dir, "projects", "p2.jsonl");
-    writeFileSync(file, readFileSync(file, "utf8").replace('"name":"Test"', '"name":"Manipuliert"'));
-    const quarantined: string[] = [];
-    const reloaded = new MemoryEventStore({ dataDir: dir, onCorruptProject: (id) => quarantined.push(id) });
-    expect(quarantined).toEqual(["p2"]);
-    expect(reloaded.projectIds()).toEqual(["p1"]);
-    expect(reloaded.verify("p2")).toMatchObject({ ok: false, brokenAtSeq: 1 });
+    expect(() => loadConfig({ STORE: "sql" })).toThrow(/SQL_SERVER/);
+    expect(() =>
+      loadConfig({ STORE: "sql", SQL_SERVER: "s", SQL_DATABASE: "d", SQL_AUTH: "password" }),
+    ).toThrow(/SQL_USER/);
+    expect(loadConfig({})).toMatchObject({ AUTH_MODE: "dev", STORE: "memory", SEED_DEMO: false });
   });
 });
 
@@ -223,7 +174,7 @@ describe("Azure OpenAI provider (against a fake API)", () => {
       description: "",
       phase: "konzept" as const,
       phaseLabel: "Konzept",
-      profile: created.type === "ProjectCreated" ? created.data.profile : (undefined as never),
+      profile: DEFAULT_PROFILE,
       releasedResults: [],
     },
   };

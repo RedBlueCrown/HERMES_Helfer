@@ -1,9 +1,10 @@
 import { z } from "zod";
 
-const bool = z
-  .enum(["true", "false"])
-  .default("true")
-  .transform((v) => v === "true");
+const flag = (byDefault: boolean) =>
+  z
+    .enum(["true", "false"])
+    .default(byDefault ? "true" : "false")
+    .transform((v) => v === "true");
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -14,8 +15,22 @@ const schema = z.object({
   ENTRA_TENANT_ID: z.string().optional(),
   ENTRA_API_CLIENT_ID: z.string().optional(),
   ENTRA_REQUIRED_SCOPE: z.string().default("access_as_user"),
+  /** Client ID of the web app registration; the web app reads it from /api/config. */
+  ENTRA_WEB_CLIENT_ID: z.string().optional(),
+  /** Client ID of the user-assigned managed identity in Azure. */
+  AZURE_CLIENT_ID: z.string().optional(),
+  STORE: z.enum(["memory", "sql"]).default("memory"),
   DATA_DIR: z.string().optional(),
-  SEED_DEMO: bool,
+  SQL_SERVER: z.string().optional(),
+  SQL_PORT: z.coerce.number().int().min(1).max(65535).default(1433),
+  SQL_DATABASE: z.string().optional(),
+  SQL_AUTH: z.enum(["entra", "password"]).default("entra"),
+  SQL_USER: z.string().optional(),
+  SQL_PASSWORD: z.string().optional(),
+  SQL_TRUST_SERVER_CERTIFICATE: flag(false),
+  /** Apply pending migrations at startup. In Azure a separate job migrates with its own identity. */
+  SQL_MIGRATE_ON_START: flag(false),
+  SEED_DEMO: flag(false),
   SEED_SYNTHETIC_PROJECTS: z.coerce.number().int().min(0).max(5000).default(0),
   AI_PROVIDER: z.enum(["mock", "azure-openai"]).default("mock"),
   MOCK_AI_LATENCY_MS: z.coerce.number().int().min(0).max(60_000).default(1200),
@@ -25,6 +40,7 @@ const schema = z.object({
   AZURE_OPENAI_API_VERSION: z.string().default("2024-10-21"),
   AZURE_OPENAI_REGION_LABEL: z.string().default("EU"),
   WEB_DIST_DIR: z.string().optional(),
+  APPLICATIONINSIGHTS_CONNECTION_STRING: z.string().optional(),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -32,20 +48,35 @@ export type Config = z.infer<typeof schema>;
 /** Reads and checks the configuration. Refuses unsafe combinations (todo-later E18). */
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const c = schema.parse(env);
-  if (c.NODE_ENV === "production" && c.AUTH_MODE === "dev") {
-    throw new Error("AUTH_MODE=dev is not allowed with NODE_ENV=production.");
+  const refuse = (message: string) => {
+    throw new Error(message);
+  };
+  if (c.NODE_ENV === "production") {
+    if (c.AUTH_MODE === "dev") refuse("AUTH_MODE=dev is not allowed with NODE_ENV=production.");
+    if (c.AI_PROVIDER === "mock") refuse("AI_PROVIDER=mock is not allowed with NODE_ENV=production.");
+    if (c.STORE !== "sql") refuse("NODE_ENV=production needs STORE=sql.");
+    if (c.SQL_AUTH !== "entra") refuse("NODE_ENV=production needs SQL_AUTH=entra (no database passwords).");
+    if (c.SQL_TRUST_SERVER_CERTIFICATE) {
+      refuse("SQL_TRUST_SERVER_CERTIFICATE=true is not allowed with NODE_ENV=production.");
+    }
+    if (c.SEED_DEMO || c.SEED_SYNTHETIC_PROJECTS > 0) {
+      refuse("Demo data (SEED_DEMO, SEED_SYNTHETIC_PROJECTS) is not allowed with NODE_ENV=production.");
+    }
   }
-  if (c.NODE_ENV === "production" && c.AI_PROVIDER === "mock") {
-    throw new Error("AI_PROVIDER=mock is not allowed with NODE_ENV=production.");
+  if (c.AUTH_MODE === "entra" && (!c.ENTRA_TENANT_ID || !c.ENTRA_API_CLIENT_ID || !c.ENTRA_WEB_CLIENT_ID)) {
+    refuse("AUTH_MODE=entra needs ENTRA_TENANT_ID, ENTRA_API_CLIENT_ID and ENTRA_WEB_CLIENT_ID.");
   }
-  if (c.AUTH_MODE === "entra" && (!c.ENTRA_TENANT_ID || !c.ENTRA_API_CLIENT_ID)) {
-    throw new Error("AUTH_MODE=entra needs ENTRA_TENANT_ID and ENTRA_API_CLIENT_ID.");
+  if (c.STORE === "sql" && (!c.SQL_SERVER || !c.SQL_DATABASE)) {
+    refuse("STORE=sql needs SQL_SERVER and SQL_DATABASE.");
+  }
+  if (c.STORE === "sql" && c.SQL_AUTH === "password" && (!c.SQL_USER || !c.SQL_PASSWORD)) {
+    refuse("SQL_AUTH=password needs SQL_USER and SQL_PASSWORD.");
   }
   if (
     c.AI_PROVIDER === "azure-openai" &&
     (!c.AZURE_OPENAI_ENDPOINT || !c.AZURE_OPENAI_DEPLOYMENT_DRAFT || !c.AZURE_OPENAI_DEPLOYMENT_CHAT)
   ) {
-    throw new Error(
+    refuse(
       "AI_PROVIDER=azure-openai needs AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT_DRAFT and AZURE_OPENAI_DEPLOYMENT_CHAT.",
     );
   }

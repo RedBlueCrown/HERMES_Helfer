@@ -7,7 +7,7 @@ import { ProjectRepository } from "../src/projects/repository";
 import { DEV_USERS } from "../src/seed/dev-users";
 import { seedDemo } from "../src/seed/seed";
 import { buildServer } from "../src/server";
-import { MemoryEventStore } from "../src/store/event-store";
+import { MemoryEventStore } from "../src/store/memory-event-store";
 
 export async function testServer(
   opts: { provider?: AiProvider; authenticator?: Authenticator; seed?: boolean } = {},
@@ -19,6 +19,7 @@ export async function testServer(
   const server = await buildServer({
     config,
     repo,
+    store,
     provider: opts.provider ?? new MockProvider(0),
     authenticator: opts.authenticator ?? createDevAuthenticator(DEV_USERS),
     devUsers: DEV_USERS,
