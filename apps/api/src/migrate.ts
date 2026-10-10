@@ -10,6 +10,7 @@
 // managed identity; creates the user in Azure SQL if it does not exist yet).
 
 import { z } from "zod";
+import { withoutEmpty } from "./config";
 import { createLogger } from "./logger";
 import { sqlSettings } from "./store/create-store";
 import { connectSql } from "./store/sql/connection";
@@ -34,7 +35,7 @@ const env = z
     APP_DB_USER: z.string().min(1).max(128).optional(),
     APP_DB_USER_CLIENT_ID: z.uuid().optional(),
   })
-  .parse(process.env);
+  .parse(withoutEmpty(process.env));
 
 const log = createLogger(env);
 if (env.NODE_ENV === "production" && (env.SQL_AUTH !== "entra" || env.SQL_TRUST_SERVER_CERTIFICATE)) {

@@ -140,7 +140,9 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
           entra: {
             tenantId: config.ENTRA_TENANT_ID ?? "",
             clientId: config.ENTRA_WEB_CLIENT_ID ?? "",
-            apiScope: `api://${config.ENTRA_API_CLIENT_ID ?? ""}/${config.ENTRA_REQUIRED_SCOPE}`,
+            apiScope:
+              config.ENTRA_API_SCOPE ??
+              `api://${config.ENTRA_API_CLIENT_ID ?? ""}/${config.ENTRA_REQUIRED_SCOPE}`,
           },
         }
       : { authMode: "dev" };

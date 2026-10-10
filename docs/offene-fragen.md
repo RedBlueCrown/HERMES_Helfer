@@ -1,6 +1,6 @@
 # Offene Fragen
 
-Stand: 8. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-architecture.md`](target-architecture.md), Abschnitt 1.1.
+Stand: 10. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-architecture.md`](target-architecture.md), Abschnitt 1.1.
 
 **So beantwortest du die Fragen:** Schreib deine Antwort direkt unter «Antwort:» oder antworte im Chat mit der Nummer (z. B. «F3: regional»). Wo ich eine Empfehlung habe, steht sie dabei. Wenn du mit ihr einverstanden bist, genügt «ok».
 
@@ -11,6 +11,7 @@ Stand: 8. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-arch
 - **Inkrement 3** (SharePoint) und **4** (Zusammenarbeit): F9 bis F15
 - **Fachliche Regeln:** F16 bis F20
 - **Protokollierung:** F21 bis F24
+- **Betrieb der Pilotumgebung:** F25 bis F28 (neu)
 
 ---
 
@@ -309,5 +310,55 @@ Der Projektverlauf zeigt, wer was entschieden hat. Das dient der Nachvollziehbar
 
 1. Ist Microsoft Sentinel (oder ein anderes SIEM) im Einsatz?
 2. Wer überwacht die Sicherheitsmeldungen (internes Team oder externer Dienstleister)?
+
+**Antwort:**
+
+---
+
+## Teil E: Betrieb der Pilotumgebung
+
+Diese Fragen sind beim Bau der Azure-Vorlagen dazugekommen. Was die Vorlagen anlegen, steht in [`deployment.md`](deployment.md).
+
+### F25 · Von wo aus soll der HERMES Helfer erreichbar sein?
+
+- **A)** Aus dem Internet, aber nur mit Entra-Anmeldung (MFA über Conditional Access). Zusätzlich lässt sich der Zugriff auf die Internet-Adressen der Firma beschränken.
+- **B)** Nur aus dem Firmennetz oder über VPN. Dafür muss das Azure-Netz mit dem Firmennetz verbunden sein (meist über die «Landing Zone» der IT).
+
+**Meine Empfehlung:** A mit Beschränkung auf die Firmen-Adressen für den Pilot. Für den produktiven Betrieb kommt eine Web Application Firewall (Front Door) davor.
+
+Falls A mit Beschränkung: Welche öffentlichen IP-Adressbereiche nutzt die Firma? (Die IT kennt sie.)
+
+**Antwort:**
+
+---
+
+### F26 · Welche Gruppen erhalten welche Rolle?
+
+Die App kennt vier übergreifende Rollen: **Nutzung** (alle, die mitarbeiten), **PMO**, **Portfolio-Gremium** und **technische Administration**. Die IT weist jeder Rolle eine Entra-ID-Gruppe zu. Wer in keiner dieser Gruppen ist, kann sich nicht anmelden. Die Rollen im einzelnen Vorhaben (PL, ISM usw.) vergibt die Projektleitung in der App.
+
+Welche Gruppen sollen es sein? Die Namen genügen. Die technischen IDs gehören nicht in dieses Dokument, solange das Repository öffentlich ist.
+
+**Antwort:**
+
+---
+
+### F27 · Wer verwaltet die Datenbank?
+
+Im Normalbetrieb hat kein Mensch Zugriff auf die Daten: Nur das Migrationsprogramm ist Administrator, und die App darf Ereignisse nur lesen und anhängen. Für Notfälle und für die regelmässige Prüfung der Datenbank («Ledger») braucht es trotzdem eine Gruppe von Personen.
+
+1. Welche Rolle gehört in diese Gruppe (z. B. Datenbank-Team der IT)?
+2. Wer prüft den Ledger, und wie oft?
+
+**Meine Empfehlung:** eine Gruppe «HERMES Helfer DB-Admins», die nur zeitlich begrenzt und mit Begründung freigeschaltet wird (Privileged Identity Management, Genehmigung durch die Informationssicherheit). Die Informationssicherheit prüft den Ledger monatlich.
+
+**Antwort:**
+
+---
+
+### F28 · Wie lange müssen die Prüfwerte der Datenbank gesperrt bleiben?
+
+Die Datenbank legt regelmässig einen Prüfwert («Digest») in einem unveränderlichen Speicher ab. Damit lässt sich später beweisen, dass niemand die Projektakte verändert hat. Die Sperrfrist ist im Moment **10 Jahre**. Sobald die Frist «gesperrt» ist, lässt sie sich nur noch verlängern, nie verkürzen.
+
+**Meine Empfehlung:** 10 Jahre, passend zur Aufbewahrung der Projektakte (F21). Falls dort eine längere Frist herauskommt, verlängern wir.
 
 **Antwort:**

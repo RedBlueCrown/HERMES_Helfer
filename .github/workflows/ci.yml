@@ -78,6 +78,29 @@ jobs:
       - name: Smoke test image
         run: scripts/image-smoke.sh hermes-helfer:ci
 
+  infra:
+    # Bicep templates: compile, lint (important rules are errors, infra/bicepconfig.json), format.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - run: az bicep install --version v0.48.1
+      - name: Build and lint
+        working-directory: infra
+        run: |
+          for f in main.bicep entra.bicep; do
+            az bicep build --file "$f" --stdout > /dev/null
+            az bicep lint --file "$f"
+          done
+          az bicep build-params --file pilot.bicepparam --stdout > /dev/null
+      - name: Format
+        run: |
+          status=0
+          for f in $(find infra -name '*.bicep' -o -name '*.bicepparam'); do
+            az bicep format --file "$f" --stdout | diff -u "$f" - || status=1
+          done
+          exit $status
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20

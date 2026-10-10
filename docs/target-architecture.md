@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Draft v0.2. Includes the decisions of 2026-10-08 (§1.1). |
+| Status | Draft v0.3. Includes the decisions of 2026-10-08 (§1.1) and the Increment 2 groundwork of 2026-10-10. |
 | Organisation | Firma Muster AG |
 | Basis | Clickable prototype v22 (UX and domain specification) |
 | Platform | Microsoft Entra ID, SharePoint Online, Microsoft 365, Azure (EU), Microsoft Foundry |
@@ -129,15 +129,15 @@ flowchart LR
 | Layer | Choice | Notes |
 |---|---|---|
 | UI | React SPA with Fluent UI React v9, later also as a Teams tab | Microsoft's design system, so it looks native in Microsoft 365. Ported from the prototype UX. The prototype code is not reused: it overrides functions several times and builds pages with `innerHTML`. |
-| API | Node.js 22 LTS with Fastify | Stateless. Serves the API and the built web app from one container (same origin, no CORS in production). |
+| API | Node.js 24 LTS with Fastify | Serves the API and the built web app from one container (same origin, no CORS in production). Distroless image from Microsoft's registry, runs as non-root. Reads its sign-in settings for the browser at runtime, so one image serves every environment. |
 | Engine | Pure TypeScript package `@hermes-helfer/core` | No I/O, fully unit-tested, shared by API and UI |
-| Persistence | Event store per project. Pilot: memory or files. Next: Azure SQL Database with an append-only ledger table for events. | Azure SQL ledger tables add platform-level tamper evidence on top of the app's own hash chain. |
+| Persistence | Event store per project on Azure SQL Database: events in an append-only ledger table, one head row per project as the concurrency token. Memory or files for local development and tests. | The ledger table adds platform-level tamper evidence on top of the app's own hash chain: nobody can change or delete events, not even the database owner, and the database digests go to immutable storage. The API reads only new events and checks each against the chain. Schema changes run as a separate migration job with its own identity; the app's identity may only read and append. |
 | Read models | Project summaries for the list and the later portfolio view | Updated from events, queried with filters and paging |
 | Documents | SharePoint Online, one site per project (§7) | Increment 3. Until then, drafts are stored in the event store. |
 | Identity | Entra ID: MSAL in the SPA, JWT validation with `jose` in the API, managed identities for Azure resources | No secrets in the browser, no API keys for the models |
 | AI | Own agent runtime in the API, models via Microsoft Foundry (Azure OpenAI) in the EU | §4.3 and §5 |
 | Notifications | Teams activity feed and a daily digest (later) | No Power Automate |
-| CI/CD | GitHub Actions: typecheck, tests, build. Deployment to Azure with OIDC later. | |
+| CI/CD | GitHub Actions: format, typecheck, unit and API tests, the event store against SQL Server, the container image, the Bicep templates, end-to-end tests. Deployment to Azure with OIDC later. | Steps for the first deployment: [`deployment.md`](deployment.md) |
 
 ### 4.2 Why this stack
 
@@ -331,7 +331,7 @@ stateDiagram-v2
 | Stream | Contents | Store |
 |---|---|---|
 | **1. Projektakte** | All project events: runs, drafts, edits, releases, approvals with reasons, gate decisions with Konsent and Auflagen, "nicht zutreffend", participation, checklist confirmations, membership changes | Event store with a hash chain (pilot). Later Azure SQL ledger table, daily export to WORM storage, decision PDFs as records. |
-| **2. AI run audit** | Per run: who, which skill and version, model deployment, sizes, tokens, duration, outcome, Kritiker findings | Pilot: structured `ai_run` log entries. Later Application Insights via OpenTelemetry, with prompt content in a separate store (§9.6). |
+| **2. AI run audit** | Per run: who, which skill and version, model deployment, sizes, tokens, duration, outcome, Kritiker findings | Structured `ai_run` log entries (to Log Analytics), and the metrics `hh.ai_run.duration` and `hh.ai_run.tokens` in Application Insights via OpenTelemetry, without people or projects. Prompt content later in a separate store (§9.6). |
 | **3. Security and platform telemetry** | Entra sign-in and audit logs, Microsoft 365 audit log, Azure activity, APIM, WAF, Key Vault, PIM, Defender | Microsoft Sentinel |
 
 The **Verlauf** page shows stream 1 in plain German, and the integrity check verifies the hash chain on request.
@@ -405,7 +405,7 @@ Principles:
 | Increment | Scope | Status |
 |---|---|---|
 | **1. Local vertical slice** | Monorepo, engine with tests, API with dev sign-in and Entra token validation, event store with hash chain, manual skill runs with Kritiker (mock model), orchestrator chat, web UI: project list (300+), phase view, deliverables, decisions, gate, participation, roles, Verlauf, end-to-end tests | Done |
-| 2. Azure pilot environment | Infrastructure as code (Bicep): Container Apps, Azure SQL (ledger), Key Vault, App Insights, Front Door/WAF, APIM. Entra app registrations, real sign-in, Azure OpenAI in the EU, Sentinel connection. The tool's own SchuBAn, ISDS-Konzept and DSFA. | Needs F2 to F4 |
+| 2. Azure pilot environment | Infrastructure as code (Bicep): Container Apps, Azure SQL (ledger), App Insights, private network. Entra app registrations, real sign-in, Azure OpenAI in the EU. Later in this increment: Front Door/WAF, APIM, Sentinel connection. The tool's own SchuBAn, ISDS-Konzept and DSFA. | Built and tested in CI: SQL event store, image, telemetry, templates. Deployment needs F2 to F4 and F25 to F28 |
 | 3. SharePoint | Site provisioning or linking per project, drafts as .docx from templates, OBO access, sources in drafts, decision PDFs as records | Needs F9, templates |
 | 4. Collaboration | Protokoll (Teams transcripts), Change Requests, Risiko, Wissen, Teams notifications | Needs F11 to F15 |
 | 5. Portfolio | Overview of all projects with drill-down, KPIs | Needs F6 |

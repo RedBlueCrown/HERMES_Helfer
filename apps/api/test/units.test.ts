@@ -59,6 +59,9 @@ describe("configuration guards", () => {
       loadConfig({ STORE: "sql", SQL_SERVER: "s", SQL_DATABASE: "d", SQL_AUTH: "password" }),
     ).toThrow(/SQL_USER/);
     expect(loadConfig({})).toMatchObject({ AUTH_MODE: "dev", STORE: "memory", SEED_DEMO: false });
+    // Empty values count as unset.
+    expect(loadConfig({ ENTRA_API_SCOPE: "", PORT: " " })).toMatchObject({ PORT: 3001 });
+    expect(loadConfig({ ENTRA_API_SCOPE: "" }).ENTRA_API_SCOPE).toBeUndefined();
   });
 });
 

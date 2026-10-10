@@ -2,11 +2,11 @@
 
 Leads projects of Firma Muster AG through the HERMES project management method. AI agents draft deliverables and check their quality. People release results and make every decision, and the app records each step in a tamper-evident project record (Projektakte).
 
-Status: **Increment 1**, a local vertical slice. It runs on your machine with fictional demo data and without an AI model (placeholder drafts). Azure deployment, Entra sign-in and the real model follow in Increment 2 ([roadmap](docs/target-architecture.md#10-increments)).
+Status: **Increment 1** (local vertical slice) is done. **Increment 2** (Azure pilot) is built and tested in CI: event store on Azure SQL with a ledger table, container image, telemetry, Bicep templates and Entra ID registrations. The first deployment to Azure is open ([deployment steps](docs/deployment.md), [roadmap](docs/target-architecture.md#10-increments)).
 
 ## Try it locally
 
-You need Node.js 22.12 or newer.
+You need Node.js 22.12 or newer (production and CI use Node.js 24 LTS).
 
 ```bash
 npm install
@@ -19,6 +19,17 @@ Then open <http://localhost:5173>. The API runs on port 3001 and the web app pro
 - **Demo data:** 5 fictional projects in different phases plus 300 synthetic ones to try the list at scale. They are stored in `apps/api/.data`. `npm run dev:reset` starts fresh.
 - **Without an AI model:** drafts are placeholders, and the assistant answers from fixed rules. In Increment 2 Azure OpenAI in the EU takes over (`AI_PROVIDER=azure-openai`, see `apps/api/.env.example`).
 
+### Optional: with SQL Server instead of memory
+
+To try the Azure SQL event store locally, start SQL Server 2025 in Docker and create a database:
+
+```bash
+docker run -d --name hh-sql -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='<your password>' -p 1433:1433 mcr.microsoft.com/mssql/server:2025-latest
+docker exec hh-sql /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P '<your password>' -Q "CREATE DATABASE hermes"
+```
+
+Then start the API with `STORE=sql SQL_SERVER=localhost SQL_DATABASE=hermes SQL_AUTH=password SQL_USER=sa SQL_PASSWORD=<your password> SQL_TRUST_SERVER_CERTIFICATE=true SQL_MIGRATE_ON_START=true` (see `apps/api/.env.example`). The SQL tests run with `TEST_SQL_SERVER=localhost TEST_SQL_PASSWORD=<your password> npm test -w apps/api`.
+
 ## What you can do
 
 1. Open a project and start a draft (for example the Kick-off). The agent writes it, and the Kritiker checks it.
@@ -30,12 +41,13 @@ Then open <http://localhost:5173>. The API runs on port 3001 and the web app pro
 
 ## Repository layout
 
-| Path            | Content                                                                                                                                  |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/core` | HERMES model (phases, deliverables, skills, rules) and the deterministic engine: status, gates, permissions, tasks, view models. No I/O. |
-| `apps/api`      | Fastify API: sign-in (Entra ID or dev users), hash-chained event store, commands, agent runs, Kritiker, Delivery-Assistent               |
-| `apps/web`      | React app with Fluent UI, Playwright end-to-end tests                                                                                    |
-| `docs`          | Architecture, open questions (German), deferred items                                                                                    |
+| Path            | Content                                                                                                                                                                    |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core` | HERMES model (phases, deliverables, skills, rules) and the deterministic engine: status, gates, permissions, tasks, view models. No I/O.                                   |
+| `apps/api`      | Fastify API: sign-in (Entra ID or dev users), hash-chained event store (memory or Azure SQL), commands, agent runs, Kritiker, Delivery-Assistent, migration job, telemetry |
+| `apps/web`      | React app with Fluent UI, Playwright end-to-end tests                                                                                                                      |
+| `infra`         | Bicep templates for Azure (`main.bicep`) and the Entra ID app registrations (`entra.bicep`)                                                                                |
+| `docs`          | Architecture, deployment steps, open questions (German), deferred items                                                                                                    |
 
 ## Checks
 
@@ -45,12 +57,14 @@ npm run typecheck      # TypeScript, all packages
 npm test               # unit and API tests (Vitest)
 npm run build          # API bundle and web build
 npm run e2e            # Playwright: starts API and web, drives Chromium
+docker build -t hermes-helfer .   # production image (API, web app, migration job)
 ```
 
-CI runs all of them on every push (`.github/workflows/ci.yml`).
+CI runs all of them on every push (`.github/workflows/ci.yml`), plus the event store tests against SQL Server 2025, a smoke test of the image and the Bicep build and linter.
 
 ## Documents
 
 - [Target architecture and agent design](docs/target-architecture.md)
+- [Deploying the Azure pilot environment](docs/deployment.md)
 - [Offene Fragen](docs/offene-fragen.md): questions for the business side, in German
 - [To do later](docs/todo-later.md): error cases, placeholders and hardening still open

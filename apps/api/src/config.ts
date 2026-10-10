@@ -17,6 +17,8 @@ const schema = z.object({
   ENTRA_REQUIRED_SCOPE: z.string().default("access_as_user"),
   /** Client ID of the web app registration; the web app reads it from /api/config. */
   ENTRA_WEB_CLIENT_ID: z.string().optional(),
+  /** Scope the web app requests; default api://<ENTRA_API_CLIENT_ID>/<ENTRA_REQUIRED_SCOPE>. */
+  ENTRA_API_SCOPE: z.string().optional(),
   /** Client ID of the user-assigned managed identity in Azure. */
   AZURE_CLIENT_ID: z.string().optional(),
   STORE: z.enum(["memory", "sql"]).default("memory"),
@@ -45,9 +47,16 @@ const schema = z.object({
 
 export type Config = z.infer<typeof schema>;
 
+/** Empty variables count as unset (deployment templates often set "" for "not configured"). */
+export function withoutEmpty(env: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter((e): e is [string, string] => e[1] !== undefined && e[1].trim() !== ""),
+  );
+}
+
 /** Reads and checks the configuration. Refuses unsafe combinations (todo-later E18). */
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
-  const c = schema.parse(env);
+  const c = schema.parse(withoutEmpty(env));
   const refuse = (message: string) => {
     throw new Error(message);
   };

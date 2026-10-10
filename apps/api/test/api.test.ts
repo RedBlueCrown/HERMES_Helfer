@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Authenticator } from "../src/auth";
 import { StoreUnavailableError } from "../src/store/event-store";
 import { testServer } from "./helpers";
 
@@ -58,6 +59,36 @@ describe("platform endpoints", () => {
     const res = await server.app.inject({ url: "/api/config" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ authMode: "dev" });
+  });
+
+  it("hands the browser the Entra ID settings, never secrets", async () => {
+    const entra: Authenticator = {
+      mode: "entra",
+      authenticate: async () => {
+        throw new Error("not used");
+      },
+    };
+    const env = {
+      AUTH_MODE: "entra",
+      ENTRA_TENANT_ID: "tenant-1",
+      ENTRA_API_CLIENT_ID: "api-1",
+      ENTRA_WEB_CLIENT_ID: "web-1",
+    };
+    server = await testServer({ authenticator: entra, env, seed: false });
+    expect((await server.app.inject({ url: "/api/config" })).json()).toEqual({
+      authMode: "entra",
+      entra: { tenantId: "tenant-1", clientId: "web-1", apiScope: "api://api-1/access_as_user" },
+    });
+    await server.app.close();
+
+    server = await testServer({
+      authenticator: entra,
+      env: { ...env, ENTRA_API_SCOPE: "api://hermes-helfer-pilot/access_as_user" },
+      seed: false,
+    });
+    expect((await server.app.inject({ url: "/api/config" })).json().entra.apiScope).toBe(
+      "api://hermes-helfer-pilot/access_as_user",
+    );
   });
 
   it("is ready while the store answers, and reports 503 when it does not", async () => {
