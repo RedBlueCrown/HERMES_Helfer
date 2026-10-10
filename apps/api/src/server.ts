@@ -3,7 +3,7 @@ import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { Orchestrator } from "./agents/orchestrator";
 import type { AiProvider } from "./agents/provider";
 import { RunService } from "./agents/runner";
@@ -144,9 +144,21 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
   });
 
   const webRoot = config.WEB_DIST_DIR ? resolve(config.WEB_DIST_DIR) : undefined;
-  if (webRoot) await app.register(fastifyStatic, { root: webRoot, wildcard: false });
+  if (webRoot) {
+    await app.register(fastifyStatic, {
+      root: webRoot,
+      wildcard: false,
+      // Built assets have a content hash in their name; everything else is revalidated.
+      setHeaders: (reply, path) => {
+        reply.header(
+          "cache-control",
+          path.includes(`${sep}assets${sep}`) ? "public, max-age=31536000, immutable" : "no-cache",
+        );
+      },
+    });
+  }
   app.setNotFoundHandler((req, reply) => {
-    if (!webRoot || req.url.startsWith("/api/")) {
+    if (!webRoot || req.url.startsWith("/api/") || req.url.startsWith("/assets/")) {
       return reply
         .code(404)
         .send({ error: { code: "not_found", message: "Nicht gefunden.", correlationId: req.id } });

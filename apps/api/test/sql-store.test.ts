@@ -89,15 +89,17 @@ describe.skipIf(!server)("SQL event store on SQL Server", () => {
 
     it("cannot change or delete events, move heads back or change the schema", async () => {
       await new ProjectRepository(store, MODEL).append("p-perm", 0, [created()], ACTOR, "c");
-      for (const statement of [
-        "UPDATE hh.events SET event_type = 'X' WHERE project_id = 'p-perm'",
-        "DELETE FROM hh.events WHERE project_id = 'p-perm'",
-        "DELETE FROM hh.streams WHERE project_id = 'p-perm'",
-        "CREATE TABLE hh.x (id int)",
-        "DROP TABLE hh.events",
-        "INSERT INTO hh.schema_migrations (version, name, checksum) VALUES (99, 'x', 'x')",
-      ]) {
-        await expect(app.request().query(statement), statement).rejects.toThrow(/permission|denied/i);
+      // The ledger refuses changes to events before permissions are even checked.
+      const refused: [string, RegExp][] = [
+        ["UPDATE hh.events SET event_type = 'X' WHERE project_id = 'p-perm'", /ledger|permission/i],
+        ["DELETE FROM hh.events WHERE project_id = 'p-perm'", /ledger|permission/i],
+        ["DELETE FROM hh.streams WHERE project_id = 'p-perm'", /permission/i],
+        ["CREATE TABLE hh.x (id int)", /permission/i],
+        ["DROP TABLE hh.events", /permission/i],
+        ["INSERT INTO hh.schema_migrations (version, name, checksum) VALUES (99, 'x', 'x')", /permission/i],
+      ];
+      for (const [statement, message] of refused) {
+        await expect(app.request().query(statement), statement).rejects.toThrow(message);
       }
     });
   });

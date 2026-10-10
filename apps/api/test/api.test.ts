@@ -1,5 +1,9 @@
 import type { ProjectEvent, ProjectView } from "@hermes-helfer/core";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { StoreUnavailableError } from "../src/store/event-store";
 import { testServer } from "./helpers";
 
 type Server = Awaited<ReturnType<typeof testServer>>;
@@ -45,6 +49,59 @@ describe("authentication and visibility", () => {
     expect(unknown.statusCode).toBe(404);
     expect(forbidden.json().error.message).toBe(unknown.json().error.message);
     expect((await server.as("u-peter").get("/api/projects/ERP")).statusCode).toBe(200);
+  });
+});
+
+describe("platform endpoints", () => {
+  it("tells the web app how to sign in, without a user", async () => {
+    server = await testServer();
+    const res = await server.app.inject({ url: "/api/config" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ authMode: "dev" });
+  });
+
+  it("is ready while the store answers, and reports 503 when it does not", async () => {
+    server = await testServer();
+    expect((await server.app.inject({ url: "/api/ready" })).json()).toEqual({ status: "ready" });
+
+    server.store.ping = async () => {
+      throw new Error("down");
+    };
+    const notReady = await server.app.inject({ url: "/api/ready" });
+    expect(notReady.statusCode).toBe(503);
+    expect(notReady.json()).toEqual({ status: "unavailable" });
+
+    server.store.read = async () => {
+      throw new StoreUnavailableError("down");
+    };
+    const res = await server.as("u-anna").get("/api/projects/KPO");
+    expect(res.statusCode).toBe(503);
+    expect(res.headers["retry-after"]).toBe("5");
+    expect(res.json().error.code).toBe("unavailable");
+  });
+
+  it("serves the web app with security and cache headers, and client routes as index.html", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hh-web-"));
+    mkdirSync(join(dir, "assets"));
+    writeFileSync(join(dir, "index.html"), "<!doctype html><div id=root></div>");
+    writeFileSync(join(dir, "assets", "app-abc123.js"), "console.log(1)");
+    server = await testServer({ env: { WEB_DIST_DIR: dir } });
+
+    const index = await server.app.inject({ url: "/" });
+    expect(index.statusCode).toBe(200);
+    expect(index.headers["cache-control"]).toBe("no-cache");
+    expect(index.headers["content-security-policy"]).toContain("default-src 'self'");
+    expect(index.headers["x-content-type-options"]).toBe("nosniff");
+
+    const asset = await server.app.inject({ url: "/assets/app-abc123.js" });
+    expect(asset.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+
+    const route = await server.app.inject({ url: "/vorhaben/KPO" });
+    expect(route.statusCode).toBe(200);
+    expect(route.body).toContain("id=root");
+    expect((await server.app.inject({ url: "/assets/missing.js" })).statusCode).toBe(404);
+    expect((await server.app.inject({ url: "/api/unknown" })).statusCode).toBe(401);
+    expect((await server.as("u-anna").get("/api/unknown")).statusCode).toBe(404);
   });
 });
 

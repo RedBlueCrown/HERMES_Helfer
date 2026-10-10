@@ -10,9 +10,14 @@ import { buildServer } from "../src/server";
 import { MemoryEventStore } from "../src/store/memory-event-store";
 
 export async function testServer(
-  opts: { provider?: AiProvider; authenticator?: Authenticator; seed?: boolean } = {},
+  opts: {
+    provider?: AiProvider;
+    authenticator?: Authenticator;
+    seed?: boolean;
+    env?: Record<string, string>;
+  } = {},
 ) {
-  const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+  const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", ...opts.env });
   const store = new MemoryEventStore();
   const repo = new ProjectRepository(store, MODEL);
   if (opts.seed !== false) await seedDemo(repo);
