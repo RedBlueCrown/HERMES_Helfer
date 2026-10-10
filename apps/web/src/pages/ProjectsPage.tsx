@@ -1,6 +1,4 @@
 import {
-  Body1,
-  Button,
   Caption1,
   Dropdown,
   Option,
@@ -8,23 +6,25 @@ import {
   Spinner,
   Tab,
   TabList,
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
   Title2,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { PROJECT_ROLE_LABELS } from "@hermes-helfer/core";
 import { useDeferredValue, useState } from "react";
-import { Link } from "react-router-dom";
 import { useMe, useProjects, useReference } from "../api/hooks";
-import { ErrorView, GateBadge } from "../components/ui";
+import { Pager, ProjectTable, type ProjectColumn } from "../components/ProjectTable";
+import { ErrorView } from "../components/ui";
 
 const PAGE = 25;
+const COLUMNS: readonly ProjectColumn[] = [
+  "phase",
+  "gate",
+  "mandatory",
+  "decisions",
+  "signals",
+  "leads",
+  "myRoles",
+];
 
 const useStyles = makeStyles({
   head: { display: "flex", alignItems: "baseline", gap: tokens.spacingHorizontalL, flexWrap: "wrap" },
@@ -34,23 +34,6 @@ const useStyles = makeStyles({
     alignItems: "center",
     flexWrap: "wrap",
     margin: `${tokens.spacingVerticalM} 0`,
-  },
-  card: {
-    backgroundColor: tokens.colorNeutralBackground1,
-    borderRadius: tokens.borderRadiusLarge,
-    boxShadow: tokens.shadow4,
-    overflowX: "auto",
-  },
-  link: {
-    color: tokens.colorBrandForegroundLink,
-    fontWeight: tokens.fontWeightSemibold,
-    textDecoration: "none",
-  },
-  more: {
-    display: "flex",
-    justifyContent: "center",
-    gap: tokens.spacingHorizontalM,
-    padding: tokens.spacingVerticalM,
   },
   muted: { color: tokens.colorNeutralForeground3 },
 });
@@ -116,72 +99,20 @@ export function ProjectsPage() {
       {projects.isError ? <ErrorView error={projects.error} onRetry={() => void projects.refetch()} /> : null}
       {projects.isPending ? <Spinner label="Vorhaben werden geladen …" /> : null}
       {projects.data ? (
-        <div className={s.card}>
-          <Table aria-label="Vorhaben" size="medium">
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Vorhaben</TableHeaderCell>
-                <TableHeaderCell>Phase</TableHeaderCell>
-                <TableHeaderCell>Gate</TableHeaderCell>
-                <TableHeaderCell>Pflichtergebnisse</TableHeaderCell>
-                <TableHeaderCell>Offene Entscheide</TableHeaderCell>
-                <TableHeaderCell>Projektleitung</TableHeaderCell>
-                <TableHeaderCell>Meine Rollen</TableHeaderCell>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {projects.data.items.map((p) => (
-                <TableRow key={p.projectId}>
-                  <TableCell>
-                    <Link className={s.link} to={`/vorhaben/${encodeURIComponent(p.code)}`}>
-                      {p.name}
-                    </Link>
-                    <Caption1 block className={s.muted}>
-                      {p.code}
-                    </Caption1>
-                  </TableCell>
-                  <TableCell>{p.phaseLabel}</TableCell>
-                  <TableCell>
-                    <GateBadge
-                      status={p.gateStatus}
-                      label={p.finished ? "Abgeschlossen" : p.gateStatusLabel}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {p.mandatoryDone} / {p.mandatoryTotal}
-                  </TableCell>
-                  <TableCell>{p.openDecisions || "–"}</TableCell>
-                  <TableCell>{p.projectLeads.join(", ") || "–"}</TableCell>
-                  <TableCell>{p.myRoles.map((r) => PROJECT_ROLE_LABELS[r]).join(", ") || "–"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {projects.data.items.length === 0 ? (
-            <Body1 block className={s.more}>
-              {scope === "mine" ? "Du hast in keinem Vorhaben eine Rolle." : "Keine Vorhaben gefunden."}
-            </Body1>
-          ) : null}
-          {projects.data.total > PAGE ? (
-            <div className={s.more}>
-              <Button
-                disabled={offset === 0 || projects.isFetching}
-                onClick={() => setOffset((o) => Math.max(0, o - PAGE))}
-              >
-                Zurück
-              </Button>
-              <Caption1 className={s.muted}>
-                {offset + 1}–{Math.min(offset + PAGE, projects.data.total)} von {projects.data.total}
-              </Caption1>
-              <Button
-                disabled={offset + PAGE >= projects.data.total || projects.isFetching}
-                onClick={() => setOffset((o) => o + PAGE)}
-              >
-                Weiter
-              </Button>
-            </div>
-          ) : null}
-        </div>
+        <ProjectTable
+          label="Vorhaben"
+          items={projects.data.items}
+          columns={COLUMNS}
+          empty={scope === "mine" ? "Du hast in keinem Vorhaben eine Rolle." : "Keine Vorhaben gefunden."}
+        >
+          <Pager
+            offset={offset}
+            size={PAGE}
+            total={projects.data.total}
+            busy={projects.isFetching}
+            onChange={setOffset}
+          />
+        </ProjectTable>
       ) : null}
     </section>
   );

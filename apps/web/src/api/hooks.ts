@@ -8,9 +8,11 @@ import type {
   DevUserInfo,
   EventPage,
   Me,
+  Portfolio,
   ProjectPage,
   ProjectView,
   Reference,
+  Scope,
   VerifyResult,
 } from "./types";
 
@@ -54,9 +56,13 @@ export function useReference() {
 export interface ProjectFilter {
   q: string;
   phase: string;
-  scope: "mine" | "all";
+  scope: Scope;
   limit: number;
   offset: number;
+  /** Gate state of the current phase; "passed": finished projects. */
+  gate?: string;
+  signal?: string;
+  sort?: "updated" | "name" | "attention";
 }
 
 export function useProjects(f: ProjectFilter) {
@@ -64,9 +70,21 @@ export function useProjects(f: ProjectFilter) {
   const qs = new URLSearchParams({ scope: f.scope, limit: String(f.limit), offset: String(f.offset) });
   if (f.q.trim()) qs.set("q", f.q.trim());
   if (f.phase) qs.set("phase", f.phase);
+  if (f.gate) qs.set("gate", f.gate);
+  if (f.signal) qs.set("signal", f.signal);
+  if (f.sort) qs.set("sort", f.sort);
   return useQuery({
     queryKey: ["projects", f],
     queryFn: () => api.get<ProjectPage>(`/api/projects?${qs}`),
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function usePortfolio(scope: Scope) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["portfolio", scope],
+    queryFn: () => api.get<Portfolio>(`/api/portfolio?scope=${scope}`),
     placeholderData: (prev) => prev,
   });
 }
@@ -119,6 +137,7 @@ export function useProjectCommand<TVars>(code: string, run: (api: Api, vars: TVa
         qc.invalidateQueries({ queryKey: ["deliverable", code] }),
         qc.invalidateQueries({ queryKey: ["events", code] }),
         qc.invalidateQueries({ queryKey: ["projects"] }),
+        qc.invalidateQueries({ queryKey: ["portfolio"] }),
       ]);
     },
   });

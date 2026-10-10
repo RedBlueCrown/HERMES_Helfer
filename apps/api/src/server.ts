@@ -31,6 +31,8 @@ export interface ServerDeps {
   devUsers?: readonly DevUser[];
   /** The process logger; false: no logging (tests). */
   logger?: FastifyBaseLogger | false;
+  /** The clock for due dates and inactivity; tests set it. */
+  now?: () => Date;
 }
 
 export interface Server {
@@ -165,6 +167,7 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     authenticator: deps.authenticator,
     provider: deps.provider.info,
     devUsers: deps.devUsers ?? [],
+    now: deps.now ?? (() => new Date()),
   });
 
   const webRoot = config.WEB_DIST_DIR ? resolve(config.WEB_DIST_DIR) : undefined;

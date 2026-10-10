@@ -26,7 +26,16 @@ import {
   SubtractCircle16Regular,
   Warning16Filled,
 } from "@fluentui/react-icons";
-import type { DeliverableStatus, GateStatus } from "@hermes-helfer/core";
+import {
+  PROJECT_ROLE_LABELS,
+  SIGNALS,
+  type ConditionView,
+  type DeliverableStatus,
+  type GateStatus,
+  type ProjectListItem,
+  type SignalId,
+  type SignalLevel,
+} from "@hermes-helfer/core";
 import { createContext, Fragment, useCallback, useContext, type ReactElement, type ReactNode } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import { ApiError } from "../api/client";
@@ -67,6 +76,48 @@ export function GateBadge({ status, label }: { status: GateStatus; label: string
   return (
     <Badge appearance="tint" color={GATE_COLOR[status]}>
       {label}
+    </Badge>
+  );
+}
+
+const SIGNAL_COLOR: Record<SignalLevel, BadgeProps["color"]> = {
+  hoch: "danger",
+  mittel: "warning",
+  info: "informative",
+};
+
+/** Why a project needs attention; the tooltip names the details. */
+export function SignalBadge({ id, item }: { id: SignalId; item?: ProjectListItem }) {
+  const sig = SIGNALS[id];
+  let detail = sig.description;
+  if (item && id === "rollen-fehlen") {
+    detail = `Fehlt: ${item.missingRoles.map((r) => PROJECT_ROLE_LABELS[r]).join(", ")}`;
+  } else if (item && id === "auflagen-ueberfaellig") {
+    detail = `${item.overdueConditions} von ${item.openConditions} offenen Auflagen überfällig`;
+  } else if (item && id === "gate-bereit") {
+    detail = `Gate «${item.gateName}» wartet auf den Entscheid.`;
+  }
+  return (
+    <Badge appearance="tint" color={SIGNAL_COLOR[sig.level]} title={detail} data-signal={id}>
+      {sig.label}
+    </Badge>
+  );
+}
+
+/** When an Auflage is due, in words. */
+export function conditionDueText(c: ConditionView): string {
+  if (c.dueAt) return `bis ${formatDay(c.dueAt)}`;
+  if (c.dueGate) return `bis Gate «${c.dueGate}»`;
+  return c.due;
+}
+
+const useBadgeStyles = makeStyles({ overdue: { marginLeft: tokens.spacingHorizontalXS } });
+
+export function OverdueBadge() {
+  const s = useBadgeStyles();
+  return (
+    <Badge appearance="filled" color="danger" size="small" className={s.overdue}>
+      überfällig
     </Badge>
   );
 }
@@ -199,6 +250,10 @@ export function NotifyProvider({ children }: { children: ReactNode }) {
 }
 
 export const useNotify = () => useContext(NotifyContext);
+
+export function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
 
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleString("de-CH", {

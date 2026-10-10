@@ -19,6 +19,7 @@ import {
   PROJECT_ROLES,
   PROJECT_ROLE_LABELS,
   type Decision,
+  type DueOption,
   type ProjectRole,
 } from "@hermes-helfer/core";
 import { useState } from "react";
@@ -28,7 +29,7 @@ export interface DecisionValues {
   decision: Decision;
   reason: string;
   konsent: boolean;
-  conditions: { text: string; ownerRole: ProjectRole; due: string }[];
+  conditions: { text: string; ownerRole: ProjectRole; due: DueOption }[];
 }
 
 export interface DecisionFormProps {
@@ -153,7 +154,7 @@ export function DecisionForm(p: DecisionFormProps) {
                 aria-label="Frist"
                 value={c.due}
                 selectedOptions={[c.due]}
-                onOptionSelect={(_, d) => setCondition(i, { due: d.optionValue ?? c.due })}
+                onOptionSelect={(_, d) => setCondition(i, { due: (d.optionValue as DueOption) ?? c.due })}
               >
                 {DUE_OPTIONS.map((x) => (
                   <Option key={x} value={x}>

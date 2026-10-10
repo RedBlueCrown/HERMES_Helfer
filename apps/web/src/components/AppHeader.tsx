@@ -14,11 +14,12 @@ import {
   MenuTrigger,
   Text,
   makeStyles,
+  mergeClasses,
   tokens,
 } from "@fluentui/react-components";
 import { GLOBAL_ROLE_LABELS } from "@hermes-helfer/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import { useDevUsers, useMe } from "../api/hooks";
 import { useAuth } from "../auth/auth";
 
@@ -44,6 +45,27 @@ const useStyles = makeStyles({
   },
   logo: { width: "28px", height: "28px" },
   brandText: { display: "flex", flexDirection: "column", lineHeight: 1.1 },
+  nav: {
+    display: "flex",
+    alignSelf: "stretch",
+    gap: tokens.spacingHorizontalXS,
+    marginLeft: tokens.spacingHorizontalL,
+  },
+  navLink: {
+    display: "flex",
+    alignItems: "center",
+    padding: `0 ${tokens.spacingHorizontalM}`,
+    color: tokens.colorNeutralForeground2,
+    textDecoration: "none",
+    borderBottom: "3px solid transparent",
+    ":hover": { color: tokens.colorNeutralForeground1, backgroundColor: tokens.colorNeutralBackground1Hover },
+    ":focus-visible": { outline: `2px solid ${tokens.colorStrokeFocus2}`, outlineOffset: "-2px" },
+  },
+  navActive: {
+    color: tokens.colorNeutralForeground1,
+    fontWeight: tokens.fontWeightSemibold,
+    borderBottomColor: tokens.colorBrandStroke1,
+  },
   spacer: { flexGrow: 1 },
   user: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS },
 });
@@ -66,6 +88,17 @@ export function AppHeader() {
           <Caption1>Firma Muster AG</Caption1>
         </span>
       </Link>
+      <nav className={s.nav} aria-label="Hauptnavigation">
+        <NavLink to="/" end className={({ isActive }) => mergeClasses(s.navLink, isActive && s.navActive)}>
+          Vorhaben
+        </NavLink>
+        <NavLink
+          to="/portfolio"
+          className={({ isActive }) => mergeClasses(s.navLink, isActive && s.navActive)}
+        >
+          Portfolio
+        </NavLink>
+      </nav>
       {auth.mode === "dev" ? (
         <Badge appearance="filled" color="warning" title="Anmeldung mit fiktiven Personen, nur lokal">
           Testmodus

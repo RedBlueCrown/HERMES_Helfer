@@ -11,7 +11,8 @@ Stand: 10. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-arc
 - **Inkrement 3** (SharePoint) und **4** (Zusammenarbeit): F9 bis F15
 - **Fachliche Regeln:** F16 bis F20
 - **Protokollierung:** F21 bis F24
-- **Betrieb der Pilotumgebung:** F25 bis F28 (neu)
+- **Betrieb der Pilotumgebung:** F25 bis F28
+- **Portfolio:** F29 und F30 (neu)
 
 ---
 
@@ -360,5 +361,50 @@ Im Normalbetrieb hat kein Mensch Zugriff auf die Daten: Nur das Migrationsprogra
 Die Datenbank legt regelmässig einen Prüfwert («Digest») in einem unveränderlichen Speicher ab. Damit lässt sich später beweisen, dass niemand die Projektakte verändert hat. Die Sperrfrist ist im Moment **10 Jahre**. Sobald die Frist «gesperrt» ist, lässt sie sich nur noch verlängern, nie verkürzen.
 
 **Meine Empfehlung:** 10 Jahre, passend zur Aufbewahrung der Projektakte (F21). Falls dort eine längere Frist herauskommt, verlängern wir.
+
+**Antwort:**
+
+---
+
+## Teil F: Portfolio
+
+Die erste Version der Portfolio-Seite ist gebaut. PMO und Portfolio-Gremium sehen alle Vorhaben, alle anderen ihre eigenen. Die Seite zählt Vorhaben pro Phase und Gate-Status, markiert Vorhaben mit Handlungsbedarf, und jede Zahl führt mit einem Klick zu den Vorhaben dahinter. Beschreibung in [`target-architecture.md`](target-architecture.md), Abschnitt 7.1.
+
+### F29 · Woran erkennt das Portfolio Handlungsbedarf?
+
+Heute gelten diese Signale:
+
+| Signal | Regel | Dringlichkeit |
+|---|---|---|
+| Veto offen | Ein Entscheid mit Veto zu einem Pflichtergebnis (z. B. ISDS, Go-live) ist offen, das Gate ist blockiert. | hoch |
+| Auflagen überfällig | Eine Auflage ist nach ihrer Frist noch offen. | hoch |
+| Gate zurückgewiesen | Der letzte Gate-Entscheid der aktuellen Phase lautet «zurückgewiesen». | mittel |
+| Rollen unbesetzt | Eine Rolle, die in der aktuellen Phase entscheidet, hat im Vorhaben niemand. | mittel |
+| Ohne Aktivität | Seit 30 Tagen kein neuer Eintrag in der Projektakte. | mittel |
+| Gate-Entscheid fällig | Alle Kriterien sind erfüllt, das Gate wartet auf den Entscheid. | Hinweis |
+
+1. Stimmen diese Signale und ihre Dringlichkeit?
+2. Nach wie vielen Tagen ohne Eintrag gilt ein Vorhaben als inaktiv?
+3. Welche Angaben fehlen dem Portfolio-Gremium, z. B. Budget, Termine oder die Ampel aus dem Statusbericht? Diese Daten führt die App heute nicht. Sie kämen aus der Portfolioplanung (F11) oder aus einem späteren Statusbericht.
+4. Das Portfolio zählt pro Vorhaben, nie pro Person: Es gibt keine Auswertung, keinen Filter und keine Rangliste nach Projektleitung (siehe F23). Einverstanden?
+
+**Meine Empfehlung:** Die Signale so für den Pilot, 30 Tage, Zahlen nur pro Vorhaben.
+
+**Antwort:**
+
+---
+
+### F30 · Fristen von Auflagen
+
+Wer «mit Auflagen» entscheidet, wählt heute eine von drei Fristen. Die App rechnet daraus die Fälligkeit und zeigt überfällige Auflagen im Vorhaben und im Portfolio:
+
+- **«1 Woche», «2 Wochen»:** ab dem Entscheid gerechnet.
+- **«bis zum nächsten Gate»:** Eine Auflage aus einem Gate-Entscheid ist am Gate der folgenden Phase fällig, eine Auflage aus einem Entscheid zu einem Ergebnis am Gate derselben Phase. Sie ist überfällig, sobald dieses Gate passiert ist.
+
+1. Reichen die drei Fristen, oder soll man ein Datum wählen können?
+2. Ein Gate lässt sich heute auch passieren, wenn Auflagen offen sind, die bis zu diesem Gate fällig sind. Sie gelten dann als überfällig. Soll eine solche Auflage das Gate stattdessen blockieren?
+3. Sollen die Verantwortlichen vor Ablauf der Frist erinnert werden (siehe F15)?
+
+**Meine Empfehlung:** 1. Ein Datum wählen können, die drei Fristen bleiben als Vorschläge. 2. Nicht blockieren, aber beim Gate-Entscheid die offenen Auflagen bestätigen lassen. 3. Ja, drei Tage vorher in Teams.
 
 **Antwort:**

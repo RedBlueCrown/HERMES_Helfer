@@ -15,6 +15,7 @@ export async function testServer(
     authenticator?: Authenticator;
     seed?: boolean;
     env?: Record<string, string>;
+    now?: () => Date;
   } = {},
 ) {
   const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", AUTH_MODE: "dev", ...opts.env });
@@ -29,6 +30,7 @@ export async function testServer(
     authenticator: opts.authenticator ?? createDevAuthenticator(DEV_USERS),
     devUsers: DEV_USERS,
     logger: false,
+    ...(opts.now ? { now: opts.now } : {}),
   });
   const as = (user: string) => ({
     get: (url: string) => server.app.inject({ method: "GET", url, headers: { "x-dev-user": user } }),

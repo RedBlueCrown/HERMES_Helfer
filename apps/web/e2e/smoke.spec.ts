@@ -1,19 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-
-const SHOTS = process.env.SCREENSHOT_DIR;
-const shot = async (page: Page, name: string) => {
-  if (!SHOTS) return;
-  // Let drawers and toasts finish their animations first.
-  await page.evaluate(() =>
-    Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))),
-  );
-  await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: false });
-};
-
-const signInAs = async (page: Page, userId: string) => {
-  await page.goto("/");
-  await page.evaluate((id) => localStorage.setItem("hh:devUser", id), userId);
-};
+import { expect, test } from "@playwright/test";
+import { shot, signInAs } from "./helpers";
 
 test("PL drafts and releases the kick-off, asks the assistant, verifies the audit trail", async ({
   page,

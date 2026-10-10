@@ -1,4 +1,4 @@
-import type { ProjectEvent, ProjectView } from "@hermes-helfer/core";
+import type { PortfolioOverview, ProjectEvent, ProjectListItem, ProjectView } from "@hermes-helfer/core";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -380,6 +380,94 @@ describe("drafts, releases and decisions", () => {
     expect(v.phase).toBe("konzept");
     expect(v.conditions).toHaveLength(1);
     expect(v.myTasks.some((t) => t.kind === "condition")).toBe(true);
+  });
+});
+
+describe("portfolio", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const overview = async (s: Server, user: string, scope = "all") =>
+    (await s.as(user).get(`/api/portfolio?scope=${scope}`)).json() as PortfolioOverview & { scope: string };
+  const list = async (s: Server, user: string, query: string) =>
+    ((await s.as(user).get(`/api/projects?${query}`)).json() as { items: ProjectListItem[] }).items;
+  const codes = async (s: Server, user: string, query: string) =>
+    (await list(s, user, query)).map((p) => p.code);
+
+  it("shows key figures of the viewer's own projects, and of all projects to PMO and Portfolio", async () => {
+    server = await testServer();
+    expect(await overview(server, "u-anna")).toMatchObject({ scope: "mine", projects: 3 });
+    for (const user of ["u-peter", "u-rita"]) {
+      expect(await overview(server, user)).toMatchObject({
+        scope: "all",
+        projects: 5,
+        active: 5,
+        finished: 0,
+      });
+    }
+    const all = await overview(server, "u-rita");
+    expect(all.phases.map((p) => [p.id, p.total])).toEqual([
+      ["init", 1],
+      ["konzept", 1],
+      ["real", 1],
+      ["einf", 1],
+      ["skal", 1],
+    ]);
+    expect(all.phases.find((p) => p.id === "konzept")).toMatchObject({ blocked: 1, open: 0, ready: 0 });
+    // The ISDS veto in CRM and the go-live veto in DAP.
+    expect(all.signals.find((x) => x.id === "veto")?.projects).toBe(2);
+    expect((await server.app.inject({ url: "/api/portfolio" })).statusCode).toBe(401);
+    expect((await server.as("u-rita").get("/api/portfolio?scope=everything")).statusCode).toBe(422);
+  });
+
+  it("filters the list by phase, gate state and signal, and sorts the most urgent first", async () => {
+    server = await testServer();
+    expect(await codes(server, "u-rita", "scope=all&gate=blocked&sort=name")).toEqual(["CRM", "DAP"]);
+    expect(await codes(server, "u-rita", "scope=all&signal=veto&phase=konzept")).toEqual(["CRM"]);
+    expect((await codes(server, "u-rita", "scope=all&sort=attention")).slice(0, 2).sort()).toEqual([
+      "CRM",
+      "DAP",
+    ]);
+    // Members see only their own projects, whatever they ask for.
+    expect(await codes(server, "u-anna", "scope=all&signal=veto")).toEqual(["CRM"]);
+    const [crm] = await list(server, "u-anna", "q=crm");
+    expect(crm).toMatchObject({
+      signals: ["veto"],
+      gateName: "Phasenfreigabe Realisierung",
+      myRoles: ["PL"],
+    });
+    expect((await server.as("u-rita").get("/api/projects?signal=unknown")).statusCode).toBe(422);
+    expect((await server.as("u-rita").get("/api/projects?gate=closed")).statusCode).toBe(422);
+  });
+
+  it("flags Auflagen as overdue once their due date has passed", async () => {
+    let now = new Date();
+    server = await testServer({ now: () => now });
+    const decide = (due: string) =>
+      server!.as("u-marco").post("/api/projects/CRM/skills/konzept.isds/decisions", {
+        role: "ISM",
+        decision: "mit Auflagen",
+        reason: "Restrisiken sind tragbar, wenn die Massnahmen folgen.",
+        conditions: [{ text: "Restrisiken mit Verantwortlichen ergänzen", ownerRole: "ISM", due }],
+        version: 1,
+      });
+    // Only the offered options: they decide when the Auflage is due.
+    expect((await decide("irgendwann")).statusCode).toBe(422);
+    expect((await decide("1 Woche")).statusCode).toBe(200);
+
+    const crm = async () => (await list(server!, "u-rita", "scope=all&q=crm"))[0]!;
+    expect(await crm()).toMatchObject({ openConditions: 1, overdueConditions: 0, signals: [] });
+
+    now = new Date(now.getTime() + 8 * DAY);
+    expect(await crm()).toMatchObject({ overdueConditions: 1, signals: ["auflagen-ueberfaellig"] });
+    expect(await overview(server, "u-rita")).toMatchObject({ openConditions: 1, overdueConditions: 1 });
+    expect(await codes(server, "u-rita", "scope=all&signal=auflagen-ueberfaellig")).toEqual(["CRM"]);
+    const [condition] = (await view(server, "u-marco", "CRM")).conditions;
+    expect(condition).toMatchObject({ due: "1 Woche", overdue: true });
+    expect(Date.parse(condition!.dueAt!)).toBeLessThan(now.getTime());
+
+    expect(
+      (await server.as("u-marco").post(`/api/projects/CRM/conditions/${condition!.id}/complete`)).statusCode,
+    ).toBe(200);
+    expect(await crm()).toMatchObject({ openConditions: 0, overdueConditions: 0, signals: [] });
   });
 });
 

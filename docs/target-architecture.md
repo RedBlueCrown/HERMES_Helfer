@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Draft v0.3. Includes the decisions of 2026-10-08 (§1.1) and the Increment 2 groundwork of 2026-10-10. |
+| Status | Draft v0.4. Includes the decisions of 2026-10-08 (§1.1), the Increment 2 groundwork and the first version of the portfolio view (§7.1) of 2026-10-10. |
 | Organisation | Firma Muster AG |
 | Basis | Clickable prototype v22 (UX and domain specification) |
 | Platform | Microsoft Entra ID, SharePoint Online, Microsoft 365, Azure (EU), Microsoft Foundry |
@@ -16,7 +16,7 @@
 - **The prototype names about 60 "agents".** It has 42 phase agents, 10 background checks and 8 global or event agents, plus a feedback agent. They fall into four kinds: rule and state logic, document drafting, reviewing and monitoring, and integrations with existing systems. The target is **a deterministic HERMES process engine, 13 AI agents with one skill per deliverable, and connectors**. The UI can keep showing the HERMES-specific names ("Pattern-Pilot", "Go-live-Check"), because those become skills of fewer agents.
 - **AI drafts and humans decide, and the code enforces this.** Approving, releasing, passing a gate and marking something as not applicable are not available to agents as tools. The prototype only says so in a prompt ("Entscheide triffst du nie selbst"), which is not enough for production.
 - **The Projektakte is the event log.** Every change to a project is an event in an append-only, hash-chained stream per project. The state is computed from those events, so state and audit trail cannot drift apart. That fits the decision that the app is the system of record.
-- **Built for 300+ projects** (§7): project roles are managed in the app instead of ~3,000 Entra groups, there is one event stream and one SharePoint site per project, and a searchable project list grows into the later portfolio view.
+- **Built for 300+ projects** (§7): project roles are managed in the app instead of ~3,000 Entra groups, there is one event stream and one SharePoint site per project, a searchable project list, and a portfolio view with key figures and drill-down into each project (§7.1).
 - **Pro-code TypeScript on Azure in the EU, no Power Platform** (§4). AI processing stays in the EU. Claude is currently not available with EU processing in Microsoft Foundry, so the default models are Azure OpenAI deployments in the EU (§4.3).
 - **The pilot has the orchestrator plus manually triggered agents** (§5). Every draft also passes the Kritiker. Background agents come later.
 - **Logs go into three separate streams:** business audit trail, AI run audit, and security telemetry. Proposed retention periods are in §9.6.
@@ -132,7 +132,7 @@ flowchart LR
 | API | Node.js 24 LTS with Fastify | Serves the API and the built web app from one container (same origin, no CORS in production). Distroless image from Microsoft's registry, runs as non-root. Reads its sign-in settings for the browser at runtime, so one image serves every environment. |
 | Engine | Pure TypeScript package `@hermes-helfer/core` | No I/O, fully unit-tested, shared by API and UI |
 | Persistence | Event store per project on Azure SQL Database: events in an append-only ledger table, one head row per project as the concurrency token. Memory or files for local development and tests. | The ledger table adds platform-level tamper evidence on top of the app's own hash chain: nobody can change or delete events, not even the database owner, and the database digests go to immutable storage. The API reads only new events and checks each against the chain. Schema changes run as a separate migration job with its own identity; the app's identity may only read and append. |
-| Read models | Project summaries for the list and the later portfolio view | Updated from events, queried with filters and paging |
+| Read models | Project summaries for the project list and the portfolio view | One summary per project, rebuilt when the project has new events; queried with filters, sorting and paging (§7.1). In memory for now; a SQL table once the API no longer keeps all events (todo-later H16, H19). |
 | Documents | SharePoint Online, one site per project (§7) | Increment 3. Until then, drafts are stored in the event store. |
 | Identity | Entra ID: MSAL in the SPA, JWT validation with `jose` in the API, managed identities for Azure resources | No secrets in the browser, no API keys for the models |
 | AI | Own agent runtime in the API, models via Microsoft Foundry (Azure OpenAI) in the EU | §4.3 and §5 |
@@ -287,12 +287,42 @@ stateDiagram-v2
 | Documents | 300+ project sites | Automated provisioning from a site template, a hub site "Vorhaben" for navigation and search, names derived from the project code, read-only and a retention label at closure. Existing sites are linked instead of recreated (question F9). |
 | Data | Every record belongs to one project, many users in parallel | One event stream per project with optimistic concurrency, so two people deciding at the same time cannot overwrite each other. Indexed by project. Paging everywhere. |
 | Navigation | A drop-down with 300 entries does not work | Searchable project list "Meine Vorhaben" with filters and server-side paging (in Increment 1) |
-| Portfolio view | Overview of all projects with drill-down | Built on the project summary read model: phase, gate state, mandatory progress, open decisions, overdue Auflagen. PMO and Portfolio see everything, members their own projects. Increment 5. |
+| Portfolio view | Overview of all projects with drill-down | Built on the project summary read model: phase, gate state, mandatory progress, open decisions, overdue Auflagen, signals that call for action. PMO and Portfolio see everything, members their own projects. First version built (§7.1). |
 | Model changes | Projects run for years while the HERMES model changes | Each project is pinned to a model version. Migration is an explicit, audited PMO action. |
 | AI capacity and cost | Many runs around gate dates | Token quotas per project in APIM, queue-based workers that scale out, cost per project in the dashboard |
 | Notifications | Approvals across many projects | Teams activity feed and a daily digest instead of one mail per event |
 | Audit volume | Millions of events over the years | Partitioning per year, a daily export to WORM storage, and a verification job per project |
 | Support | About 300 project leads | In-app help, the assistant, a PMO support channel, training |
+
+### 7.1 Portfolio view (first version)
+
+The page «Portfolio» answers two questions for the PMO and the Portfolio-Gremium: where does a project need attention, and where are the projects in HERMES? A click on a tile or on a number in the phase table filters the list to the projects behind it, and each project opens with one click (drill-down). The filters are part of the address, so a filtered view can be shared, and «back» from a project returns to it.
+
+| Part | Content |
+|---|---|
+| Handlungsbedarf | One tile per signal (below) with the number of projects. A click filters the list to exactly these projects. |
+| Phase and gate | Active projects per phase, split by the state of the phase's gate: open, blocked (veto), ready for the decision. |
+| Decisions and Auflagen | Open decisions on results, gates waiting for the Portfolio-Gremium (Projektfreigabe, Skalierungsentscheid), open and overdue Auflagen, finished projects. |
+| Project list | Search, filters (phase, gate state, signal), sorting («Dringendste zuerst», last change, name), paging. |
+
+**Signals** (engine, `packages/core/src/engine/portfolio.ts`). The thresholds are proposals (question F29).
+
+| Signal | Rule | Level |
+|---|---|---|
+| Veto offen | A veto decision on a mandatory result (ISDS, Go-live …) is pending, so the gate is blocked | high |
+| Auflagen überfällig | An Auflage is still open after its due date | high |
+| Gate zurückgewiesen | The last gate decision of the current phase was a rejection | medium |
+| Rollen unbesetzt | A role that decides in the current phase is held by nobody | medium |
+| Ohne Aktivität | No new event in the Projektakte for 30 days | medium |
+| Gate-Entscheid fällig | All gate criteria are met; the gate waits for its decision | info |
+
+**Due dates of Auflagen** (`engine/conditions.ts`, question F30). A decision «mit Auflagen» names one of three options. «1 Woche» and «2 Wochen» count from the decision. «bis zum nächsten Gate» is due at the gate of the following phase for a gate decision, and at the gate of the same phase for a decision on a result; it is overdue once that gate is passed. The project page shows the date and marks overdue Auflagen.
+
+**Who sees what.** PMO and Portfolio-Gremium see all projects, everyone else the projects in which they hold a role (same rule as the project list). The figures are per project, never per person: there is no evaluation, filter or ranking by project lead (§9.6, question F23).
+
+**How it is computed.** The engine builds one summary per project from its state. The summary depends neither on the viewer nor on the clock, so the API keeps one per project version and rebuilds it only when new events arrive. The viewer's roles and the current time (overdue, inactivity) are applied per request. Measured locally with 300 synthetic projects: about 50 ms for the first request after a start, 2 to 3 ms afterwards. API: `GET /api/portfolio?scope=all|mine` for the key figures, `GET /api/projects` with `gate`, `signal` and `sort` for the list.
+
+**Not yet included:** trends over time, export (Excel), a weekly digest in Teams (F15), budget, dates and resources from portfolio planning (F11), the status report traffic light.
 
 ---
 
@@ -394,7 +424,7 @@ Every request carries an `x-correlation-id`. It is stored on the events and the 
 
 Principles:
 - **Data minimization.** No prompt content in technical logs, IDs instead of names.
-- **Purpose limitation.** Traceability, security and quality, not staff performance. There are no per-person evaluations.
+- **Purpose limitation.** Traceability, security and quality, not staff performance. There are no per-person evaluations; the portfolio view counts per project and offers no evaluation by project lead (§7.1).
 - **Transparency.** Users are informed, and AI content is labelled.
 - **Legal check.** Depending on the location, rules on monitoring employees apply: in Switzerland Art. 26 ArGV 3, in Germany co-determination under §87 (1) no. 6 BetrVG. HR and legal confirm this, and it goes into the app's own DSFA.
 
@@ -408,7 +438,7 @@ Principles:
 | 2. Azure pilot environment | Infrastructure as code (Bicep): Container Apps, Azure SQL (ledger), App Insights, private network. Entra app registrations, real sign-in, Azure OpenAI in the EU. Later in this increment: Front Door/WAF, APIM, Sentinel connection. The tool's own SchuBAn, ISDS-Konzept and DSFA. | Built and tested in CI: SQL event store, image, telemetry, templates. Deployment needs F2 to F4 and F25 to F28 |
 | 3. SharePoint | Site provisioning or linking per project, drafts as .docx from templates, OBO access, sources in drafts, decision PDFs as records | Needs F9, templates |
 | 4. Collaboration | Protokoll (Teams transcripts), Change Requests, Risiko, Wissen, Teams notifications | Needs F11 to F15 |
-| 5. Portfolio | Overview of all projects with drill-down, KPIs | Needs F6 |
+| 5. Portfolio | Overview of all projects with drill-down, KPIs | First version built (§7.1): signals, phase and gate overview, due dates of Auflagen, filters, drill-down. Open: trends, export, Teams digest, data from portfolio planning. Needs F11, F29, F30 |
 
 ---
 

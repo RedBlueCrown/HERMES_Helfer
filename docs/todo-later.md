@@ -4,7 +4,7 @@ Things we deliberately postponed: error cases that still need proper handling, p
 
 When an item is done, delete it here and mention it in the pull request.
 
-Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event store, the container image, telemetry and the Azure templates are built and tested in CI; the first deployment to Azure is still open.
+Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event store, the container image, telemetry and the Azure templates are built and tested in CI; the first deployment to Azure is still open. Increment 5: the first version of the portfolio view is built (architecture §7.1).
 
 ---
 
@@ -40,6 +40,7 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | E26 | **Assigning a role needs the person's Entra ID object ID** | The PL types the ID and the name; the API does not check them against the directory. | A people picker using Microsoft Graph (on behalf of the PL) that only offers internal accounts. |
 | E27 | **The app starts before the migration job ran** (first deployment, new schema) | The app cannot sign in to the database or finds an older schema; it does not become ready and Container Apps restarts it. The previous revision keeps serving. | Run the job automatically in the deployment pipeline before the new revision starts. |
 | E28 | **A model version is retired by Microsoft** | Deployments are pinned (`NoAutoUpgrade`); after the retirement date the calls fail and runs end with "Modell nicht erreichbar". | Watch the retirement schedule, alert 60 days ahead, and plan the upgrade with the evaluation set (H11). |
+| E29 | **A gate is passed while Auflagen due at it are still open** | Allowed: the gate criterion "Auflagen erledigt" does not block. The Auflagen are then overdue in the project and in the portfolio. | As decided in F30: block the gate, or ask the decider to confirm the open Auflagen. |
 
 ## 2. Placeholders to replace
 
@@ -55,7 +56,8 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | P08 | **MSAL sign-in in the web app**: **not yet tested** against a real tenant | Test in Increment 2 with real app registrations |
 | P10 | **Azure templates** (`infra/`) and `scripts/deploy-azure.sh`: compile and pass the linters, **not yet deployed** | First run of `scripts/deploy-azure.sh` (docs/deployment.md) |
 | P11 | **Model choice** in `infra/pilot.bicepparam` (gpt-5.1, Standard, Sweden Central) is a proposal | Decision F3/F4, then check availability and quota in the region |
-| P09 | Due dates of Auflagen are free text ("1 Woche", "bis zum nächsten Gate") | Real dates, reminders, and overdue status in the portfolio view |
+| P09 | Due dates of Auflagen are three fixed options ("1 Woche", "2 Wochen", "bis zum nächsten Gate"); the app computes the due date and the overdue state from them | A date the decider picks, and reminders before it (questions F15, F30) |
+| P12 | Portfolio signals and their levels, and the 30 days without activity (`packages/core/src/engine/portfolio.ts`) are proposals | Decision F29 |
 
 ## 3. Hardening and deferred technology
 
@@ -79,3 +81,4 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | H16 | The API keeps all events of all projects in memory (about 300 projects fit in 2 GB). Events shrink once drafts move to SharePoint (Increment 3); otherwise evict rarely used projects | Increment 3 |
 | H18 | `scripts/deploy-azure.sh` builds the image with ACR Tasks, which some subscription types (free trial, student) cannot use. The script then names the Docker commands | When the deployment runs from GitHub Actions (H03) |
 | H17 | `npm audit` reports `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) through `tedious`. Not exploitable here: tedious only passes fixed format strings. No fixed version exists yet | Watch for a tedious release |
+| H19 | The portfolio read model (one summary per project) lives in the API's memory and is rebuilt from the cached events after a restart. Keep the summaries in a SQL table, updated with each append, once H16 evicts events | With H16 |

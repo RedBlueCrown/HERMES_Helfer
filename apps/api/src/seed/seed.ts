@@ -2,9 +2,13 @@
 // are fictional. Seeding appends normal events, so the Verlauf shows them.
 
 import {
+  DUE_OPTIONS,
   MODEL_VERSION,
+  gateStatus,
+  openParticipation,
   rolesOf,
   type Actor,
+  type ConditionSpec,
   type Decision,
   type PhaseId,
   type ProjectEvent,
@@ -183,11 +187,30 @@ class Seeder {
     by: Person,
     reason = "",
     decision: Decision = "freigegeben",
+    conditions: ConditionSpec[] = [],
   ) {
     const konsent = this.repo.model.skill(skillId).approvers.find((a) => a.role === role)?.konsent ?? false;
     await this.append(
       projectId,
-      [{ type: "SkillDecisionRecorded", data: { skillId, role, decision, reason, konsent, conditions: [] } }],
+      [{ type: "SkillDecisionRecorded", data: { skillId, role, decision, reason, konsent, conditions } }],
+      await this.actor(projectId, by),
+    );
+  }
+
+  async gate(projectId: string, phase: PhaseId, decision: Decision, reason: string, by: Person) {
+    const konsent = this.repo.model.phase(phase).gate.requiresKonsent && decision !== "zurückgewiesen";
+    await this.append(
+      projectId,
+      [{ type: "GateDecisionRecorded", data: { phase, decision, reason, konsent, conditions: [] } }],
+      await this.actor(projectId, by),
+    );
+  }
+
+  async completeCondition(projectId: string, conditionId: string, by: Person, note = "") {
+    const text = (await this.repo.get(projectId))!.conditions[conditionId]?.text ?? "";
+    await this.append(
+      projectId,
+      [{ type: "ConditionCompleted", data: { conditionId, text, note } }],
       await this.actor(projectId, by),
     );
   }
@@ -415,25 +438,54 @@ const PHASE_WEIGHTS: [PhaseId, number][] = [
   ["einf", 0.15],
   ["skal", 0.05],
 ];
+const CONDITION_TEXTS = [
+  "Restrisiken mit Verantwortlichen ergänzen",
+  "Schnittstellenvereinbarung nachreichen",
+  "Testabdeckung der Kernprozesse belegen",
+  "Betriebsübergabe mit dem Applikationsmanagement terminieren",
+];
+const PL_ROLES: ProjectRole[] = ["PL", "BC", "FACH", "TEST", "ARCH", "APM", "INFRA"];
+const DAY_MS = 24 * 3600_000;
 
-/** Fictional projects to test lists and paging with 300+ projects. Visible to PMO and Portfolio. */
+/**
+ * Fictional projects to test lists, paging and the portfolio with 300+ projects.
+ * Visible to PMO and Portfolio. Their states vary: progress, Auflagen (some
+ * overdue), open vetoes, a missing ISM, gates ready for a decision or rejected,
+ * and a few projects without activity for over a month.
+ */
 export async function seedSynthetic(repo: ProjectRepository, count: number, now = new Date()): Promise<void> {
   const rnd = prng(42);
   const pick = <T>(list: readonly T[]) => list[Math.floor(rnd() * list.length)]!;
-  const start = now.getTime() - 60 * 24 * 3600_000;
-  const slot = (59 * 24 * 3600_000) / Math.max(count, 1);
-  const seed = new Seeder(repo, new Date(start));
+  const chance = (p: number) => rnd() < p;
+  const model = repo.model;
+  const seed = new Seeder(repo, now);
   seed.step = 1;
   const peter = dev("u-peter");
   for (let i = 1; i <= count; i++) {
-    // Each project gets its own time slot in the past 60 days.
-    seed.setClock(new Date(start + (i - 1) * slot));
     const code = `P-${String(i).padStart(4, "0")}`;
     if (await repo.findByCode(code)) continue;
     let r = rnd();
     const phase = PHASE_WEIGHTS.find(([, w]) => (r -= w) < 0)?.[0] ?? "init";
     const pl = { id: `x-pl-${i}`, displayName: `${pick(FIRST)} ${pick(LAST)}`, globalRoles: [] };
     const pa = { id: `x-pa-${i}`, displayName: `${pick(FIRST)} ${pick(LAST)}`, globalRoles: [] };
+    const paRoles: ProjectRole[] = chance(0.08) ? ["PA", "DS"] : ["PA", "ISM", "DS"];
+    const holder = (role: ProjectRole) =>
+      PL_ROLES.includes(role) ? pl : paRoles.includes(role) ? pa : undefined;
+
+    const mandatory = model
+      .phase(phase)
+      .deliverables.filter((d) => d.requirement === "pflicht" && !d.preExisting);
+    // A few projects complete their phase, so their gate waits for a decision; some of those were rejected.
+    const complete = chance(0.08);
+    const done = complete ? mandatory.length : Math.floor(rnd() * mandatory.length);
+    const vetoPending = chance(0.08);
+
+    // Most projects changed in the last two weeks, some not for over a month. Projects
+    // with progress started up to half a year ago; the others were just created.
+    const lastActive = now.getTime() - (chance(0.1) ? 31 + rnd() * 30 : rnd() * 14) * DAY_MS;
+    const started = now.getTime() - (20 + rnd() * 160) * DAY_MS;
+    const progress = done > 0 || vetoPending;
+    seed.setClock(new Date(progress ? Math.min(started, lastActive - DAY_MS) : lastActive));
     const projectId = await seed.project(
       code,
       `${pick(KINDS)} ${pick(TOPICS)}`,
@@ -441,30 +493,93 @@ export async function seedSynthetic(repo: ProjectRepository, count: number, now 
       phase,
       { ...PROFILE, schnittstellen: Math.floor(rnd() * 3), personendaten: rnd() > 0.5 },
       [
-        [pl, "PL", "BC", "FACH", "TEST", "ARCH", "APM", "INFRA"],
-        [pa, "PA", "ISM", "DS"],
+        [pl, ...PL_ROLES],
+        [pa, ...paRoles],
       ],
       peter,
     );
-    // Some progress, so the list shows varied states.
-    const mandatory = repo.model
-      .phase(phase)
-      .deliverables.filter((d) => d.requirement === "pflicht" && !d.preExisting);
-    const done = Math.floor(rnd() * mandatory.length);
-    for (const d of mandatory.slice(0, done)) {
-      for (const sid of d.skills) {
-        const st = (await repo.get(projectId))!;
-        if (st.skills[sid]?.output) continue;
-        const skill = repo.model.skill(sid);
-        if (skill.requiresApproved?.length || skill.checklist) continue;
-        if (skill.mode === "manual") await seed.manual(projectId, sid, pl, "Erfasst (synthetisch).");
-        else await seed.run(projectId, sid, pl);
-        for (const a of skill.approvers) {
-          const by = a.role === "PA" || a.role === "ISM" || a.role === "DS" ? pa : pl;
+    // The progress events end shortly before lastActive.
+    seed.setClock(new Date(lastActive - 0.25 * DAY_MS));
+    const state = async () => (await repo.get(projectId))!;
+
+    /** Decides the open approvals of a skill; false if a role is held by nobody. */
+    const approve = async (sid: string): Promise<boolean> => {
+      for (const a of model.skill(sid).approvers) {
+        if ((await state()).skills[sid]?.approvals[a.role]) continue;
+        const by = holder(a.role);
+        if (!by) return false;
+        if (chance(0.12)) {
+          const condition = {
+            id: randomUUID(),
+            text: pick(CONDITION_TEXTS),
+            ownerRole: a.role,
+            due: pick(DUE_OPTIONS),
+          };
+          const reason = "Freigabe mit Auflage (synthetische Daten).";
+          await seed.decide(projectId, sid, a.role, by, reason, "mit Auflagen", [condition]);
+          if (chance(0.5)) await seed.completeCondition(projectId, condition.id, by, "Erledigt.");
+        } else {
           await seed.decide(projectId, sid, a.role, by, "Geprüft (synthetische Daten).");
         }
       }
-      if ((await repo.get(projectId))!.unreleased[d.id]) await seed.release(projectId, d.id, pl);
+      return true;
+    };
+    const produce = async (sid: string) => {
+      if ((await state()).skills[sid]?.output) return;
+      if (model.skill(sid).mode === "manual") await seed.manual(projectId, sid, pl, "Erfasst (synthetisch).");
+      else await seed.run(projectId, sid, pl);
+    };
+    const confirmAll = async (ownerId: string, items: readonly { id: string; ownerRole: ProjectRole }[]) => {
+      for (const it of items) {
+        if (!(await state()).checklist[`${ownerId}:${it.id}`]) {
+          await seed.confirm(projectId, ownerId, it.id, holder(it.ownerRole) ?? pl);
+        }
+      }
+    };
+    /** Produces and approves a skill, with the skills it requires first. */
+    const settle = async (sid: string): Promise<boolean> => {
+      const skill = model.skill(sid);
+      for (const pre of skill.requiresApproved ?? []) if (!(await settle(pre))) return false;
+      await produce(sid);
+      if (skill.checklist) await confirmAll(sid, skill.checklist.items);
+      return approve(sid);
+    };
+
+    for (const d of mandatory.slice(0, done)) {
+      let ok = true;
+      for (const sid of d.skills) {
+        const skill = model.skill(sid);
+        if (!complete && (skill.requiresApproved?.length || skill.checklist)) {
+          ok = false;
+          continue;
+        }
+        ok = (await settle(sid)) && ok;
+      }
+      if (ok && d.checklist) await confirmAll(d.id, d.checklist.items);
+      if (ok && (await state()).unreleased[d.id]) await seed.release(projectId, d.id, pl);
+    }
+    if (complete) {
+      for (const x of openParticipation(await state(), model, phase)) {
+        await seed.involve(projectId, phase, x.id, "Workshop", pl);
+      }
+      if (gateStatus(await state(), model, phase) === "ready" && chance(0.3)) {
+        await seed.gate(
+          projectId,
+          phase,
+          "zurückgewiesen",
+          "Variantenvergleich unvollständig (synthetisch).",
+          pa,
+        );
+      }
+    }
+    // Some projects wait for an ISDS or go-live veto.
+    if (vetoPending) {
+      const veto = model.phase(phase).skills.find((sk) => sk.veto);
+      if (veto && !(await state()).skills[veto.id]?.output) {
+        let ready = true;
+        for (const pre of veto.requiresApproved ?? []) ready = (await settle(pre)) && ready;
+        if (ready) await produce(veto.id);
+      }
     }
   }
 }

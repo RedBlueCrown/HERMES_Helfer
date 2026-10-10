@@ -7,16 +7,19 @@ import {
   PHASE_IDS,
   PROJECT_ROLES,
   PROJECT_ROLE_LABELS,
+  SIGNAL_IDS,
   canCreateProject,
   canVerifyAudit,
   describeEvent,
   deliverableDetailView,
   eventCategory,
-  projectListItem,
+  portfolioOverview,
   projectView,
+  rolesOf,
   seesAllProjects,
   type GlobalRole,
   type ProjectRole,
+  type Viewer,
 } from "@hermes-helfer/core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -27,6 +30,7 @@ import type { Authenticator, DevUser } from "./auth";
 import { HttpError, notFound, parse } from "./errors";
 import type { ProjectRepository } from "./projects/repository";
 import type { ProjectService, RequestContext } from "./projects/service";
+import { ProjectSummaries, queryProjects } from "./projects/summaries";
 
 /** Sign-in settings for the web app, served before sign-in. Contains no secrets. */
 export type ClientConfig =
@@ -44,6 +48,8 @@ export interface RouteDeps {
   authenticator: Authenticator;
   provider: ProviderInfo;
   devUsers: readonly DevUser[];
+  /** The clock for due dates and inactivity (tests set it). */
+  now: () => Date;
 }
 
 // ---------- Input schemas ----------
@@ -52,6 +58,7 @@ const Code = z.string().regex(/^[A-Za-z0-9-]{2,20}$/, "Ungültiges Kürzel");
 const Id = z.string().regex(/^[a-z0-9.-]{2,60}$/, "Ungültige Kennung");
 const Role = z.enum(PROJECT_ROLES);
 const Phase = z.enum(PHASE_IDS);
+const Scope = z.enum(["mine", "all"]).default("mine");
 const Level = z.enum(["niedrig", "mittel", "hoch"]);
 
 const Profile = z.object({
@@ -70,7 +77,7 @@ const DecisionBody = z.object({
   reason: z.string().max(4000).default(""),
   konsent: z.boolean().default(false),
   conditions: z
-    .array(z.object({ text: z.string().max(500), ownerRole: Role, due: z.string().max(60) }))
+    .array(z.object({ text: z.string().max(500), ownerRole: Role, due: z.enum(DUE_OPTIONS) }))
     .max(20)
     .default([]),
 });
@@ -107,6 +114,16 @@ const roleLabel = (r: string) =>
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   const { repo, projects, runs, orchestrator } = deps;
   const model = repo.model;
+  const summaries = new ProjectSummaries(model);
+
+  /** List items of the projects the viewer may see: all for PMO and Portfolio, else their own. */
+  const listItems = async (viewer: Viewer, requested: "mine" | "all", now: Date) => {
+    const scope = requested === "all" && seesAllProjects(viewer) ? "all" : "mine";
+    const items = (await repo.all())
+      .filter((s) => scope === "all" || rolesOf(s, viewer.userId).length > 0)
+      .map((s) => summaries.item(s, viewer, now));
+    return { scope, items };
+  };
 
   const ctx = (req: FastifyRequest): RequestContext => {
     if (!req.user) throw new HttpError(401, "not_authenticated", "Bitte anmelden.");
@@ -164,26 +181,26 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       z.object({
         q: z.string().max(100).optional(),
         phase: Phase.optional(),
-        scope: z.enum(["mine", "all"]).default("mine"),
+        gate: z.enum(["open", "blocked", "ready", "passed"]).optional(),
+        signal: z.enum(SIGNAL_IDS).optional(),
+        sort: z.enum(["updated", "name", "attention"]).default("updated"),
+        scope: Scope,
         limit: z.coerce.number().int().min(1).max(100).default(25),
         offset: z.coerce.number().int().min(0).default(0),
       }),
       req.query,
     );
-    const viewer = ctx(req).viewer;
-    const all = q.scope === "all" && seesAllProjects(viewer);
-    const term = q.q?.trim().toLowerCase();
-    const items = (await repo.all())
-      .map((s) => ({ s, item: projectListItem(s, model, viewer) }))
-      .filter(({ item }) => (all ? true : item.myRoles.length > 0))
-      .filter(({ item }) => !q.phase || item.phase === q.phase)
-      .filter(
-        ({ item }) =>
-          !term || item.name.toLowerCase().includes(term) || item.code.toLowerCase().includes(term),
-      )
-      .map(({ item }) => item)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    return { items: items.slice(q.offset, q.offset + q.limit), total: items.length };
+    const { items } = await listItems(ctx(req).viewer, q.scope, deps.now());
+    const found = queryProjects(items, q);
+    return { items: found.slice(q.offset, q.offset + q.limit), total: found.length };
+  });
+
+  // Key figures across the projects the viewer may see (architecture §7).
+  app.get("/api/portfolio", async (req) => {
+    const q = parse(z.object({ scope: Scope }), req.query);
+    const now = deps.now();
+    const { scope, items } = await listItems(ctx(req).viewer, q.scope, now);
+    return { scope, ...portfolioOverview(items, model, now) };
   });
 
   app.post("/api/projects", async (req, reply) => {
@@ -207,7 +224,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.get("/api/projects/:code", async (req) => {
     const { code } = params(req, z.object({ code: Code }));
     const c = ctx(req);
-    return projectView(await projects.requireProject(code, c.viewer), model, c.viewer);
+    return projectView(await projects.requireProject(code, c.viewer), model, c.viewer, deps.now());
   });
 
   app.get("/api/projects/:code/deliverables/:deliverableId", async (req) => {
@@ -216,7 +233,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const s = await projects.requireProject(code, c.viewer);
     const d = model.findDeliverable(deliverableId);
     if (!d) throw notFound("Dieses Ergebnis gibt es nicht.");
-    return deliverableDetailView(s, model, c.viewer, d);
+    return deliverableDetailView(s, model, c.viewer, d, deps.now());
   });
 
   app.post(

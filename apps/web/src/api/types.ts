@@ -1,6 +1,13 @@
 // Response types of the API that are not view models from @hermes-helfer/core.
 
-import type { AgentDef, GlobalRole, PhaseId, ProjectListItem, ProjectRole } from "@hermes-helfer/core";
+import type {
+  AgentDef,
+  GlobalRole,
+  PhaseId,
+  PortfolioOverview,
+  ProjectListItem,
+  ProjectRole,
+} from "@hermes-helfer/core";
 
 export type {
   ChecklistView,
@@ -11,8 +18,10 @@ export type {
   MemberView,
   ParticipantView,
   PhaseView,
+  PortfolioOverview,
   ProjectListItem,
   ProjectView,
+  SignalId,
   SkillView,
   TaskView,
 } from "@hermes-helfer/core";
@@ -41,6 +50,11 @@ export interface ProjectPage {
   items: ProjectListItem[];
   total: number;
 }
+
+export type Scope = "mine" | "all";
+
+/** Key figures of the projects the person may see; scope is what the API applied. */
+export type Portfolio = PortfolioOverview & { scope: Scope };
 
 export interface DevUserInfo {
   id: string;

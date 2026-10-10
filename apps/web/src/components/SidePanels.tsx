@@ -2,7 +2,7 @@ import { Body1, Button, Caption1, Subtitle2, makeStyles, tokens } from "@fluentu
 import { ArrowRight16Regular } from "@fluentui/react-icons";
 import { commands, projectPath, useProjectCommand } from "../api/hooks";
 import type { ProjectView, TaskView } from "../api/types";
-import { errorText, useNotify } from "./ui";
+import { OverdueBadge, conditionDueText, errorText, useNotify } from "./ui";
 
 const useStyles = makeStyles({
   card: {
@@ -151,8 +151,9 @@ export function ConditionsCard({ code, view }: { code: string; view: ProjectView
           <span>
             <Body1 block>{c.text}</Body1>
             <Caption1 className={s.muted}>
-              {c.ownerLabel} · {c.due} · {c.sourceLabel}
+              {c.ownerLabel} · {conditionDueText(c)} · {c.sourceLabel}
             </Caption1>
+            {c.overdue ? <OverdueBadge /> : null}
           </span>
           {c.canComplete ? (
             <Button

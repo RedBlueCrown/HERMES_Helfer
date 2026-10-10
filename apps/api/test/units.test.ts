@@ -7,6 +7,9 @@ import { AiProviderError } from "../src/agents/provider";
 import { createEntraAuthenticator } from "../src/auth";
 import { loadConfig } from "../src/config";
 import { HttpError } from "../src/errors";
+import { ProjectRepository } from "../src/projects/repository";
+import { ProjectSummaries } from "../src/projects/summaries";
+import { MemoryEventStore } from "../src/store/memory-event-store";
 
 describe("configuration guards", () => {
   const production = {
@@ -77,6 +80,45 @@ describe("configuration guards", () => {
     for (const azure of [{ CONTAINER_APP_NAME: "ca-hh-pilot-api" }, { WEBSITE_SITE_NAME: "hh" }]) {
       expect(() => loadConfig({ AUTH_MODE: "dev", NODE_ENV: "development", ...azure })).toThrow(/in Azure/);
     }
+  });
+});
+
+describe("project summaries (read model)", () => {
+  it("rebuilds a summary only when the project has new events", async () => {
+    const repo = new ProjectRepository(new MemoryEventStore(), MODEL);
+    const actor = {
+      userId: "u-peter",
+      displayName: "Peter Graf",
+      roles: ["HH.PMO"],
+      channel: "web" as const,
+    };
+    const created = {
+      type: "ProjectCreated" as const,
+      data: {
+        code: "SUM",
+        name: "Summen",
+        description: "",
+        phase: "init" as const,
+        profile: DEFAULT_PROFILE,
+        modelVersion: MODEL.version,
+      },
+    };
+    await repo.append("p-sum", 0, [created], actor, "c-test-1234");
+    const summaries = new ProjectSummaries(MODEL);
+    const first = summaries.of((await repo.get("p-sum"))!);
+    expect(summaries.of((await repo.get("p-sum"))!)).toBe(first);
+    expect(first.projectLeads).toEqual([]);
+
+    await repo.append(
+      "p-sum",
+      1,
+      [{ type: "MemberRoleAssigned", data: { userId: "u-anna", displayName: "Anna Keller", role: "PL" } }],
+      actor,
+      "c-test-1234",
+    );
+    const second = summaries.of((await repo.get("p-sum"))!);
+    expect(second).not.toBe(first);
+    expect(second.projectLeads).toEqual(["Anna Keller"]);
   });
 });
 

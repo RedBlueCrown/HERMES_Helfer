@@ -2,7 +2,7 @@
 
 Leads projects of Firma Muster AG through the HERMES project management method. AI agents draft deliverables and check their quality. People release results and make every decision, and the app records each step in a tamper-evident project record (Projektakte).
 
-Status: **Increment 1** (local vertical slice) is done. **Increment 2** (Azure pilot) is built and tested in CI: event store on Azure SQL with a ledger table, container image, telemetry, Bicep templates and Entra ID registrations. The first deployment to Azure is open ([deployment steps](docs/deployment.md), [roadmap](docs/target-architecture.md#10-increments)).
+Status: **Increment 1** (local vertical slice) is done. **Increment 2** (Azure pilot) is built and tested in CI: event store on Azure SQL with a ledger table, container image, telemetry, Bicep templates and Entra ID registrations. The first deployment to Azure is open ([deployment steps](docs/deployment.md), [roadmap](docs/target-architecture.md#10-increments)). From **Increment 5**, a first version of the portfolio view is built ([description](docs/target-architecture.md#71-portfolio-view-first-version)).
 
 ## Try it locally
 
@@ -15,7 +15,7 @@ npm run dev
 
 Then open <http://localhost:5173>. The API runs on port 3001 and the web app proxies to it.
 
-- **Test mode:** you sign in as a fictional person. Switch people in the account menu at the top right. Anna Keller is the project lead in three projects, Peter Graf (PMO) sees all projects, Marco Bianchi decides as ISM.
+- **Test mode:** you sign in as a fictional person. Switch people in the account menu at the top right. Anna Keller is the project lead in three projects, Peter Graf (PMO) and Rita Vogel (Portfolio-Gremium) see all projects, Marco Bianchi decides as ISM.
 - **Demo data:** 5 fictional projects in different phases plus 300 synthetic ones to try the list at scale. They are stored in `apps/api/.data`. `npm run dev:reset` starts fresh.
 - **Without an AI model:** drafts are placeholders, and the assistant answers from fixed rules. In Increment 2 Azure OpenAI in the EU takes over (`AI_PROVIDER=azure-openai`, see `apps/api/.env.example`).
 
@@ -42,6 +42,7 @@ Then start the API with `STORE=sql SQL_SERVER=localhost SQL_DATABASE=hermes SQL_
 4. Decide the gate as Auftraggeber or Projektausschuss, with Konsent and Auflagen if needed. The project moves to the next phase.
 5. Ask the assistant, for example «Was ist als Nächstes?», «Meine Aufgaben» or «Starte Kick-off».
 6. Follow every step in **Verlauf**, and check the hash chain with «Integrität prüfen».
+7. Open **Portfolio** as Peter Graf or Rita Vogel: see where projects need attention (open vetoes, overdue Auflagen, gates ready for a decision …), filter by phase and gate, and jump into a project.
 
 ## Repository layout
 

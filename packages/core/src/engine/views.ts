@@ -15,6 +15,7 @@ import type {
   Requirement,
   SkillDef,
 } from "../model/types";
+import { conditionDue, isConditionOverdue } from "./conditions";
 import type { Decision, DraftContent, Finding, Producer } from "./events";
 import { isInvolved, participantsFor } from "./participation";
 import {
@@ -111,24 +112,6 @@ export function deliverableStatusLabel(d: DeliverableDef, st: DeliverableStatus,
 
 // ---------- Types ----------
 
-export interface ProjectListItem {
-  projectId: string;
-  code: string;
-  name: string;
-  phase: PhaseId;
-  phaseLabel: string;
-  gateStatus: GateStatus;
-  gateStatusLabel: string;
-  mandatoryDone: number;
-  mandatoryTotal: number;
-  openDecisions: number;
-  openConditions: number;
-  projectLeads: string[];
-  myRoles: ProjectRole[];
-  finished: boolean;
-  updatedAt: string;
-}
-
 export interface ActionView {
   kind: "start" | "release" | "decide" | "confirm";
   label: string;
@@ -161,6 +144,12 @@ export interface ConditionView {
   ownerRole: ProjectRole;
   ownerLabel: string;
   due: string;
+  /** When the Auflage is due: a date (ISO) … */
+  dueAt?: string;
+  /** … or the name of the gate it is due at. */
+  dueGate?: string;
+  /** Still open after its date, or after its gate was passed. */
+  overdue: boolean;
   phase: PhaseId;
   sourceLabel: string;
   createdAt: string;
@@ -360,18 +349,28 @@ function hasAiDraft(s: ProjectState, d: DeliverableDef): boolean {
   return d.skills.some((id) => s.skills[id]?.output?.producer.kind === "ai");
 }
 
-function conditionView(s: ProjectState, model: HermesModel, v: Viewer, c: ConditionState): ConditionView {
+function conditionView(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  c: ConditionState,
+  now: Date,
+): ConditionView {
   const [kind, id] = c.source.split(":") as [string, string];
   const sourceLabel =
     kind === "gate"
       ? `Gate «${model.phase(id as PhaseId).gate.name}»`
       : `Entscheid zu «${model.skill(id).name}»`;
+  const due = conditionDue(model, c);
   return {
     id: c.id,
     text: c.text,
     ownerRole: c.ownerRole,
     ownerLabel: roleLabel(c.ownerRole),
     due: c.due,
+    ...(due.kind === "date" ? { dueAt: due.at } : {}),
+    ...(due.kind === "gate" ? { dueGate: model.phase(due.phase).gate.name } : {}),
+    overdue: isConditionOverdue(s, model, c, now),
     phase: c.phase,
     sourceLabel,
     createdAt: c.createdAt,
@@ -486,7 +485,7 @@ function participantViews(s: ProjectState, model: HermesModel, v: Viewer, phase:
   });
 }
 
-function gateView(s: ProjectState, model: HermesModel, v: Viewer, phase: PhaseId): GateView {
+function gateView(s: ProjectState, model: HermesModel, v: Viewer, phase: PhaseId, now: Date): GateView {
   const g = model.phase(phase).gate;
   const st = gateStatus(s, model, phase);
   return {
@@ -507,12 +506,12 @@ function gateView(s: ProjectState, model: HermesModel, v: Viewer, phase: PhaseId
       conditions: x.conditionIds
         .map((id) => s.conditions[id])
         .filter((c): c is ConditionState => !!c)
-        .map((c) => conditionView(s, model, v, c)),
+        .map((c) => conditionView(s, model, v, c, now)),
     })),
   };
 }
 
-function taskView(s: ProjectState, model: HermesModel, t: MyTask): TaskView {
+function taskView(s: ProjectState, model: HermesModel, t: MyTask, now: Date): TaskView {
   switch (t.kind) {
     case "decide-skill": {
       const sk = model.skill(t.skillId);
@@ -546,7 +545,13 @@ function taskView(s: ProjectState, model: HermesModel, t: MyTask): TaskView {
     }
     case "condition": {
       const c = s.conditions[t.conditionId]!;
-      return { kind: t.kind, title: `Auflage: ${c.text}`, detail: `Frist: ${c.due}`, conditionId: c.id };
+      const overdue = isConditionOverdue(s, model, c, now) ? " · überfällig" : "";
+      return {
+        kind: t.kind,
+        title: `Auflage: ${c.text}`,
+        detail: `Frist: ${c.due}${overdue}`,
+        conditionId: c.id,
+      };
     }
     case "checklist": {
       const owner = model.findDeliverable(t.ownerId) ?? model.skill(t.ownerId);
@@ -675,35 +680,12 @@ function nextStepView(s: ProjectState, model: HermesModel, v: Viewer): NextStepV
   }
 }
 
-export function projectListItem(s: ProjectState, model: HermesModel, v: Viewer): ProjectListItem {
-  const st = gateStatus(s, model, s.phase);
-  const { done, total } = mandatoryProgress(s, model, s.phase);
-  const phase = model.phase(s.phase);
-  const openDecisions = isPhaseCurrent(s, s.phase)
-    ? phase.skills.filter((sk) => ["approval", "veto"].includes(skillStatus(s, model, sk))).length
-    : 0;
-  return {
-    projectId: s.projectId,
-    code: s.code,
-    name: s.name,
-    phase: s.phase,
-    phaseLabel: phase.label,
-    gateStatus: st,
-    gateStatusLabel: GATE_STATUS_LABELS[st],
-    mandatoryDone: done,
-    mandatoryTotal: total,
-    openDecisions,
-    openConditions: Object.values(s.conditions).filter((c) => !c.doneAt).length,
-    projectLeads: Object.values(s.members)
-      .filter((m) => m.roles.includes("PL"))
-      .map((m) => m.displayName),
-    myRoles: rolesOf(s, v.userId),
-    finished: isFinished(s, model),
-    updatedAt: s.updatedAt,
-  };
-}
-
-export function projectView(s: ProjectState, model: HermesModel, v: Viewer): ProjectView {
+export function projectView(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  now: Date = new Date(),
+): ProjectView {
   return {
     projectId: s.projectId,
     code: s.code,
@@ -726,7 +708,7 @@ export function projectView(s: ProjectState, model: HermesModel, v: Viewer): Pro
       current: isPhaseCurrent(s, ph.id),
       closed: isPhaseClosed(s, model, ph.id),
       future: isPhaseFuture(s, model, ph.id),
-      gate: gateView(s, model, v, ph.id),
+      gate: gateView(s, model, v, ph.id, now),
       mandatory: mandatoryProgress(s, model, ph.id),
       deliverables: ph.deliverables.map((d) => deliverableRow(s, model, v, d)),
       participants: participantViews(s, model, v, ph.id),
@@ -734,9 +716,9 @@ export function projectView(s: ProjectState, model: HermesModel, v: Viewer): Pro
     members: Object.entries(s.members)
       .map(([userId, m]) => ({ userId, displayName: m.displayName, roles: [...m.roles] }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName, "de")),
-    conditions: Object.values(s.conditions).map((c) => conditionView(s, model, v, c)),
+    conditions: Object.values(s.conditions).map((c) => conditionView(s, model, v, c, now)),
     nextStep: nextStepView(s, model, v),
-    myTasks: myTasks(s, model, v).map((t) => taskView(s, model, t)),
+    myTasks: myTasks(s, model, v).map((t) => taskView(s, model, t, now)),
     can: { manageMembers: checkManageMembers(s, v).ok, verifyAudit: canVerifyAudit(s, v) },
   };
 }
@@ -817,6 +799,7 @@ export function deliverableDetailView(
   model: HermesModel,
   v: Viewer,
   d: DeliverableDef,
+  now: Date = new Date(),
 ): DeliverableDetailView {
   const st = deliverableStatus(s, model, d);
   const skillIds = new Set(d.skills);
@@ -843,6 +826,6 @@ export function deliverableDetailView(
     canReactivate: checkReactivate(s, model, v, d),
     conditions: Object.values(s.conditions)
       .filter((c) => c.source.startsWith("skill:") && skillIds.has(c.source.slice("skill:".length)))
-      .map((c) => conditionView(s, model, v, c)),
+      .map((c) => conditionView(s, model, v, c, now)),
   };
 }

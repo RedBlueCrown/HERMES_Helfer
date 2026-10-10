@@ -14,7 +14,7 @@ import {
 import { Chat20Regular } from "@fluentui/react-icons";
 import { PROJECT_ROLE_LABELS } from "@hermes-helfer/core";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { useProject } from "../api/hooks";
 import { ActivityTab } from "../components/ActivityTab";
 import { ChatPanel } from "../components/ChatPanel";
@@ -49,8 +49,19 @@ const useStyles = makeStyles({
   back: { color: tokens.colorBrandForegroundLink },
 });
 
+/** Back to the list the person came from (filters included), else to all projects. */
+function useBackLink(): { to: string; label: string } {
+  const from = (useLocation().state as { from?: unknown } | null)?.from;
+  // Only paths within the app (not "//host" or "/\host").
+  if (typeof from === "string" && /^\/(?![/\\])/.test(from)) {
+    return { to: from, label: from.startsWith("/portfolio") ? "Portfolio" : "Alle Vorhaben" };
+  }
+  return { to: "/", label: "Alle Vorhaben" };
+}
+
 export function ProjectPage() {
   const s = useStyles();
+  const back = useBackLink();
   const { code = "" } = useParams();
   const project = useProject(code);
   const [phaseId, setPhaseId] = useState<string | null>(null);
@@ -80,8 +91,8 @@ export function ProjectPage() {
   return (
     <div className={s.page}>
       <Caption1>
-        <Link className={s.back} to="/">
-          ← Alle Vorhaben
+        <Link className={s.back} to={back.to}>
+          ← {back.label}
         </Link>
       </Caption1>
       <div className={s.head}>

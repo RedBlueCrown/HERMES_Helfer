@@ -30,8 +30,10 @@ import { DraftEditor } from "./DraftEditor";
 import {
   DeliverableBadge,
   ErrorView,
+  OverdueBadge,
   RestrictedBadge,
   RichText,
+  conditionDueText,
   errorText,
   formatDate,
   useNotify,
@@ -420,8 +422,10 @@ function DrawerContent({ code, d }: { code: string; d: DeliverableDetailView }) 
               <span>
                 <Body1 block>{c.text}</Body1>
                 <Caption1 className={s.muted}>
-                  {c.ownerLabel} · {c.due} · {c.done ? `erledigt, ${formatDate(c.doneAt!)}` : "offen"}
+                  {c.ownerLabel} · {conditionDueText(c)} ·{" "}
+                  {c.done ? `erledigt, ${formatDate(c.doneAt!)}` : "offen"}
                 </Caption1>
+                {c.overdue ? <OverdueBadge /> : null}
               </span>
               {!c.done && c.canComplete ? (
                 <Button
