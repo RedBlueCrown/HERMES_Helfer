@@ -116,17 +116,18 @@ const useStyles = makeStyles({
     gap: tokens.spacingVerticalS,
     overflowX: "auto",
   },
+  // An SVG, so the widths need no inline styles (a strict CSP blocks those, todo-later H08).
   bar: {
-    display: "flex",
+    display: "block",
+    width: "100%",
     height: "6px",
     marginTop: tokens.spacingVerticalXXS,
     borderRadius: tokens.borderRadiusSmall,
-    overflow: "hidden",
     backgroundColor: tokens.colorNeutralBackground3,
   },
-  barOpen: { backgroundColor: tokens.colorPaletteMarigoldBackground3 },
-  barBlocked: { backgroundColor: tokens.colorPaletteRedBackground3 },
-  barReady: { backgroundColor: tokens.colorBrandBackground },
+  barOpen: { fill: tokens.colorPaletteMarigoldBackground3 },
+  barBlocked: { fill: tokens.colorPaletteRedBackground3 },
+  barReady: { fill: tokens.colorBrandBackground },
   count: { minWidth: "auto", fontVariantNumeric: "tabular-nums" },
   facts: {
     display: "grid",
@@ -426,11 +427,17 @@ function PhaseTable({
             <TableRow key={p.id}>
               <TableCell>
                 {p.label}
-                <div className={s.bar} aria-hidden="true">
-                  <span className={s.barBlocked} style={{ width: `${(100 * p.blocked) / max}%` }} />
-                  <span className={s.barOpen} style={{ width: `${(100 * p.open) / max}%` }} />
-                  <span className={s.barReady} style={{ width: `${(100 * p.ready) / max}%` }} />
-                </div>
+                <svg
+                  className={s.bar}
+                  viewBox={`0 0 ${max} 1`}
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <rect className={s.barBlocked} x={0} width={p.blocked} height={1} />
+                  <rect className={s.barOpen} x={p.blocked} width={p.open} height={1} />
+                  <rect className={s.barReady} x={p.blocked + p.open} width={p.ready} height={1} />
+                </svg>
               </TableCell>
               {GATE_COLUMNS.map((g) => (
                 <TableCell key={g.id}>{count(p, g.id, p[g.id], `, ${g.name}`)}</TableCell>
