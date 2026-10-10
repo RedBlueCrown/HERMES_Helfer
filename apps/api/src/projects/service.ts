@@ -20,6 +20,7 @@ import {
   checkRelease,
   checkStartSkill,
   checkUpdateProfile,
+  contentVersion as currentContentVersion,
   findChecklist,
   openChecklistItems,
   rolesOf,
@@ -62,6 +63,14 @@ export function actorFor(s: ProjectState | undefined, ctx: RequestContext): Acto
 }
 
 export const PROJECT_NOT_FOUND = "Vorhaben nicht gefunden oder kein Zugriff.";
+
+export const STALE_VERSION =
+  "Das Ergebnis wurde inzwischen geändert. Bitte die aktuelle Fassung prüfen und erneut entscheiden.";
+
+/** Optimistic concurrency per document: refuse when the content changed since the person looked at it. */
+function assertSameVersion<T>(current: T | undefined, seen: T): void {
+  if (current !== seen) throw new HttpError(409, "stale", STALE_VERSION);
+}
 
 export interface CreateProjectInput {
   code: string;
@@ -203,26 +212,39 @@ export class ProjectService {
     });
   }
 
-  editDraft(code: string, ctx: RequestContext, skillId: string, draft: DraftContent) {
+  /** `version`: the version the editor started from; a newer one means someone else saved meanwhile. */
+  editDraft(code: string, ctx: RequestContext, skillId: string, draft: DraftContent, version: number) {
     const skill = this.skillOrThrow(skillId);
     return this.command(code, ctx, (s) => {
       assertCheck(checkEditOutput(s, this.model, ctx.viewer, skill));
+      assertSameVersion(s.skills[skillId]?.output?.version, version);
       return [{ type: "DraftEdited", data: { skillId, draft } }];
     });
   }
 
-  release(code: string, ctx: RequestContext, deliverableId: string) {
+  /** `contentVersion`: the content the PL reviewed (see contentVersion in the engine). */
+  release(code: string, ctx: RequestContext, deliverableId: string, contentVersion: string) {
     const d = this.deliverableOrThrow(deliverableId);
     return this.command(code, ctx, (s) => {
       assertCheck(checkRelease(s, this.model, ctx.viewer, d));
-      return [{ type: "DeliverableReleased", data: { deliverableId } }];
+      assertSameVersion(currentContentVersion(s, d), contentVersion);
+      return [{ type: "DeliverableReleased", data: { deliverableId, contentVersion } }];
     });
   }
 
-  decideSkill(code: string, ctx: RequestContext, skillId: string, role: ProjectRole, input: DecisionInput) {
+  /** `version`: the version of the result the approver reviewed. */
+  decideSkill(
+    code: string,
+    ctx: RequestContext,
+    skillId: string,
+    role: ProjectRole,
+    input: DecisionInput,
+    version: number,
+  ) {
     const skill = this.skillOrThrow(skillId);
     return this.command(code, ctx, (s) => {
       assertCheck(checkDecideSkill(s, this.model, ctx.viewer, skill, role));
+      assertSameVersion(s.skills[skillId]?.output?.version, version);
       const approver = skill.approvers.find((a) => a.role === role)!;
       const cl = skill.checklist?.requiredFor === "approval" ? skill.checklist : undefined;
       const error = validateDecision(input, {
@@ -242,6 +264,7 @@ export class ProjectService {
             reason: input.reason.trim(),
             konsent: approver.konsent && input.konsent,
             conditions: this.conditions(input),
+            version,
           },
         },
       ];

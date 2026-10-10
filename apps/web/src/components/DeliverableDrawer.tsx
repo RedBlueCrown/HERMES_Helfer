@@ -143,14 +143,20 @@ function SkillSection({ code, skill }: { code: string; skill: SkillView }) {
   const record = useProjectCommand(code, (api, draft: DraftContent) =>
     api.post(`${projectPath(code)}/skills/${skill.id}/result`, { draft }),
   );
-  const edit = useProjectCommand(code, (api, draft: DraftContent) =>
-    api.put(`${projectPath(code)}/skills/${skill.id}/draft`, { draft }),
+  // Edits and decisions name the version they are based on; the API refuses a
+  // newer one (409 "stale"), so nobody overwrites or approves unseen content.
+  const edit = useProjectCommand(code, (api, v: { draft: DraftContent; version: number }) =>
+    api.put(`${projectPath(code)}/skills/${skill.id}/draft`, v),
   );
-  const decide = useProjectCommand(code, (api, v: DecisionValues) =>
+  const decide = useProjectCommand(code, (api, v: DecisionValues & { version: number }) =>
     api.post(`${projectPath(code)}/skills/${skill.id}/decisions`, v),
   );
   const out = skill.output;
   const draft = out?.draft;
+  const [editBase, setEditBase] = useState<number | undefined>(undefined);
+  const [reviewed, setReviewed] = useState<number | undefined>(out?.version);
+  if (reviewed === undefined && out) setReviewed(out.version);
+  const changedSinceReview = !!out && reviewed !== undefined && out.version !== reviewed;
 
   return (
     <article className={s.skill} aria-label={`Schritt ${skill.name}`}>
@@ -260,12 +266,15 @@ function SkillSection({ code, skill }: { code: string; skill: SkillView }) {
               {...(edit.error ? { error: errorText(edit.error) } : {})}
               onCancel={() => setMode("view")}
               onSubmit={(d) =>
-                edit.mutate(d, {
-                  onSuccess: () => (
-                    setMode("view"),
-                    notify("success", "Gespeichert", "Das Ergebnis muss erneut freigegeben werden.")
-                  ),
-                })
+                edit.mutate(
+                  { draft: d, version: editBase ?? out.version },
+                  {
+                    onSuccess: () => (
+                      setMode("view"),
+                      notify("success", "Gespeichert", "Das Ergebnis muss erneut freigegeben werden.")
+                    ),
+                  },
+                )
               }
             />
           ) : draft ? (
@@ -299,7 +308,13 @@ function SkillSection({ code, skill }: { code: string; skill: SkillView }) {
           )}
           {mode === "view" && skill.canEdit.ok ? (
             <div>
-              <Button size="small" onClick={() => setMode("edit")}>
+              <Button
+                size="small"
+                onClick={() => {
+                  setEditBase(out.version);
+                  setMode("edit");
+                }}
+              >
                 Bearbeiten
               </Button>
             </div>
@@ -327,6 +342,17 @@ function SkillSection({ code, skill }: { code: string; skill: SkillView }) {
         <section>
           <Divider />
           <Subtitle2 as="h4">Dein Entscheid</Subtitle2>
+          {changedSinceReview ? (
+            <MessageBar intent="warning">
+              <MessageBarBody>
+                Der Entwurf wurde inzwischen geändert (jetzt Version {out!.version}). Bitte die neue Fassung
+                prüfen.{" "}
+                <Button size="small" onClick={() => setReviewed(out!.version)}>
+                  Neue Fassung geprüft
+                </Button>
+              </MessageBarBody>
+            </MessageBar>
+          ) : null}
           <DecisionForm
             roles={skill.myDecisionRoles}
             veto={skill.veto}
@@ -334,7 +360,12 @@ function SkillSection({ code, skill }: { code: string; skill: SkillView }) {
             submitting={decide.isPending}
             {...(decide.error ? { error: errorText(decide.error) } : {})}
             onEdit={() => decide.error && decide.reset()}
-            onSubmit={(v) => decide.mutate(v, { onSuccess: () => notify("success", "Entscheid erfasst") })}
+            onSubmit={(v) =>
+              decide.mutate(
+                { ...v, version: reviewed ?? out?.version ?? 0 },
+                { onSuccess: () => notify("success", "Entscheid erfasst") },
+              )
+            }
           />
         </section>
       ) : null}
@@ -513,10 +544,13 @@ export function DeliverableDrawer({
             appearance="primary"
             disabled={release.isPending}
             onClick={() =>
-              release.mutate(d.id, {
-                onSuccess: () => notify("success", "Freigegeben", d.name),
-                onError: (e) => notify("error", "Nicht möglich", errorText(e)),
-              })
+              release.mutate(
+                { deliverableId: d.id, contentVersion: d.contentVersion },
+                {
+                  onSuccess: () => notify("success", "Freigegeben", d.name),
+                  onError: (e) => notify("error", "Nicht möglich", errorText(e)),
+                },
+              )
             }
           >
             Freigeben

@@ -127,8 +127,11 @@ export function useProjectCommand<TVars>(code: string, run: (api: Api, vars: TVa
 export const commands = {
   startSkill: (code: string) => (api: Api, skillId: string) =>
     api.post<{ runId: string }>(`${projectPath(code)}/skills/${enc(skillId)}/runs`),
-  release: (code: string) => (api: Api, deliverableId: string) =>
-    api.post<CommandResult>(`${projectPath(code)}/deliverables/${enc(deliverableId)}/release`),
+  /** contentVersion: the content the person reviewed; the API refuses a newer one (409 "stale"). */
+  release: (code: string) => (api: Api, v: { deliverableId: string; contentVersion: string }) =>
+    api.post<CommandResult>(`${projectPath(code)}/deliverables/${enc(v.deliverableId)}/release`, {
+      contentVersion: v.contentVersion,
+    }),
   verify: (code: string) => (api: Api) => api.post<VerifyResult>(`${projectPath(code)}/audit/verify`),
   chat: (code: string) => (api: Api, body: { message: string; history: { role: string; text: string }[] }) =>
     api.post<ChatReply>(`${projectPath(code)}/chat`, body),

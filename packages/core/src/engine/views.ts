@@ -47,6 +47,7 @@ import {
 } from "./state";
 import {
   checklistAvailable,
+  contentVersion,
   deliverableStatus,
   gateCriteria,
   gateStatus,
@@ -149,6 +150,8 @@ export interface DeliverableRowView {
   findings: number;
   waitingFor: string[];
   preExistingBy?: string;
+  /** Send back with a release, see contentVersion in status.ts. */
+  contentVersion: string;
   action: ActionView | null;
 }
 
@@ -337,6 +340,7 @@ export interface DeliverableDetailView {
   status: DeliverableStatus;
   statusLabel: string;
   preExistingBy?: string;
+  contentVersion: string;
   contentVisible: boolean;
   skills: SkillView[];
   checklist?: ChecklistView;
@@ -439,7 +443,7 @@ function deliverableRow(
 ): DeliverableRowView {
   const st = deliverableStatus(s, model, d);
   const ai = hasAiDraft(s, d);
-  const findings = canViewDeliverableContent(s, v, d)
+  const findings = canViewDeliverableContent(s, model, v, d)
     ? d.skills.reduce((n, id) => n + (s.skills[id]?.output?.findings.length ?? 0), 0)
     : 0;
   const waitingFor =
@@ -459,6 +463,7 @@ function deliverableRow(
     findings,
     waitingFor,
     ...(d.preExisting ? { preExistingBy: d.preExisting.by } : {}),
+    contentVersion: contentVersion(s, d),
     action: rowAction(s, model, v, d, st),
   };
 }
@@ -827,7 +832,8 @@ export function deliverableDetailView(
     status: st,
     statusLabel: deliverableStatusLabel(d, st, hasAiDraft(s, d)),
     ...(d.preExisting ? { preExistingBy: d.preExisting.by } : {}),
-    contentVisible: canViewDeliverableContent(s, v, d),
+    contentVersion: contentVersion(s, d),
+    contentVisible: canViewDeliverableContent(s, model, v, d),
     skills: d.skills.map((id) => skillView(s, model, v, model.skill(id))),
     ...(d.checklist ? { checklist: checklistView(s, model, v, d.id, d.checklist) } : {}),
     ...(s.notApplicable[d.id] ? { notApplicable: s.notApplicable[d.id]! } : {}),

@@ -216,19 +216,20 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   app.put("/api/projects/:code/skills/:skillId/draft", async (req) => {
     const { code, skillId } = params(req, z.object({ code: Code, skillId: Id }));
-    const body = parse(z.object({ draft: Draft }), req.body);
-    return projects.editDraft(code, ctx(req), skillId, body.draft);
+    const body = parse(z.object({ draft: Draft, version: z.number().int().min(1) }), req.body);
+    return projects.editDraft(code, ctx(req), skillId, body.draft, body.version);
   });
 
   app.post("/api/projects/:code/skills/:skillId/decisions", async (req) => {
     const { code, skillId } = params(req, z.object({ code: Code, skillId: Id }));
-    const body = parse(DecisionBody.extend({ role: Role }), req.body);
-    return projects.decideSkill(code, ctx(req), skillId, body.role, body);
+    const body = parse(DecisionBody.extend({ role: Role, version: z.number().int().min(1) }), req.body);
+    return projects.decideSkill(code, ctx(req), skillId, body.role, body, body.version);
   });
 
   app.post("/api/projects/:code/deliverables/:deliverableId/release", async (req) => {
     const { code, deliverableId } = params(req, z.object({ code: Code, deliverableId: Id }));
-    return projects.release(code, ctx(req), deliverableId);
+    const body = parse(z.object({ contentVersion: z.string().max(2000) }), req.body);
+    return projects.release(code, ctx(req), deliverableId, body.contentVersion);
   });
 
   app.post("/api/projects/:code/deliverables/:deliverableId/not-applicable", async (req) => {

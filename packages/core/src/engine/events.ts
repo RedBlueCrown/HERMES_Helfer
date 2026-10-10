@@ -63,7 +63,11 @@ export type ProjectEvent =
     }
   | { type: "SkillRunFailed"; data: { runId: string; skillId: string; reason: string } }
   | { type: "DraftEdited"; data: { skillId: string; draft: DraftContent } }
-  | { type: "DeliverableReleased"; data: { deliverableId: string } }
+  | {
+      type: "DeliverableReleased";
+      /** contentVersion: the exact content released (see contentVersion in status.ts). */
+      data: { deliverableId: string; contentVersion?: string };
+    }
   | {
       type: "SkillDecisionRecorded";
       data: {
@@ -73,6 +77,8 @@ export type ProjectEvent =
         reason: string;
         konsent: boolean;
         conditions: ConditionSpec[];
+        /** Version of the result the decision refers to. */
+        version?: number;
       };
     }
   | { type: "DeliverableMarkedNotApplicable"; data: { deliverableId: string; reason: string } }

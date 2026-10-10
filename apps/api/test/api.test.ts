@@ -65,10 +65,18 @@ describe("drafts, releases and decisions", () => {
     expect(detail.skills[0].output.draft.sections.length).toBe(4);
 
     expect(
-      (await server.as("u-nina").post("/api/projects/KPO/deliverables/kickoff/release")).statusCode,
+      (
+        await server
+          .as("u-nina")
+          .post("/api/projects/KPO/deliverables/kickoff/release", { contentVersion: "init.kick-off@1" })
+      ).statusCode,
     ).toBe(403);
     expect(
-      (await server.as("u-anna").post("/api/projects/KPO/deliverables/kickoff/release")).statusCode,
+      (
+        await server
+          .as("u-anna")
+          .post("/api/projects/KPO/deliverables/kickoff/release", { contentVersion: "init.kick-off@1" })
+      ).statusCode,
     ).toBe(200);
     expect(row(await view(server, "u-anna", "KPO"), "kickoff").status).toBe("done");
   });
@@ -80,7 +88,9 @@ describe("drafts, releases and decisions", () => {
     ).toBe(202);
     await server.runs.idle();
     const decide = (user: string, body: object) =>
-      server!.as(user).post("/api/projects/KPO/skills/init.datenklassifizierung/decisions", body);
+      server!
+        .as(user)
+        .post("/api/projects/KPO/skills/init.datenklassifizierung/decisions", { version: 1, ...body });
     expect((await decide("u-tim", { role: "ISM", decision: "freigegeben" })).statusCode).toBe(403);
     const short = await decide("u-marco", { role: "ISM", decision: "zurückgewiesen", reason: "x" });
     expect(short.statusCode).toBe(422);
@@ -95,9 +105,11 @@ describe("drafts, releases and decisions", () => {
       202,
     );
     await server.runs.idle();
-    const noKonsent = await server
-      .as("u-thomas")
-      .post("/api/projects/KPO/skills/init.bewerter/decisions", { role: "PA", decision: "freigegeben" });
+    const noKonsent = await server.as("u-thomas").post("/api/projects/KPO/skills/init.bewerter/decisions", {
+      role: "PA",
+      decision: "freigegeben",
+      version: 1,
+    });
     expect(noKonsent.statusCode).toBe(422);
     expect(noKonsent.json().error.message).toMatch(/Konsent/);
   });
@@ -127,13 +139,65 @@ describe("drafts, releases and decisions", () => {
     );
   });
 
+  it("refuses releases, decisions and edits on a version the person has not seen", async () => {
+    server = await testServer();
+    const draft = (text: string) => ({
+      summary: text,
+      sections: [{ heading: "Teilnehmende", body: text }],
+      openPoints: [],
+    });
+    await server.as("u-anna").post("/api/projects/KPO/skills/init.kick-off/runs");
+    await server.as("u-nina").post("/api/projects/KPO/skills/init.datenklassifizierung/runs");
+    await server.runs.idle();
+
+    // Two people edit from version 1: the second save is refused instead of overwriting.
+    const edit = (user: string, text: string, version: number) =>
+      server!.as(user).put("/api/projects/KPO/skills/init.kick-off/draft", { draft: draft(text), version });
+    expect((await edit("u-anna", "Fassung von Anna", 1)).statusCode).toBe(200);
+    const stale = await edit("u-anna", "Zweite Fassung auf alter Basis", 1);
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe("stale");
+
+    // The PL reviewed version 1, but version 2 is current now.
+    const release = (contentVersion: string) =>
+      server!.as("u-anna").post("/api/projects/KPO/deliverables/kickoff/release", { contentVersion });
+    expect((await release("init.kick-off@1")).statusCode).toBe(409);
+    const row = (await view(server, "u-anna", "KPO")).phases[0]!.deliverables.find(
+      (d) => d.id === "kickoff",
+    )!;
+    expect(row.contentVersion).toBe("init.kick-off@2");
+    expect((await release(row.contentVersion)).statusCode).toBe(200);
+
+    // The ISM opened version 1; the result was edited meanwhile.
+    await server.as("u-nina").put("/api/projects/KPO/skills/init.datenklassifizierung/draft", {
+      draft: draft("Datenklasse intern"),
+      version: 1,
+    });
+    const decide = (version: number) =>
+      server!.as("u-marco").post("/api/projects/KPO/skills/init.datenklassifizierung/decisions", {
+        role: "ISM",
+        decision: "freigegeben",
+        version,
+      });
+    expect((await decide(1)).statusCode).toBe(409);
+    expect((await decide(2)).statusCode).toBe(200);
+    const events = (await server.as("u-anna").get("/api/projects/KPO/events?category=entscheid")).json();
+    expect(events.items[0].text).toContain(
+      "Datenklassifizierung (Version 2) freigegeben durch Informationssicherheit",
+    );
+  });
+
   it("answers one of two simultaneous releases with a conflict", async () => {
     server = await testServer();
     await server.as("u-anna").post("/api/projects/KPO/skills/init.kick-off/runs");
     await server.runs.idle();
     const [a, b] = await Promise.all([
-      server.as("u-anna").post("/api/projects/KPO/deliverables/kickoff/release"),
-      server.as("u-anna").post("/api/projects/KPO/deliverables/kickoff/release"),
+      server
+        .as("u-anna")
+        .post("/api/projects/KPO/deliverables/kickoff/release", { contentVersion: "init.kick-off@1" }),
+      server
+        .as("u-anna")
+        .post("/api/projects/KPO/deliverables/kickoff/release", { contentVersion: "init.kick-off@1" }),
     ]);
     expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
   });

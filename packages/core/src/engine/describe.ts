@@ -66,7 +66,7 @@ export function describeEvent(e: StoredEvent, model: HermesModel): string {
     case "DeliverableReleased":
       return `«${delivName(e.data.deliverableId)}» freigegeben.`;
     case "SkillDecisionRecorded":
-      return `${docName(e.data.skillId)} ${decisionText(e.data.decision)} durch ${PROJECT_ROLE_LABELS[e.data.role]}${e.data.konsent ? " (Konsent festgestellt)" : ""}${withReason(e.data.reason)}`;
+      return `${docName(e.data.skillId)}${e.data.version ? ` (Version ${e.data.version})` : ""} ${decisionText(e.data.decision)} durch ${PROJECT_ROLE_LABELS[e.data.role]}${e.data.konsent ? " (Konsent festgestellt)" : ""}${withReason(e.data.reason)}`;
     case "DeliverableMarkedNotApplicable":
       return `«${delivName(e.data.deliverableId)}» als nicht zutreffend markiert: ${e.data.reason}`;
     case "DeliverableReactivated":

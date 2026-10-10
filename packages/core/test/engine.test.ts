@@ -252,9 +252,11 @@ describe("permissions", () => {
     const s = st.state();
     expect(canViewProject(s, viewer("stranger"))).toBe(false);
     expect(canViewProject(s, viewer("pmo", "HH.PMO"))).toBe(true);
-    expect(canViewDeliverableContent(s, viewer("nina"), d("schuban"))).toBe(false);
-    expect(canViewDeliverableContent(s, viewer("marco"), d("schuban"))).toBe(true);
-    expect(canViewDeliverableContent(s, viewer("nina"), d("studie"))).toBe(true);
+    // Governance roles and contributors see restricted content; others only its status.
+    expect(canViewDeliverableContent(s, MODEL, viewer("marco"), d("schuban"))).toBe(true);
+    expect(canViewDeliverableContent(s, MODEL, viewer("nina"), d("schuban"))).toBe(true);
+    expect(canViewDeliverableContent(s, MODEL, viewer("jonas"), d("schuban"))).toBe(false);
+    expect(canViewDeliverableContent(s, MODEL, viewer("jonas"), d("studie"))).toBe(true);
   });
 
   it("allows decisions only to holders of the pending role", () => {
@@ -391,10 +393,18 @@ describe("views and descriptions", () => {
   });
 
   it("hides restricted content in the detail view", () => {
-    const st = new Stream("init").member("nina", "FACH").member("marco", "ISM").run("init.schutzbedarf");
+    const st = new Stream("init")
+      .member("laura", "APM")
+      .member("nina", "FACH")
+      .member("marco", "ISM")
+      .run("init.schutzbedarf");
+    const forApm = deliverableDetailView(st.state(), MODEL, viewer("laura"), d("schuban"));
+    expect(forApm.contentVisible).toBe(false);
+    expect(forApm.skills[0]?.output?.draft).toBeNull();
+    expect(forApm.skills[0]?.output?.findings).toEqual([]);
+    // The Fachstelle fills in the SchuBAn, so it needs the content.
     const forFach = deliverableDetailView(st.state(), MODEL, viewer("nina"), d("schuban"));
-    expect(forFach.contentVisible).toBe(false);
-    expect(forFach.skills[0]?.output?.draft).toBeNull();
+    expect(forFach.skills[0]?.output?.draft?.sections.length).toBeGreaterThan(0);
     const forIsm = deliverableDetailView(st.state(), MODEL, viewer("marco"), d("schuban"));
     expect(forIsm.skills[0]?.output?.draft?.sections.length).toBeGreaterThan(0);
   });

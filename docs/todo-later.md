@@ -4,7 +4,7 @@ Things we deliberately postponed: error cases that still need proper handling, p
 
 When an item is done, delete it here and mention it in the pull request.
 
-Status: Increment 1 (local vertical slice).
+Status: Increment 1 (local vertical slice) is done.
 
 ---
 
@@ -13,11 +13,11 @@ Status: Increment 1 (local vertical slice).
 | ID | Situation | What happens today | What should happen |
 |---|---|---|---|
 | E01 | **Entra ID sign-in fails** (MSAL error, popup or redirect blocked, Conditional Access denies) | Untested against a real tenant. The web app shows a generic error message. | Friendly error page with "Erneut anmelden", the correlation ID and a support contact. Distinguish "access denied by policy" from technical errors. |
-| E02 | **User signs in but has no app role** (`HH.User` missing) | The API answers 403 `no_app_role`. The web app shows a generic error. | Page "Kein Zugriff auf HERMES Helfer" explaining how to request access, and a link to the request process. |
+| E02 | **User signs in but has no app role** (`HH.User` missing) | The API answers 403 `no_app_role`. The web app shows "Kein Zugriff auf den HERMES Helfer" with the server message ("beim PMO Zugriff beantragen"). | A link to the request process, for example an Entra ID access package. |
 | E03 | **Token expires** during a session, or silent renewal fails | MSAL tries a silent renewal. If that fails, the request fails with 401 and unsaved input in open forms is lost. | Re-authenticate without losing unsaved input (keep form drafts in memory or session storage). |
-| E04 | **The project doesn't exist, or the user has no access to it** | The API deliberately answers 404 in both cases, so it reveals nothing. The web app shows "Vorhaben nicht gefunden". | Page "Vorhaben nicht gefunden oder kein Zugriff" with a link back to the list and to the PL or PMO to request a role. |
+| E04 | **The project doesn't exist, or the user has no access to it** | The API deliberately answers 404 in both cases, so it reveals nothing. The web app shows "Vorhaben nicht gefunden oder kein Zugriff", says that the PL or PMO assigns roles, and links back to the list. | A "Rolle anfragen" button that notifies the PL. |
 | E05 | **Role removed while the user is working** | The next action fails with 403. | Refresh permissions automatically and explain why the button disappeared. |
-| E06 | **Concurrent change**: two people act on the same project at the same time | The API answers 409 `conflict`. The web app shows a message, but the form content may be lost. | Reload the state automatically, keep the form input, and show what changed. |
+| E06 | **Concurrent change**: two people act on the same project at the same time | Commands are serialized per project. Releases, decisions and edits carry the version the person saw; a newer version is refused with 409 `stale`. The web app shows the message and keeps the form open. | Show what changed (side-by-side versions) and offer to re-apply the edit on the new version. |
 | E07 | **An agent run fails** (model error, timeout) | A `SkillRunFailed` event is written with a neutral reason. The skill can be started again, and the reason appears in the deliverable. | Automatic retry with backoff for transient errors, details for administrators, an alert after repeated failures. |
 | E08 | **Model rate limit (429) or quota exhausted** | Treated as a failed run (E07). | Queue with `retry-after`, a message such as "Hohe Auslastung, Entwurf folgt", quota per project. |
 | E09 | **Content filter or Prompt Shields block** the request or answer | Treated as a failed run, with reason "blockiert". | A specific message for the user, an audit entry, and an ISM alert when it is an attack. |
@@ -26,9 +26,9 @@ Status: Increment 1 (local vertical slice).
 | E12 | **Event store unavailable** (database down) | Not relevant yet (in memory). | 503 with retry, health and readiness probes, an alert. |
 | E13 | **A SharePoint site is missing, not provisioned or not accessible** | Not relevant yet (SharePoint comes in Increment 3). | A clear message in the project, a task for the PMO, retry of the provisioning. |
 | E14 | **Microsoft Graph throttling** (429/503) | Not relevant yet. | Backoff with `retry-after`, batching, delta queries. |
-| E15 | **No member holds a required role** (e.g. nobody is ISM, so ISDS can never be approved) | The approval waits, and the gate panel names the missing role. | A warning on the project page and a task for the PL to assign the role. |
+| E15 | **No member holds a required role** (e.g. nobody is ISM, so ISDS can never be approved) | The gate panel names the missing role, and the PL gets the task "Rolle besetzen". | A notification to the PL and the PMO. |
 | E16 | **The browser is offline, or the API cannot be reached** | Requests fail and the web app shows an error message. | An offline banner, automatic retry, no data loss in forms. |
-| E17 | **Validation errors** (reason too short, Auflage without text …) | The API answers 422 with a German message, which the web app shows above the form. | Messages next to the affected field. |
+| E17 | **Validation errors** (reason too short, Auflage without text …) | The API answers 422 with a German message. The web app shows it in the form and hides it as soon as the input changes. | Messages next to the affected field, checked before sending. |
 | E18 | **Dev sign-in is switched on in production** | The API refuses to start (`AUTH_MODE=dev` together with `NODE_ENV=production`). | Also a check in the deployment pipeline, and a Sentinel alert. |
 | E19 | **The chat model is unavailable** | The assistant answers with the deterministic intent router and says that free-text answers are unavailable. | Show this state in the chat header, and retry the model later. |
 | E20 | **Input too large** (chat message, edited draft) | Rejected with 413 or 422 (limits: chat 2,000 characters, draft 100,000 characters). | A character counter and a clear hint before sending. |
@@ -36,6 +36,8 @@ Status: Increment 1 (local vertical slice).
 | E22 | **A member leaves the company** (account disabled in Entra) | Their memberships remain. | A nightly sync flags them, and the PL gets a task to reassign roles. |
 | E23 | **Clock skew** between Entra and the server | 30 seconds of tolerance when validating tokens. | Monitor time synchronisation in the hosting environment. |
 | E24 | **Gate decided while its state changed** (a draft was edited after the form was opened) | The engine checks the gate state again when the decision arrives, so the API answers 409 or 422. | Same as E06: reload and explain. |
+| E25 | **Profile edits while the page refreshes** (e.g. during a running draft the page polls every 1.5 s) | Unsaved changes in the profile form are reset when the project data changes. | Keep the form state until saved or cancelled; show a hint if the profile changed meanwhile. |
+| E26 | **Assigning a role needs the person's Entra ID object ID** | The PL types the ID and the name; the API does not check them against the directory. | A people picker using Microsoft Graph (on behalf of the PL) that only offers internal accounts. |
 
 ## 2. Placeholders to replace
 
@@ -67,3 +69,6 @@ Status: Increment 1 (local vertical slice).
 | H10 | External pentest | Before go-live |
 | H11 | Evaluation set per skill, run in CI on every prompt or model change | Once the real model is connected |
 | H12 | Pin each project to a HERMES model version, and an audited migration | Before the first model change |
+| H13 | Split the web bundle (about 1 MB, 270 KB compressed) into vendor chunks | Before the pilot goes live |
+| H14 | Pin GitHub Actions to commit SHAs, add ESLint (React hooks, security rules) | Increment 2 |
+| H15 | Remove the dev-only console warning "Keyborg instance … disposed incorrectly" (Fluent UI under React StrictMode) | When Fluent UI fixes it, or by updating the focus management setup |

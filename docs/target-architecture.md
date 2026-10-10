@@ -66,9 +66,10 @@
 2. **No agent can decide.** Decisions are API operations that need a human user with the right role in that project (§5.2). Agents can only create proposals: drafts, findings, task proposals and risk proposals.
 3. **Interactive work runs as the user.** The orchestrator and drafting agents only see what the requesting person may see. Restricted deliverables (SchuBAn, ISDS, DSFA …) never reach the model for roles without access.
 4. **Every AI output carries its provenance:** the sources, the agent and skill version, the model deployment, and the Kritiker findings. It stays "Entwurf (KI)" until a named person releases it. Editing a released result sets it back to Entwurf.
-5. **HERMES is configuration, not code.** Phases, deliverables, skills, rules and roles are versioned configuration. Each project is pinned to a model version (§7).
-6. **Untrusted content is data, never instructions.** That covers emails, transcripts and uploaded documents (§8.2).
-7. **Dogfooding.** The HERMES Helfer project runs through HERMES and through the HERMES Helfer.
+5. **Decisions name the version they refer to.** A release, an approval or an edit carries the version the person saw. If the content changed in the meantime, the API refuses (409) instead of applying the decision to unseen content. The Projektakte records the version.
+6. **HERMES is configuration, not code.** Phases, deliverables, skills, rules and roles are versioned configuration. Each project is pinned to a model version (§7).
+7. **Untrusted content is data, never instructions.** That covers emails, transcripts and uploaded documents (§8.2).
+8. **Dogfooding.** The HERMES Helfer project runs through HERMES and through the HERMES Helfer.
 
 ---
 
@@ -217,7 +218,7 @@ The deliverable lists the template sections the draft must contain. These are pl
 
 | Tool | Kind | Used by |
 |---|---|---|
-| `projekt_ueberblick`, `naechster_schritt`, `meine_aufgaben`, `gate_status`, `lieferergebnisse`, `ergebnis_details`, `skill_erklaeren` | Read, filtered by the user's roles | A1 |
+| `projekt_ueberblick`, `naechster_schritt`, `meine_aufgaben`, `gate_status`, `lieferergebnisse`, `ergebnis_details` | Read, filtered by the user's roles. Without a model, the rule-based router also explains skills. | A1 |
 | `entwurf_anstossen(skill)` | Request. Runs the same permission and precondition checks as the button in the UI. | A1 |
 | Draft generation | Writes a draft for one deliverable | A2 to A8, inside a run started by a person |
 | Critique | Writes findings for a draft | A11 |
@@ -254,7 +255,7 @@ stateDiagram-v2
 - **Sign-in:** Entra ID with Conditional Access and MFA. Internal users only (D6).
 - **Global roles as Entra app roles:** `HH.User` (may use the app), `HH.PMO` (sees all projects, creates projects, manages memberships), `HH.Portfolio` (Projektportfolio-Gremium: sees all projects, decides Projektfreigabe), `HH.Admin` (technical administration, no implicit project access). These roles are assigned to a few groups and appear in the token's `roles` claim, which avoids the 200-group token limit.
 - **Project roles in the app** (decision pending, question F5): `PL`, `BC`, `PA`, `FACH`, `TEST`, `ISM`, `DS`, `ARCH`, `APM`, `INFRA`. The PL (or PMO) assigns them, and every change is an event in the Projektakte. ISM and Datenschutz are separate roles because they decide separately (question F6). A nightly sync with Entra flags members whose account is disabled.
-- **Restricted deliverables:** Datenklassifizierung, SchuBAn, Datenschutz-Vorabklärung, ISDS-Konzept, DSFA and the security proofs can only be read by PL, PA, ISM, DS and ARCH. Everyone else sees only their status.
+- **Restricted deliverables (need-to-know):** Datenklassifizierung, SchuBAn, Datenschutz-Vorabklärung, ISDS-Konzept, DSFA and the security proofs can only be read by PL, PA, ISM, DS and ARCH, plus the roles that contribute to them (for example the Fachstelle, which fills in the SchuBAn). Everyone else sees only their status.
 - **Administrators:** PIM elevation with a justification, alerts on elevation, break-glass accounts. The prototype's "als andere Person anmelden" does not exist in production. Local development uses dev users, and the API refuses to start in production with dev sign-in enabled.
 - **Agent identities:** a managed identity for the API. SharePoint access with `Sites.Selected`, granted per project site, never tenant-wide.
 
@@ -263,7 +264,7 @@ stateDiagram-v2
 | Action | Who |
 |---|---|
 | View a project | Any member, PMO, Portfolio |
-| View a restricted deliverable | PL, PA, ISM, DS, ARCH |
+| View a restricted deliverable | PL, PA, ISM, DS, ARCH, and roles that may work on it |
 | Start a skill | PL, or a role in the skill's `mayStart` |
 | Edit a draft | PL, or a role that may start one of the deliverable's skills |
 | Release a Dokument | PL |
@@ -403,7 +404,7 @@ Principles:
 
 | Increment | Scope | Status |
 |---|---|---|
-| **1. Local vertical slice** | Monorepo, engine with tests, API with dev sign-in and Entra token validation, event store with hash chain, manual skill runs with Kritiker (mock model), orchestrator chat, web UI: project list (300+), phase view, deliverables, decisions, gate, participation, Verlauf | In progress |
+| **1. Local vertical slice** | Monorepo, engine with tests, API with dev sign-in and Entra token validation, event store with hash chain, manual skill runs with Kritiker (mock model), orchestrator chat, web UI: project list (300+), phase view, deliverables, decisions, gate, participation, roles, Verlauf, end-to-end tests | Done |
 | 2. Azure pilot environment | Infrastructure as code (Bicep): Container Apps, Azure SQL (ledger), Key Vault, App Insights, Front Door/WAF, APIM. Entra app registrations, real sign-in, Azure OpenAI in the EU, Sentinel connection. The tool's own SchuBAn, ISDS-Konzept and DSFA. | Needs F2 to F4 |
 | 3. SharePoint | Site provisioning or linking per project, drafts as .docx from templates, OBO access, sources in drafts, decision PDFs as records | Needs F9, templates |
 | 4. Collaboration | Protokoll (Teams transcripts), Change Requests, Risiko, Wissen, Teams notifications | Needs F11 to F15 |

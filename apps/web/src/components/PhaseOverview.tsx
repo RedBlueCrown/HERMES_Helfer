@@ -274,10 +274,13 @@ function DeliverableRow({
         onError: (e) => notify("error", "Nicht möglich", errorText(e)),
       });
     } else if (a.kind === "release") {
-      release.mutate(d.id, {
-        onSuccess: () => notify("success", "Freigegeben", d.name),
-        onError: (e) => notify("error", "Nicht möglich", errorText(e)),
-      });
+      release.mutate(
+        { deliverableId: d.id, contentVersion: d.contentVersion },
+        {
+          onSuccess: () => notify("success", "Freigegeben", d.name),
+          onError: (e) => notify("error", "Nicht möglich", errorText(e)),
+        },
+      );
     } else onOpen(d.id);
   };
   return (

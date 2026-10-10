@@ -51,9 +51,20 @@ export function canViewProject(s: ProjectState, v: Viewer): boolean {
   return rolesOf(s, v.userId).length > 0 || hasGlobal(v, "HH.PMO", "HH.Portfolio");
 }
 
-export function canViewDeliverableContent(s: ProjectState, v: Viewer, d: DeliverableDef): boolean {
+/**
+ * Need-to-know for restricted deliverables (SchuBAn, ISDS, DSFA …): the
+ * governance roles plus the roles that contribute to this deliverable.
+ */
+export function canViewDeliverableContent(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  d: DeliverableDef,
+): boolean {
   if (!d.restricted) return true;
-  return rolesOf(s, v.userId).some((r) => RESTRICTED_READERS.includes(r));
+  const roles = rolesOf(s, v.userId);
+  if (roles.some((r) => RESTRICTED_READERS.includes(r))) return true;
+  return d.skills.some((id) => model.skill(id).mayStart.some((r) => roles.includes(r)));
 }
 
 /** A skill's output is restricted if it contributes to any restricted deliverable. */
@@ -63,7 +74,7 @@ export function canViewSkillContent(
   v: Viewer,
   skill: SkillDef,
 ): boolean {
-  return model.deliverablesOfSkill(skill.id).every((d) => canViewDeliverableContent(s, v, d));
+  return model.deliverablesOfSkill(skill.id).every((d) => canViewDeliverableContent(s, model, v, d));
 }
 
 function mayWorkOn(s: ProjectState, v: Viewer, skill: SkillDef): boolean {

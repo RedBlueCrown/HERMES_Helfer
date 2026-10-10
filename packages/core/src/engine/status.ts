@@ -68,6 +68,15 @@ export function openChecklistItems(s: ProjectState, ownerId: string, cl: Checkli
   return cl.items.filter((it) => !s.checklist[checklistKey(ownerId, it.id)]);
 }
 
+/**
+ * Fingerprint of a deliverable's content: the version of every contributing
+ * result. Releases and decisions must name it, so nobody approves a version
+ * they have not seen (optimistic concurrency per document).
+ */
+export function contentVersion(s: ProjectState, d: DeliverableDef): string {
+  return d.skills.map((id) => `${id}@${s.skills[id]?.output?.version ?? 0}`).join(",");
+}
+
 export function deliverableStatus(s: ProjectState, model: HermesModel, d: DeliverableDef): DeliverableStatus {
   if (isPhaseClosed(s, model, d.phase) || d.preExisting) return "done";
   if (s.notApplicable[d.id]) return "na";
