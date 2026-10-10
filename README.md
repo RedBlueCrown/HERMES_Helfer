@@ -2,7 +2,7 @@
 
 Leads projects of Firma Muster AG through the HERMES project management method. AI agents draft deliverables and check their quality. People release results and make every decision, and the app records each step in a tamper-evident project record (Projektakte).
 
-Status: **Increment 1** (local vertical slice) is done. **Increment 2** (Azure pilot) is built and tested in CI: event store on Azure SQL with a ledger table, container image, telemetry, Bicep templates and Entra ID registrations. The first deployment to Azure is open ([deployment steps](docs/deployment.md), [roadmap](docs/target-architecture.md#10-increments)). From **Increment 5**, a first version of the portfolio view is built ([description](docs/target-architecture.md#71-portfolio-view-first-version)).
+Status: **Increment 1** (local vertical slice) is done. **Increment 2** (Azure pilot) is built and tested in CI: event store on Azure SQL with a ledger table, container image, telemetry, Bicep templates and Entra ID registrations. The first deployment to Azure is open ([deployment steps](docs/deployment.md), [roadmap](docs/target-architecture.md#10-increments)). Built ahead of their increments: the portfolio view ([description](docs/target-architecture.md#71-portfolio-view-first-version)) and Change Requests with their agent ([description](docs/target-architecture.md#55-change-requests-first-feature-of-increment-4)).
 
 ## Try it locally
 
@@ -32,7 +32,7 @@ Then start the API with `STORE=sql SQL_SERVER=localhost SQL_DATABASE=hermes SQL_
 
 ### In Azure
 
-`scripts/deploy-azure.sh` sets up a complete test environment in your Azure subscription with one command: Entra ID sign-in, Azure SQL, Azure OpenAI in the EU. See [deployment steps](docs/deployment.md#quick-test-environment).
+`scripts/deploy-azure.sh` sets up a complete test environment in your Azure subscription with one command: Entra ID sign-in, Azure SQL, Azure OpenAI in the EU, with the agents working. See [Trying HERMES Helfer in Azure](docs/staging.md).
 
 ## What you can do
 
@@ -43,6 +43,7 @@ Then start the API with `STORE=sql SQL_SERVER=localhost SQL_DATABASE=hermes SQL_
 5. Ask the assistant, for example «Was ist als Nächstes?», «Meine Aufgaben» or «Starte Kick-off».
 6. Follow every step in **Verlauf**, and check the hash chain with «Integrität prüfen».
 7. Open **Portfolio** as Peter Graf or Rita Vogel: see where projects need attention (open vetoes, overdue Auflagen, gates ready for a decision …), filter by phase and gate, and jump into a project.
+8. Open **Change Requests** in a project (for example ERP as Nina Huber): describe a wish, let the agent work it out, see the impact in eight areas; decide it as Thomas Meier (Projektausschuss), recheck it as Marco Bianchi (ISM) and Sandra Roth (Datenschutz).
 
 ## Repository layout
 
@@ -70,6 +71,7 @@ CI runs all of them on every push (`.github/workflows/ci.yml`), plus the event s
 ## Documents
 
 - [Target architecture and agent design](docs/target-architecture.md)
+- [Trying HERMES Helfer in Azure](docs/staging.md): one command, then first steps with the agents
 - [Deploying the Azure pilot environment](docs/deployment.md)
 - [Working on HERMES Helfer](CONTRIBUTING.md): how to propose and review changes
 - [Security](SECURITY.md): reporting vulnerabilities

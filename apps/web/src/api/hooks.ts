@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@ta
 import { createContext, useContext } from "react";
 import type { Api } from "./client";
 import type {
+  ChangeRequestRegisterView,
   ChatReply,
   CommandResult,
   DeliverableDetailView,
@@ -114,6 +115,14 @@ export function useDeliverable(code: string, deliverableId: string | null) {
   });
 }
 
+export function useChangeRequests(code: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["change-requests", code],
+    queryFn: () => api.get<ChangeRequestRegisterView>(`${projectPath(code)}/change-requests`),
+  });
+}
+
 export function useEvents(code: string, category: string, limit: number) {
   const api = useApi();
   const qs = new URLSearchParams({ limit: String(limit) });
@@ -136,6 +145,7 @@ export function useProjectCommand<TVars>(code: string, run: (api: Api, vars: TVa
         qc.invalidateQueries({ queryKey: ["project", code] }),
         qc.invalidateQueries({ queryKey: ["deliverable", code] }),
         qc.invalidateQueries({ queryKey: ["events", code] }),
+        qc.invalidateQueries({ queryKey: ["change-requests", code] }),
         qc.invalidateQueries({ queryKey: ["projects"] }),
         qc.invalidateQueries({ queryKey: ["portfolio"] }),
       ]);

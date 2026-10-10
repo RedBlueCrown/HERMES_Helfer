@@ -5,6 +5,7 @@ import { trace } from "@opentelemetry/api";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { resolve, sep } from "node:path";
+import { ChangeRequestAgent } from "./agents/change-request-agent";
 import { Orchestrator } from "./agents/orchestrator";
 import type { AiProvider } from "./agents/provider";
 import { RunService } from "./agents/runner";
@@ -66,6 +67,7 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
   const projects = new ProjectService(deps.repo);
   const runs = new RunService(deps.repo, projects, deps.provider, app.log);
   const orchestrator = new Orchestrator(projects, runs, deps.provider, app.log);
+  const changeRequestAgent = new ChangeRequestAgent(projects, deps.provider, app.log);
 
   const production = config.NODE_ENV === "production";
   await app.register(helmet, {
@@ -164,6 +166,7 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     projects,
     runs,
     orchestrator,
+    changeRequestAgent,
     authenticator: deps.authenticator,
     provider: deps.provider.info,
     devUsers: deps.devUsers ?? [],

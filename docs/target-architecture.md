@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Draft v0.4. Includes the decisions of 2026-10-08 (§1.1), the Increment 2 groundwork and the first version of the portfolio view (§7.1) of 2026-10-10. |
+| Status | Draft v0.5. Includes the decisions of 2026-10-08 (§1.1), the Increment 2 groundwork, the portfolio view (§7.1) and Change Requests with agent A10 (§5.5) of 2026-10-10. |
 | Organisation | Firma Muster AG |
 | Basis | Clickable prototype v22 (UX and domain specification) |
 | Platform | Microsoft Entra ID, SharePoint Online, Microsoft 365, Azure (EU), Microsoft Foundry |
@@ -46,7 +46,7 @@
 | Phases and deliverables | 5 phases (Skalierung is an extension), 48 deliverables (pflicht/situativ). Status runs open → Entwurf (KI) → approval/veto → done. A situational deliverable can be marked "nicht zutreffend" with a reason. | Engine |
 | Gates and decisions | One gate per phase with a named decider. Outcomes: freigegeben / mit Auflagen / zurückgewiesen. PA decisions need Konsent. Auflagen have an owner and a due date. ISDS and Go-live have a veto. | Engine and decision forms |
 | Beteiligung | A Vorhabensprofil with 8 attributes drives rules that make roles mandatory per phase. The gate stays closed until those roles are involved. | Engine (rules) |
-| Change Requests | Register with impact in 8 dimensions and a PA decision. A CR that touches data forces a recheck of SchuBAn, ISDS and DSFA. | Engine computes the impact. AI detects and drafts. Increment 4. |
+| Change Requests | Register with impact in 8 dimensions and a PA decision. A CR that touches data forces a recheck of SchuBAn, ISDS and DSFA. | Built (§5.5): the engine computes the impact, agent A10 drafts, the PA decides with Konsent. Detecting new requirements in meetings comes with A9. |
 | Besprechungen | Turns a transcript into decisions, tasks and open questions, and mirrors the result back to the Fachstelle | AI (Protokoll) and Microsoft Graph. Increment 4. |
 | Ablage | Indexes several repositories, detects duplicates, offers "Wo finde ich …" and a contact directory | SharePoint, search, AI (Wissen) |
 | Systemskizze and Pattern-Pilot | 12 patterns, deviations per project, a versioned sketch | AI (Architektur) and the pattern catalogue |
@@ -137,7 +137,7 @@ flowchart LR
 | Identity | Entra ID: MSAL in the SPA, JWT validation with `jose` in the API, managed identities for Azure resources | No secrets in the browser, no API keys for the models |
 | AI | Own agent runtime in the API, models via Microsoft Foundry (Azure OpenAI) in the EU | §4.3 and §5 |
 | Notifications | Teams activity feed and a daily digest (later) | No Power Automate |
-| CI/CD | GitHub Actions: format, typecheck, unit and API tests, the event store against SQL Server, the container image, the Bicep templates, end-to-end tests. Deployment to Azure with OIDC later. | Steps for the first deployment: [`deployment.md`](deployment.md) |
+| CI/CD | GitHub Actions: format, typecheck, unit and API tests, the event store against SQL Server, the container image, the Bicep templates, end-to-end tests. Deployment to Azure with OIDC later. | Steps for the first deployment: [`deployment.md`](deployment.md); trying it in your own subscription: [`staging.md`](staging.md) |
 
 ### 4.2 Why this stack
 
@@ -176,7 +176,7 @@ Thirteen agents. Each has many **skills**, one per deliverable or task (§5.1).
 | A7 | **Test & Abnahme** | Test-Engineer, User Acceptance, Fachtester, Testpersona, Barrierefreiheit, Go-live-Check | Manual (Test, Fach) | PL, Auftraggeber, Fach and APM (Go-live veto) | ✓ skills |
 | A8 | **Einführung & Betrieb** | Betrieb (Light), Einführungsplanung, Handbücher, Einführung, Betrieb, Rollout | Manual (APM, PL) | PA (Betriebsaufnahme) | ✓ skills |
 | A9 | **Protokoll** | Protokoll | Meeting ended | Fach confirms | later |
-| A10 | **Change-Request** | Change-Request | New requirements | PA with Konsent | later |
+| A10 | **Change-Request** | Change-Request | Manual (any member), later also new requirements from meetings | PA with Konsent | ✓ |
 | A11 | **Kritiker** | Kritiker, Verifier, Reviewer (artifacts) | Every draft | (findings only) | ✓ |
 | A12 | **Risiko** | Risk | Weekly and on events | PL accepts | later |
 | A13 | **Wissen** | KnowHow, Lessons Learned, Document, Housekeeping | Questions, phase end | PMO curates | later |
@@ -218,12 +218,13 @@ The deliverable lists the template sections the draft must contain. These are pl
 
 | Tool | Kind | Used by |
 |---|---|---|
-| `projekt_ueberblick`, `naechster_schritt`, `meine_aufgaben`, `gate_status`, `lieferergebnisse`, `ergebnis_details` | Read, filtered by the user's roles. Without a model, the rule-based router also explains skills. | A1 |
+| `projekt_ueberblick`, `naechster_schritt`, `meine_aufgaben`, `gate_status`, `lieferergebnisse`, `ergebnis_details`, `change_requests` | Read, filtered by the user's roles. Without a model, the rule-based router also explains skills. | A1 |
 | `entwurf_anstossen(skill)` | Request. Runs the same permission and precondition checks as the button in the UI. | A1 |
 | Draft generation | Writes a draft for one deliverable | A2 to A8, inside a run started by a person |
+| Change request draft | Text and affected areas of a change request; returned to the person, stored only when they submit it | A10 |
 | Critique | Writes findings for a draft | A11 |
 
-**Never available to any agent:** release, approve, decide a gate, mark "nicht zutreffend", confirm checklist items, record participation, change roles or the profile. The API checks for a human user with the matching project role on each of these operations.
+**Never available to any agent:** release, approve, decide a gate or a change request, confirm a recheck, mark "nicht zutreffend", confirm checklist items, record participation, change roles or the profile. The API checks for a human user with the matching project role on each of these operations.
 
 ### 5.3 Run lifecycle
 
@@ -249,6 +250,18 @@ stateDiagram-v2
 - **It requests and never executes:** starting a draft goes through the same checks as a button in the UI.
 
 ---
+
+### 5.5 Change Requests (first feature of Increment 4)
+
+A change to the agreed scope (HERMES: Änderungsmanagement). Ported from the prototype; the cost rate and the rules are proposals (question F31).
+
+1. **Wish.** A member of the project describes the change in a few sentences. The **Change-Request agent (A10)** turns it into a request with five sections (Ausgangslage, Gewünschte Änderung, Begründung und Nutzen, Betroffene Abläufe und Ergebnisse, Alternativen) and says which areas it touches, each with a reason: personal data, interface, deviation from the standard product, user interface, external users. In doubt it marks personal data as touched. It never estimates effort or cost. The Kritiker checks the text against the project's released results (for example a contradiction with the variant decision). Nothing is stored yet.
+2. **Submission.** The person corrects the text and the areas, enters the team's effort estimate in person-days and submits. The Projektakte records the request, marked as drafted by the agent.
+3. **Impact.** The engine computes eight dimensions from the effort and the areas: budget (against the reserve the PL recorded), schedule, architecture, security and data protection, testing, training and communication, operations, acceptance. Each is rated low, medium or high (`engine/change-requests.ts`).
+4. **Decision.** The Projektausschuss (role PA) decides with Konsent and a reason: approve, approve with Auflagen, or reject. Auflagen work as elsewhere (owner role, due date). The requester or the PL can withdraw an open request.
+5. **Recheck.** An approved request that touches personal data opens a recheck of SchuBAn, Datenschutz-Vorabklärung, ISDS-Konzept and DSFA. ISM and Datenschutz each confirm «keine Anpassung» or «Massnahme ergänzt». Until both have confirmed, the gate of the current phase stays closed (gate criterion «Neuprüfung nach Change Request»).
+
+The Projektausschuss gets a task per open request, ISM and Datenschutz one per pending recheck. The portfolio counts open requests and open rechecks (§7.1), and the assistant answers questions about them.
 
 ## 6. Identity and authorization
 
@@ -313,7 +326,9 @@ The page «Portfolio» answers two questions for the PMO and the Portfolio-Gremi
 | Auflagen überfällig | An Auflage is still open after its due date | high |
 | Gate zurückgewiesen | The last gate decision of the current phase was a rejection | medium |
 | Rollen unbesetzt | A role that decides in the current phase is held by nobody | medium |
+| Neuprüfung offen | An approved change request touches personal data; SchuBAn, ISDS and DSFA are checked again and the gate stays closed | medium |
 | Ohne Aktivität | No new event in the Projektakte for 30 days | medium |
+| Change Request offen | A change request waits for the Projektausschuss | info |
 | Gate-Entscheid fällig | All gate criteria are met; the gate waits for its decision | info |
 
 **Due dates of Auflagen** (`engine/conditions.ts`, question F30). A decision «mit Auflagen» names one of three options. «1 Woche» and «2 Wochen» count from the decision. «bis zum nächsten Gate» is due at the gate of the following phase for a gate decision, and at the gate of the same phase for a decision on a result; it is overdue once that gate is passed. The project page shows the date and marks overdue Auflagen.
@@ -437,7 +452,7 @@ Principles:
 | **1. Local vertical slice** | Monorepo, engine with tests, API with dev sign-in and Entra token validation, event store with hash chain, manual skill runs with Kritiker (mock model), orchestrator chat, web UI: project list (300+), phase view, deliverables, decisions, gate, participation, roles, Verlauf, end-to-end tests | Done |
 | 2. Azure pilot environment | Infrastructure as code (Bicep): Container Apps, Azure SQL (ledger), App Insights, private network. Entra app registrations, real sign-in, Azure OpenAI in the EU. Later in this increment: Front Door/WAF, APIM, Sentinel connection. The tool's own SchuBAn, ISDS-Konzept and DSFA. | Built and tested in CI: SQL event store, image, telemetry, templates. Deployment needs F2 to F4 and F25 to F28 |
 | 3. SharePoint | Site provisioning or linking per project, drafts as .docx from templates, OBO access, sources in drafts, decision PDFs as records | Needs F9, templates |
-| 4. Collaboration | Protokoll (Teams transcripts), Change Requests, Risiko, Wissen, Teams notifications | Needs F11 to F15 |
+| 4. Collaboration | Protokoll (Teams transcripts), Change Requests, Risiko, Wissen, Teams notifications | Change Requests built (§5.5). Open: Protokoll, Risiko, Wissen, Teams notifications; they need F11 to F15 |
 | 5. Portfolio | Overview of all projects with drill-down, KPIs | First version built (§7.1): signals, phase and gate overview, due dates of Auflagen, filters, drill-down. Open: trends, export, Teams digest, data from portfolio planning. Needs F11, F29, F30 |
 
 ---
@@ -474,6 +489,6 @@ All open questions are in German in [`offene-fragen.md`](offene-fragen.md).
 
 Events per project stream (`packages/core/src/engine/events.ts`):
 
-`ProjectCreated`, `MemberRoleAssigned`, `MemberRoleRemoved`, `ProfileUpdated`, `SkillRunRequested`, `SkillRunCompleted`, `SkillRunFailed`, `DraftEdited`, `DeliverableReleased`, `SkillDecisionRecorded`, `DeliverableMarkedNotApplicable`, `DeliverableReactivated`, `ParticipationRecorded`, `ChecklistItemConfirmed`, `GateDecisionRecorded`, `ConditionCompleted`
+`ProjectCreated`, `MemberRoleAssigned`, `MemberRoleRemoved`, `ProfileUpdated`, `SkillRunRequested`, `SkillRunCompleted`, `SkillRunFailed`, `DraftEdited`, `DeliverableReleased`, `SkillDecisionRecorded`, `DeliverableMarkedNotApplicable`, `DeliverableReactivated`, `ParticipationRecorded`, `ChecklistItemConfirmed`, `GateDecisionRecorded`, `ConditionCompleted`, `ChangeRequestSubmitted`, `ChangeRequestWithdrawn`, `ChangeRequestDecided`, `ChangeRecheckConfirmed`, `ChangeReserveSet`
 
 Every event carries the actor (user ID, name, roles at that moment, channel), the timestamp, the correlation ID and the hash chain (`prevHash`, `hash`). The project state is computed by applying the events in order (`applyEvent`). That function is pure and unit-tested.

@@ -8,6 +8,7 @@
 
 import type { HermesModel } from "../model";
 import type { PhaseId, ProjectRole } from "../model/types";
+import { openChangeRequests, openRechecks } from "./change-requests";
 import { conditionDue } from "./conditions";
 import { rolesOf, type Viewer } from "./permissions";
 import type { ProjectState } from "./state";
@@ -30,9 +31,11 @@ export const INACTIVE_AFTER_DAYS = 30;
 export const SIGNAL_IDS = [
   "veto",
   "auflagen-ueberfaellig",
+  "neupruefung",
   "gate-zurueckgewiesen",
   "rollen-fehlen",
   "ohne-aktivitaet",
+  "cr-offen",
   "gate-bereit",
 ] as const;
 export type SignalId = (typeof SIGNAL_IDS)[number];
@@ -56,6 +59,12 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
     level: "hoch",
     description: "Mindestens eine Auflage ist nach ihrer Frist noch offen.",
   },
+  neupruefung: {
+    label: "Neuprüfung offen",
+    level: "mittel",
+    description:
+      "Ein angenommener Change Request betrifft Personendaten; SchuBAn, ISDS und DSFA werden neu geprüft, bis dahin bleibt das Gate zu.",
+  },
   "gate-zurueckgewiesen": {
     label: "Gate zurückgewiesen",
     level: "mittel",
@@ -70,6 +79,11 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
     label: "Ohne Aktivität",
     level: "mittel",
     description: `Seit mindestens ${INACTIVE_AFTER_DAYS} Tagen kein neuer Eintrag in der Projektakte.`,
+  },
+  "cr-offen": {
+    label: "Change Request offen",
+    level: "info",
+    description: "Ein Change Request wartet auf den Entscheid des Projektausschusses.",
   },
   "gate-bereit": {
     label: "Gate-Entscheid fällig",
@@ -106,6 +120,10 @@ export interface ProjectSummary {
   missingRoles: ProjectRole[];
   /** The last gate decision of the current phase was a rejection. */
   gateRejected: boolean;
+  /** Change requests waiting for the Projektausschuss. */
+  openChangeRequests: number;
+  /** Accepted change requests whose recheck (SchuBAn, ISDS, DSFA) is not complete. */
+  openRechecks: number;
   projectLeads: string[];
   finished: boolean;
   createdAt: string;
@@ -146,6 +164,8 @@ export function projectSummary(s: ProjectState, model: HermesModel): ProjectSumm
     openConditionsPastGate: pastGate,
     missingRoles: current ? missingRoles(s, model, s.phase) : [],
     gateRejected: current && s.gateDecisions[s.phase]?.at(-1)?.decision === "zurückgewiesen",
+    openChangeRequests: openChangeRequests(s).length,
+    openRechecks: openRechecks(s).length,
     projectLeads: Object.values(s.members)
       .filter((m) => m.roles.includes("PL"))
       .map((m) => m.displayName),
@@ -173,9 +193,11 @@ export function projectSignals(p: ProjectSummary, now: Date): SignalId[] {
     // A pending veto on a mandatory result blocks the gate (status.ts).
     veto: !p.finished && p.gateStatus === "blocked",
     "auflagen-ueberfaellig": overdueConditions(p, now) > 0,
+    neupruefung: !p.finished && p.openRechecks > 0,
     "gate-zurueckgewiesen": !p.finished && p.gateRejected,
     "rollen-fehlen": !p.finished && p.missingRoles.length > 0,
     "ohne-aktivitaet": !p.finished && inactiveDays(p, now) >= INACTIVE_AFTER_DAYS,
+    "cr-offen": !p.finished && p.openChangeRequests > 0,
     "gate-bereit": !p.finished && p.gateStatus === "ready",
   };
   return SIGNAL_IDS.filter((id) => on[id]);

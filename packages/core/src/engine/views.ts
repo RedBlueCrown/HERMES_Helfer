@@ -2,6 +2,14 @@
 // actions, restricted content and tasks already reflect the viewer's roles.
 
 import type { HermesModel } from "../model";
+import {
+  CR_DAY_RATE_CHF,
+  CR_RECHECK_DELIVERABLES,
+  CR_RECHECK_ROLES,
+  type CrFlags,
+  type RecheckOutcome,
+  type RecheckRole,
+} from "../model/change-requests";
 import { PROJECT_ROLE_LABELS } from "../model/roles";
 import type {
   AgentId,
@@ -15,6 +23,20 @@ import type {
   Requirement,
   SkillDef,
 } from "../model/types";
+import {
+  CR_STATUS_LABELS,
+  changeImpact,
+  crCostChf,
+  impactContext,
+  crLabel,
+  impactSummary,
+  openChangeRequests,
+  openRechecks,
+  pendingRecheckRoles,
+  reserveStatus,
+  type ImpactRow,
+  type ReserveStatus,
+} from "./change-requests";
 import { conditionDue, isConditionOverdue } from "./conditions";
 import type { Decision, DraftContent, Finding, Producer } from "./events";
 import { isInvolved, participantsFor } from "./participation";
@@ -24,6 +46,8 @@ import {
   canViewSkillContent,
   checkCompleteCondition,
   checkConfirmChecklistItem,
+  checkConfirmRecheck,
+  checkDecideChangeRequest,
   checkDecideGate,
   checkEditOutput,
   checkManageMembers,
@@ -31,8 +55,11 @@ import {
   checkReactivate,
   checkRecordParticipation,
   checkRelease,
+  checkSetChangeReserve,
   checkStartSkill,
+  checkSubmitChangeRequest,
   checkUpdateProfile,
+  checkWithdrawChangeRequest,
   decisionRolesFor,
   rolesOf,
   type Check,
@@ -43,6 +70,8 @@ import {
   participationKey,
   type ActorRef,
   type ApprovalRecord,
+  type ChangeRequestState,
+  type ChangeRequestStatus,
   type ConditionState,
   type ProjectState,
 } from "./state";
@@ -223,6 +252,7 @@ export interface TaskView {
   itemId?: string;
   phase?: PhaseId;
   participantId?: string;
+  crId?: string;
 }
 
 export interface NextStepView {
@@ -231,6 +261,7 @@ export interface NextStepView {
   detail: string;
   skillId?: string;
   deliverableId?: string;
+  crId?: string;
   actionLabel?: string;
   /** Whether the viewer can perform the step themselves. */
   canAct: boolean;
@@ -261,7 +292,54 @@ export interface ProjectView {
   conditions: ConditionView[];
   nextStep: NextStepView;
   myTasks: TaskView[];
+  /** For the tab of the register; the requests themselves: changeRequestRegister. */
+  changeRequests: { total: number; open: number; openRechecks: number };
   can: { manageMembers: boolean; verifyAudit: boolean };
+}
+
+export interface ChangeRequestView {
+  id: string;
+  number: number;
+  /** CR-01 … */
+  label: string;
+  title: string;
+  requestedBy: string;
+  submittedAt: string;
+  submittedBy: ActorRef;
+  effortDays: number;
+  costChf: number;
+  flags: CrFlags;
+  content: DraftContent;
+  findings: Finding[];
+  producer: Producer;
+  status: ChangeRequestStatus;
+  statusLabel: string;
+  impact: ImpactRow[];
+  impactSummary: string;
+  decision?: { decision: Decision; reason: string; konsent: boolean; at: string; by: ActorRef };
+  withdrawn?: { reason: string; at: string; by: ActorRef };
+  /** Accepted requests that touch personal data. */
+  recheck?: {
+    done: boolean;
+    deliverables: { id: string; name: string }[];
+    roles: {
+      role: RecheckRole;
+      label: string;
+      confirmed?: { outcome: RecheckOutcome; note: string; at: string; by: ActorRef };
+      canConfirm: boolean;
+    }[];
+  };
+  conditions: ConditionView[];
+  canDecide: Check;
+  canWithdraw: Check;
+}
+
+export interface ChangeRequestRegisterView {
+  dayRateChf: number;
+  reserve: ReserveStatus & { canSet: Check };
+  canSubmit: Check;
+  /** Newest first. */
+  items: ChangeRequestView[];
 }
 
 export interface ChecklistItemView {
@@ -357,10 +435,13 @@ function conditionView(
   now: Date,
 ): ConditionView {
   const [kind, id] = c.source.split(":") as [string, string];
+  const cr = kind === "cr" ? s.changeRequests[id] : undefined;
   const sourceLabel =
     kind === "gate"
       ? `Gate «${model.phase(id as PhaseId).gate.name}»`
-      : `Entscheid zu «${model.skill(id).name}»`;
+      : kind === "cr"
+        ? `Entscheid zu ${cr ? crLabel(cr.number) : "Change Request"}`
+        : `Entscheid zu «${model.skill(id).name}»`;
   const due = conditionDue(model, c);
   return {
     id: c.id,
@@ -584,6 +665,26 @@ function taskView(s: ProjectState, model: HermesModel, t: MyTask, now: Date): Ta
         detail: "Niemand im Vorhaben hat diese Rolle, die für einen Entscheid nötig ist.",
         role: t.role,
       };
+    case "decide-cr": {
+      const c = s.changeRequests[t.crId]!;
+      return {
+        kind: t.kind,
+        title: `${crLabel(c.number)} entscheiden: ${c.title}`,
+        detail: "Als Projektausschuss mit Konsent entscheiden.",
+        crId: c.id,
+      };
+    }
+    case "recheck": {
+      const c = s.changeRequests[t.crId]!;
+      return {
+        kind: t.kind,
+        title: `Neuprüfung nach ${crLabel(c.number)}`,
+        detail:
+          "SchuBAn, Datenschutz-Vorabklärung, ISDS-Konzept und DSFA prüfen. Bis dahin bleibt das Gate zu.",
+        crId: c.id,
+        role: t.role,
+      };
+    }
   }
 }
 
@@ -655,6 +756,19 @@ function nextStepView(s: ProjectState, model: HermesModel, v: Viewer): NextStepV
         actionLabel: "Zur Beteiligung",
         canAct: rolesOf(s, v.userId).includes("PL"),
       };
+    case "recheck": {
+      const crs = n.crIds.map((id) => s.changeRequests[id]!);
+      const mine = crs.find((c) => pendingRecheckRoles(c).some((r) => rolesOf(s, v.userId).includes(r)));
+      return {
+        kind: n.kind,
+        title: `Neuprüfung nach ${crs.map((c) => crLabel(c.number)).join(", ")}`,
+        detail:
+          "Ein angenommener Change Request betrifft Personendaten: ISM und Datenschutz prüfen SchuBAn, ISDS-Konzept und DSFA. Bis dahin bleibt das Gate zu.",
+        crId: (mine ?? crs[0]!).id,
+        actionLabel: "Zur Neuprüfung",
+        canAct: !!mine,
+      };
+    }
     case "gate":
       return {
         kind: n.kind,
@@ -719,7 +833,92 @@ export function projectView(
     conditions: Object.values(s.conditions).map((c) => conditionView(s, model, v, c, now)),
     nextStep: nextStepView(s, model, v),
     myTasks: myTasks(s, model, v).map((t) => taskView(s, model, t, now)),
+    changeRequests: {
+      total: Object.keys(s.changeRequests).length,
+      open: openChangeRequests(s).length,
+      openRechecks: openRechecks(s).length,
+    },
     can: { manageMembers: checkManageMembers(s, v).ok, verifyAudit: canVerifyAudit(s, v) },
+  };
+}
+
+export function changeRequestView(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  c: ChangeRequestState,
+  now: Date = new Date(),
+): ChangeRequestView {
+  const impact = changeImpact(c, impactContext(s, c.id), model);
+  const decisionIds = new Set(c.decision?.conditionIds ?? []);
+  return {
+    id: c.id,
+    number: c.number,
+    label: crLabel(c.number),
+    title: c.title,
+    requestedBy: c.requestedBy,
+    submittedAt: c.submittedAt,
+    submittedBy: c.submittedBy,
+    effortDays: c.effortDays,
+    costChf: crCostChf(c.effortDays),
+    flags: c.flags,
+    content: c.content,
+    findings: c.findings,
+    producer: c.producer,
+    status: c.status,
+    statusLabel: CR_STATUS_LABELS[c.status],
+    impact,
+    impactSummary: impactSummary(impact),
+    ...(c.decision
+      ? {
+          decision: {
+            decision: c.decision.decision,
+            reason: c.decision.reason,
+            konsent: c.decision.konsent,
+            at: c.decision.at,
+            by: c.decision.by,
+          },
+        }
+      : {}),
+    ...(c.withdrawn ? { withdrawn: c.withdrawn } : {}),
+    ...(c.recheck
+      ? {
+          recheck: {
+            done: pendingRecheckRoles(c).length === 0,
+            deliverables: CR_RECHECK_DELIVERABLES.map((id) => ({ id, name: model.deliverable(id).name })),
+            roles: CR_RECHECK_ROLES.map((role) => {
+              const confirmed = c.recheck![role];
+              return {
+                role,
+                label: roleLabel(role),
+                ...(confirmed ? { confirmed } : {}),
+                canConfirm: checkConfirmRecheck(s, v, c.id, role).ok,
+              };
+            }),
+          },
+        }
+      : {}),
+    conditions: Object.values(s.conditions)
+      .filter((x) => decisionIds.has(x.id))
+      .map((x) => conditionView(s, model, v, x, now)),
+    canDecide: checkDecideChangeRequest(s, v, c.id),
+    canWithdraw: checkWithdrawChangeRequest(s, v, c.id),
+  };
+}
+
+export function changeRequestRegister(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  now: Date = new Date(),
+): ChangeRequestRegisterView {
+  return {
+    dayRateChf: CR_DAY_RATE_CHF,
+    reserve: { ...reserveStatus(s), canSet: checkSetChangeReserve(s, model, v) },
+    canSubmit: checkSubmitChangeRequest(s, model, v),
+    items: Object.values(s.changeRequests)
+      .sort((a, b) => b.number - a.number)
+      .map((c) => changeRequestView(s, model, v, c, now)),
   };
 }
 

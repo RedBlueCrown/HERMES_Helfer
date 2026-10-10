@@ -11,6 +11,7 @@ import type {
   ProjectRole,
   SkillDef,
 } from "../model/types";
+import { crLabel, openRechecks, pendingRecheckRoles } from "./change-requests";
 import { openParticipation, participantsFor } from "./participation";
 import { checklistKey, type ProjectState } from "./state";
 
@@ -106,6 +107,9 @@ export function missingRoles(s: ProjectState, model: HermesModel, phase: PhaseId
     if (d.requirement !== "pflicht") continue;
     for (const sid of d.skills) for (const a of pendingApprovers(s, model.skill(sid))) needed.add(a.role);
   }
+  if (isPhaseCurrent(s, phase)) {
+    for (const c of openRechecks(s)) for (const r of pendingRecheckRoles(c)) needed.add(r);
+  }
   return [...needed].filter((r) => !held.has(r));
 }
 
@@ -118,12 +122,18 @@ export function gateStatus(s: ProjectState, model: HermesModel, phase: PhaseId):
     .deliverables.filter((d) => d.requirement === "pflicht")
     .map((d) => deliverableStatus(s, model, d));
   if (statuses.includes("veto")) return "blocked";
-  if (statuses.every((x) => x === "done") && openParticipation(s, model, phase).length === 0) return "ready";
+  if (
+    statuses.every((x) => x === "done") &&
+    openParticipation(s, model, phase).length === 0 &&
+    openRechecks(s).length === 0
+  ) {
+    return "ready";
+  }
   return "open";
 }
 
 export interface GateCriterion {
-  id: "pflicht" | "beteiligung" | "veto" | "rollen" | "auflagen";
+  id: "pflicht" | "beteiligung" | "veto" | "neupruefung" | "rollen" | "auflagen";
   label: string;
   ok: boolean;
   detail: string;
@@ -162,6 +172,24 @@ export function gateCriteria(s: ProjectState, model: HermesModel, phase: PhaseId
       label: "Kein Veto offen",
       ok: vetoes.length === 0,
       detail: vetoes.length ? vetoes.map((d) => d.name).join(", ") : "keines",
+      blocking: true,
+    });
+  }
+  // A change request that touches personal data: SchuBAn, ISDS and DSFA are checked again first.
+  const rechecks = isPhaseCurrent(s, phase) ? openRechecks(s) : [];
+  if (rechecks.length) {
+    out.push({
+      id: "neupruefung",
+      label: "Neuprüfung nach Change Request",
+      ok: false,
+      detail: rechecks
+        .map(
+          (c) =>
+            `${crLabel(c.number)} wartet auf ${pendingRecheckRoles(c)
+              .map((r) => PROJECT_ROLE_LABELS[r])
+              .join(" und ")}`,
+        )
+        .join("; "),
       blocking: true,
     });
   }

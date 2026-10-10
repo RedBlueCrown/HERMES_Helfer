@@ -59,8 +59,9 @@ export const AGENTS: readonly AgentDef[] = [
   {
     id: "A10",
     name: "Change-Request",
-    description: "Erkennt neue Anforderungen ausserhalb des Pflichtenhefts und entwirft Change Requests.",
-    active: false,
+    description:
+      "Arbeitet Änderungswünsche zu Change Requests aus und schätzt ein, welche Bereiche betroffen sind. Den Aufwand schätzt das Team.",
+    active: true,
   },
   {
     id: "A11",

@@ -17,6 +17,7 @@ import { useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { useProject } from "../api/hooks";
 import { ActivityTab } from "../components/ActivityTab";
+import { ChangeRequestDrawer, ChangeRequestsTab, NewChangeRequestDrawer } from "../components/ChangeRequests";
 import { ChatPanel } from "../components/ChatPanel";
 import { DeliverableDrawer } from "../components/DeliverableDrawer";
 import { ParticipationTab } from "../components/ParticipationTab";
@@ -24,7 +25,7 @@ import { DeliverableList, GatePanel, PhaseTimeline } from "../components/PhaseOv
 import { ConditionsCard, MyTasksCard, NextStepCard, type Navigate } from "../components/SidePanels";
 import { ErrorView } from "../components/ui";
 
-type TabId = "ergebnisse" | "beteiligung" | "verlauf";
+type TabId = "ergebnisse" | "beteiligung" | "aenderungen" | "verlauf";
 
 const useStyles = makeStyles({
   page: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL },
@@ -47,6 +48,7 @@ const useStyles = makeStyles({
   column: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL },
   muted: { color: tokens.colorNeutralForeground3 },
   back: { color: tokens.colorBrandForegroundLink },
+  tabBadge: { marginLeft: tokens.spacingHorizontalXS },
 });
 
 /** Back to the list the person came from (filters included), else to all projects. */
@@ -69,6 +71,8 @@ export function ProjectPage() {
   const [deliverable, setDeliverable] = useState<string | null>(null);
   const [gateOpen, setGateOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [changeRequest, setChangeRequest] = useState<string | null>(null);
+  const [newChangeRequest, setNewChangeRequest] = useState(false);
 
   if (project.isPending) return <Spinner label="Vorhaben wird geladen …" />;
   if (project.isError) return <ErrorView error={project.error} onRetry={() => void project.refetch()} />;
@@ -86,7 +90,12 @@ export function ProjectPage() {
       setPhaseId(v.phase);
       setTab(t);
     },
+    openChangeRequest: (id) => {
+      setTab("aenderungen");
+      setChangeRequest(id);
+    },
   };
+  const crPending = v.changeRequests.open + v.changeRequests.openRechecks;
 
   return (
     <div className={s.page}>
@@ -128,6 +137,20 @@ export function ProjectPage() {
       <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as TabId)}>
         <Tab value="ergebnisse">Lieferergebnisse</Tab>
         <Tab value="beteiligung">Beteiligte und Rollen</Tab>
+        <Tab value="aenderungen">
+          Change Requests
+          {crPending ? (
+            <Badge
+              appearance="filled"
+              color="warning"
+              size="small"
+              aria-label={`${crPending} offen`}
+              className={s.tabBadge}
+            >
+              {crPending}
+            </Badge>
+          ) : null}
+        </Tab>
         <Tab value="verlauf">Verlauf</Tab>
       </TabList>
 
@@ -153,6 +176,13 @@ export function ProjectPage() {
             </>
           ) : null}
           {tab === "beteiligung" ? <ParticipationTab code={code} view={v} phase={selected} /> : null}
+          {tab === "aenderungen" ? (
+            <ChangeRequestsTab
+              code={code}
+              onOpen={(id) => setChangeRequest(id)}
+              onNew={() => setNewChangeRequest(true)}
+            />
+          ) : null}
           {tab === "verlauf" ? <ActivityTab code={code} view={v} /> : null}
         </div>
         <aside className={s.column} aria-label="Hinweise">
@@ -163,6 +193,13 @@ export function ProjectPage() {
       </div>
 
       <DeliverableDrawer code={code} deliverableId={deliverable} onClose={() => setDeliverable(null)} />
+      <ChangeRequestDrawer code={code} crId={changeRequest} onClose={() => setChangeRequest(null)} />
+      <NewChangeRequestDrawer
+        code={code}
+        view={v}
+        open={newChangeRequest}
+        onClose={() => setNewChangeRequest(false)}
+      />
       <ChatPanel
         // A new project starts a new conversation.
         key={code}

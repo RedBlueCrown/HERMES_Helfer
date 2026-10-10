@@ -2,13 +2,19 @@
 // are fictional. Seeding appends normal events, so the Verlauf shows them.
 
 import {
+  CR_FLAGS,
+  CR_FLAG_LABELS,
+  CR_SECTIONS,
   DUE_OPTIONS,
   MODEL_VERSION,
+  NO_FLAGS,
+  nextCrNumber,
   gateStatus,
   openParticipation,
   rolesOf,
   type Actor,
   type ConditionSpec,
+  type CrFlags,
   type Decision,
   type PhaseId,
   type ProjectEvent,
@@ -16,8 +22,8 @@ import {
   type ProjectRole,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
-import { checkDraftStructure, mergeFindings } from "../agents/kritiker";
-import { mockDraft, mockFindings } from "../agents/mock-provider";
+import { checkChangeRequest, checkDraftStructure, mergeFindings } from "../agents/kritiker";
+import { mockChangeRequest, mockDraft, mockFindings } from "../agents/mock-provider";
 import { agentActor, projectContext } from "../agents/runner";
 import { projectIdForCode, type ProjectRepository } from "../projects/repository";
 import { DEV_USERS } from "./dev-users";
@@ -141,7 +147,7 @@ class Seeder {
             runId,
             skillId,
             draft,
-            findings: mergeFindings(checkDraftStructure(skill, draft), mockFindings(skillId)),
+            findings: mergeFindings(checkDraftStructure(skill.sections, draft), mockFindings(skillId)),
             producer: { kind: "ai", agent: agent.id, provider: "mock", model: "mock (ohne KI-Modell)" },
           },
         },
@@ -171,7 +177,7 @@ class Seeder {
             runId,
             skillId,
             draft,
-            findings: checkDraftStructure(skill, draft),
+            findings: checkDraftStructure(skill.sections, draft),
             producer: { kind: "human" },
           },
         },
@@ -202,6 +208,85 @@ class Seeder {
     await this.append(
       projectId,
       [{ type: "GateDecisionRecorded", data: { phase, decision, reason, konsent, conditions: [] } }],
+      await this.actor(projectId, by),
+    );
+  }
+
+  /** A change request; `ai`: drafted with the Change-Request agent (offline variant). */
+  async changeRequest(
+    projectId: string,
+    by: Person,
+    cr: {
+      title: string;
+      requestedBy: string;
+      effortDays: number;
+      flags: CrFlags;
+      description: string;
+      ai?: boolean;
+    },
+  ): Promise<string> {
+    const model = this.repo.model;
+    const s = (await this.repo.get(projectId))!;
+    const agent = model.agent("A10");
+    const content = cr.ai
+      ? mockChangeRequest({
+          agent,
+          project: projectContext(s, model, { userId: by.id, displayName: by.displayName, globalRoles: [] }),
+          idea: { title: cr.title, description: cr.description, requestedBy: cr.requestedBy },
+          sections: CR_SECTIONS,
+          flags: CR_FLAGS.map((id) => ({ id, ...CR_FLAG_LABELS[id] })),
+        }).content
+      : {
+          summary: cr.description,
+          sections: CR_SECTIONS.map((heading) => ({
+            heading,
+            body: `${heading}: erfasst durch ${by.displayName} (${cr.requestedBy}).`,
+          })),
+          openPoints: [],
+        };
+    const crId = randomUUID();
+    await this.append(
+      projectId,
+      [
+        {
+          type: "ChangeRequestSubmitted",
+          data: {
+            crId,
+            number: nextCrNumber(s),
+            title: cr.title,
+            requestedBy: cr.requestedBy,
+            effortDays: cr.effortDays,
+            flags: cr.flags,
+            content,
+            findings: checkChangeRequest(content, cr.flags),
+            producer: cr.ai
+              ? { kind: "ai", agent: agent.id, provider: "mock", model: "mock (ohne KI-Modell)" }
+              : { kind: "human" },
+          },
+        },
+      ],
+      await this.actor(projectId, by),
+    );
+    return crId;
+  }
+
+  async decideChangeRequest(projectId: string, crId: string, by: Person, decision: Decision, reason: string) {
+    await this.append(
+      projectId,
+      [
+        {
+          type: "ChangeRequestDecided",
+          data: { crId, decision, reason, konsent: decision !== "zurückgewiesen", conditions: [] },
+        },
+      ],
+      await this.actor(projectId, by),
+    );
+  }
+
+  async reserve(projectId: string, amountChf: number, by: Person) {
+    await this.append(
+      projectId,
+      [{ type: "ChangeReserveSet", data: { amountChf } }],
       await this.actor(projectId, by),
     );
   }
@@ -342,6 +427,31 @@ export async function seedDemo(repo: ProjectRepository, now = new Date()): Promi
   await seed.run(erp, "real.technische-koordination", tim);
   await seed.confirm(erp, "readiness", "apm", laura, "Zugang mit Testkonto geprüft");
   await seed.confirm(erp, "readiness", "entwicklung", david);
+  // Change requests: one accepted within the reserve, one waiting for the Projektausschuss.
+  await seed.reserve(erp, 40_000, jonas);
+  const filter = await seed.changeRequest(erp, nina, {
+    title: "Zusätzlicher Filter in der Kreditorensuche",
+    requestedBy: "Fachstelle Finanzen",
+    effortDays: 6,
+    flags: { ...NO_FLAGS, oberflaeche: true },
+    description: "Die Kreditorensuche soll nach Zahlungsbedingung filtern können.",
+  });
+  await seed.decideChangeRequest(
+    erp,
+    filter,
+    thomas,
+    "freigegeben",
+    "Geringer Aufwand, hoher Nutzen für die Kreditorenbuchhaltung.",
+  );
+  await seed.changeRequest(erp, nina, {
+    title: "Export der offenen Posten als CSV für die Revision",
+    requestedBy: "Revision",
+    effortDays: 9,
+    flags: { ...NO_FLAGS, daten: true, oberflaeche: true, extern: true },
+    description:
+      "Die externe Revision möchte die offenen Posten mit Kreditorennamen und Adressen als CSV-Export erhalten.",
+    ai: true,
+  });
 
   // 4. Einführung: go-live check waiting for criteria and the veto roles.
   const dap = await seed.project(

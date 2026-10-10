@@ -1,8 +1,18 @@
-import type { PortfolioOverview, ProjectEvent, ProjectListItem, ProjectView } from "@hermes-helfer/core";
+import {
+  CR_SECTIONS,
+  NO_FLAGS,
+  type ChangeRequestRegisterView,
+  type PortfolioOverview,
+  type ProjectEvent,
+  type ProjectListItem,
+  type ProjectView,
+} from "@hermes-helfer/core";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { MockProvider } from "../src/agents/mock-provider";
+import { AiProviderError } from "../src/agents/provider";
 import type { Authenticator } from "../src/auth";
 import { StoreUnavailableError } from "../src/store/event-store";
 import { testServer } from "./helpers";
@@ -468,6 +478,169 @@ describe("portfolio", () => {
       (await server.as("u-marco").post(`/api/projects/CRM/conditions/${condition!.id}/complete`)).statusCode,
     ).toBe(200);
     expect(await crm()).toMatchObject({ openConditions: 0, overdueConditions: 0, signals: [] });
+  });
+});
+
+describe("change requests", () => {
+  const register = async (s: Server, user: string) =>
+    (await s.as(user).get("/api/projects/ERP/change-requests")).json() as ChangeRequestRegisterView;
+  const wish = {
+    title: "Export der Kreditoren für die Revision",
+    description: "Die externe Revision möchte Kreditorennamen und Adressen als Export erhalten.",
+    requestedBy: "Revision",
+  };
+  const content = {
+    summary: "Kreditoren als CSV-Export für die externe Revision.",
+    sections: CR_SECTIONS.map((heading) => ({
+      heading,
+      body: `${heading}: ausführlich beschrieben für den Test.`,
+    })),
+    openPoints: [],
+  };
+  const submit = (s: Server, user: string, extra: object = {}) =>
+    s.as(user).post("/api/projects/ERP/change-requests", {
+      title: wish.title,
+      requestedBy: wish.requestedBy,
+      effortDays: 9,
+      flags: { ...NO_FLAGS, daten: true, oberflaeche: true },
+      content,
+      aiAssisted: true,
+      ...extra,
+    });
+
+  it("drafts a request with the Change-Request agent and stores nothing until it is submitted", async () => {
+    server = await testServer();
+    const erp = (await server.repo.findByCode("ERP"))!;
+    const res = await server.as("u-nina").post("/api/projects/ERP/change-requests/draft", wish);
+    expect(res.statusCode).toBe(200);
+    const proposal = res.json();
+    expect(proposal.content.sections.map((x: { heading: string }) => x.heading)).toEqual(CR_SECTIONS);
+    expect(proposal.flags.daten).toMatchObject({ value: true });
+    expect(proposal.flags.sonderloesung).toMatchObject({ value: false });
+    expect(proposal.producer).toMatchObject({ kind: "ai", agent: "A10" });
+    expect((await server.repo.findByCode("ERP"))!.lastSeq).toBe(erp.lastSeq);
+
+    // Only members of the project; the PMO sees the project but is no member.
+    expect(
+      (await server.as("u-peter").post("/api/projects/ERP/change-requests/draft", wish)).statusCode,
+    ).toBe(403);
+    expect((await server.as("u-anna").post("/api/projects/ERP/change-requests/draft", wish)).statusCode).toBe(
+      404,
+    );
+    const short = await server
+      .as("u-nina")
+      .post("/api/projects/ERP/change-requests/draft", { ...wish, description: "kurz" });
+    expect(short.statusCode).toBe(422);
+  });
+
+  it("says so when the agent is unavailable, so the request can be filled in by hand", async () => {
+    const mock = new MockProvider(0);
+    server = await testServer({
+      provider: {
+        info: mock.info,
+        draft: (r) => mock.draft(r),
+        critique: (r) => mock.critique(r),
+        draftChangeRequest: async () => {
+          throw new AiProviderError("rate_limited", "Azure OpenAI 429");
+        },
+      },
+    });
+    const res = await server.as("u-nina").post("/api/projects/ERP/change-requests/draft", wish);
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.message).toMatch(/Hohe Auslastung.*ohne den Agenten/);
+  });
+
+  it("is decided by the Projektausschuss with Konsent, then rechecked by ISM and Datenschutz", async () => {
+    server = await testServer();
+    expect((await submit(server, "u-nina")).statusCode).toBe(201);
+    const [cr] = (await register(server, "u-thomas")).items;
+    expect(cr).toMatchObject({ label: "CR-03", status: "offen", costChf: 10_800, producer: { kind: "ai" } });
+    expect(cr!.impact.find((r) => r.id === "sicherheit")?.level).toBe("hoch");
+    expect(cr!.canDecide.ok).toBe(true);
+
+    const decide = (user: string, body: object) =>
+      server!.as(user).post(`/api/projects/ERP/change-requests/${cr!.id}/decision`, body);
+    expect(
+      (await decide("u-jonas", { decision: "freigegeben", reason: "Passt.", konsent: true })).statusCode,
+    ).toBe(403);
+    const noKonsent = await decide("u-thomas", { decision: "freigegeben", reason: "Im Rahmen der Reserve." });
+    expect(noKonsent.statusCode).toBe(422);
+    expect(noKonsent.json().error.message).toMatch(/Konsent/);
+    const noReason = await decide("u-thomas", { decision: "freigegeben", konsent: true });
+    expect(noReason.json().error.message).toMatch(/Begründung/);
+    expect(
+      (await decide("u-thomas", { decision: "freigegeben", reason: "Im Rahmen der Reserve.", konsent: true }))
+        .statusCode,
+    ).toBe(200);
+
+    const gate = (await view(server, "u-jonas", "ERP")).phases.find((ph) => ph.current)!.gate;
+    expect(gate.criteria.find((c) => c.id === "neupruefung")).toMatchObject({ ok: false, blocking: true });
+    expect((await view(server, "u-marco", "ERP")).myTasks.some((t) => t.kind === "recheck")).toBe(true);
+
+    const recheck = (user: string, body: object) =>
+      server!.as(user).post(`/api/projects/ERP/change-requests/${cr!.id}/recheck`, body);
+    expect((await recheck("u-marco", { role: "DS", outcome: "keine Anpassung" })).statusCode).toBe(403);
+    expect((await recheck("u-marco", { role: "ISM", outcome: "keine Anpassung" })).statusCode).toBe(200);
+    expect((await recheck("u-sandra", { role: "DS", outcome: "Massnahme ergänzt" })).statusCode).toBe(422);
+    expect(
+      (
+        await recheck("u-sandra", {
+          role: "DS",
+          outcome: "Massnahme ergänzt",
+          note: "Export pseudonymisiert.",
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await register(server, "u-jonas")).items[0]?.recheck).toMatchObject({ done: true });
+
+    const events = (await server.as("u-jonas").get("/api/projects/ERP/events?category=aenderung")).json();
+    const texts = events.items.map((e: { text: string }) => e.text);
+    expect(texts).toContain(
+      "CR-03 freigegeben durch den Projektausschuss (Konsent festgestellt): Im Rahmen der Reserve.",
+    );
+    expect(texts).toContain(
+      "Neuprüfung nach CR-03 durch Datenschutz: Massnahme ergänzt (Export pseudonymisiert.).",
+    );
+    expect(events.items.every((e: { category: string }) => e.category === "aenderung")).toBe(true);
+  });
+
+  it("lets the requester withdraw a request and the PL record the reserve", async () => {
+    server = await testServer();
+    await submit(server, "u-nina");
+    const [cr] = (await register(server, "u-nina")).items;
+    const withdraw = (user: string, reason: string) =>
+      server!.as(user).post(`/api/projects/ERP/change-requests/${cr!.id}/withdraw`, { reason });
+    expect((await withdraw("u-tim", "Nicht mehr nötig.")).statusCode).toBe(403);
+    expect((await withdraw("u-nina", "")).statusCode).toBe(422);
+    expect((await withdraw("u-nina", "Die Revision braucht den Export doch nicht.")).statusCode).toBe(200);
+    expect((await register(server, "u-nina")).items[0]).toMatchObject({ status: "zurueckgezogen" });
+
+    expect(
+      (await server.as("u-thomas").put("/api/projects/ERP/change-reserve", { amountChf: 1 })).statusCode,
+    ).toBe(403);
+    expect(
+      (await server.as("u-jonas").put("/api/projects/ERP/change-reserve", { amountChf: 50_000 })).statusCode,
+    ).toBe(200);
+    // CR-01 from the demo data was accepted with 6 person-days.
+    expect((await register(server, "u-jonas")).reserve).toMatchObject({
+      reserveChf: 50_000,
+      usedChf: 7_200,
+      remainingChf: 42_800,
+    });
+    const invalid = await submit(server, "u-nina", { effortDays: 0 });
+    expect(invalid.statusCode).toBe(422);
+    expect(invalid.json().error.message).toMatch(/Aufwand/);
+  });
+
+  it("answers questions about change requests in the chat", async () => {
+    server = await testServer();
+    const reply = (
+      await server
+        .as("u-nina")
+        .post("/api/projects/ERP/chat", { message: "Welche Change Requests sind offen?" })
+    ).json();
+    expect(reply.text).toContain("CR-02 Export der offenen Posten als CSV für die Revision");
+    expect(reply.text).toContain("wartet auf den Projektausschuss");
   });
 });
 

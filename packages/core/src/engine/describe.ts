@@ -3,10 +3,22 @@
 import type { HermesModel } from "../model";
 import { PARTICIPANT_CATALOG } from "../model/participation";
 import { PROJECT_ROLE_LABELS } from "../model/roles";
+import { crLabel, formatChf } from "./change-requests";
 import { findChecklist } from "./permissions";
 import type { StoredEvent } from "./events";
 
-export type EventCategory = "entscheid" | "entwurf" | "freigabe" | "beteiligung" | "rollen" | "vorhaben";
+export type EventCategory =
+  "entscheid" | "entwurf" | "freigabe" | "beteiligung" | "rollen" | "vorhaben" | "aenderung";
+
+export const EVENT_CATEGORIES: readonly EventCategory[] = [
+  "entscheid",
+  "entwurf",
+  "freigabe",
+  "beteiligung",
+  "rollen",
+  "vorhaben",
+  "aenderung",
+];
 
 export function eventCategory(e: StoredEvent): EventCategory {
   switch (e.type) {
@@ -32,17 +44,30 @@ export function eventCategory(e: StoredEvent): EventCategory {
     case "ProjectCreated":
     case "ProfileUpdated":
       return "vorhaben";
+    case "ChangeRequestSubmitted":
+    case "ChangeRequestWithdrawn":
+    case "ChangeRequestDecided":
+    case "ChangeRecheckConfirmed":
+    case "ChangeReserveSet":
+      return "aenderung";
   }
 }
 
 const decisionText = (d: string) =>
   d === "freigegeben" ? "freigegeben" : d === "mit Auflagen" ? "mit Auflagen freigegeben" : "zurückgewiesen";
 
-export function describeEvent(e: StoredEvent, model: HermesModel): string {
+/** The project's change requests by id, for their numbers in the texts. */
+export type CrNumbers = ReadonlyMap<string, number>;
+
+export function describeEvent(e: StoredEvent, model: HermesModel, crNumbers: CrNumbers = new Map()): string {
   const skillName = (id: string) => model.findSkill(id)?.name ?? id;
   const docName = (id: string) => model.findSkill(id)?.outputDoc ?? id;
   const delivName = (id: string) => model.findDeliverable(id)?.name ?? id;
   const withReason = (r: string) => (r.trim() ? `: ${r.trim()}` : ".");
+  const crName = (crId: string) => {
+    const n = crNumbers.get(crId);
+    return n ? crLabel(n) : "Change Request";
+  };
   switch (e.type) {
     case "ProjectCreated":
       return `Vorhaben «${e.data.name}» angelegt (Phase ${model.phase(e.data.phase).label}).`;
@@ -86,5 +111,15 @@ export function describeEvent(e: StoredEvent, model: HermesModel): string {
     }
     case "ConditionCompleted":
       return `Auflage erledigt: ${e.data.text}${e.data.note ? ` (${e.data.note})` : ""}.`;
+    case "ChangeRequestSubmitted":
+      return `${crLabel(e.data.number)} «${e.data.title}» erfasst (${e.data.effortDays} Personentage${e.data.producer.kind === "ai" ? ", mit dem Change-Request-Agenten ausgearbeitet" : ""}).`;
+    case "ChangeRequestWithdrawn":
+      return `${crName(e.data.crId)} zurückgezogen${withReason(e.data.reason)}`;
+    case "ChangeRequestDecided":
+      return `${crName(e.data.crId)} ${decisionText(e.data.decision)} durch den Projektausschuss${e.data.konsent ? " (Konsent festgestellt)" : ""}${withReason(e.data.reason)}`;
+    case "ChangeRecheckConfirmed":
+      return `Neuprüfung nach ${crName(e.data.crId)} durch ${PROJECT_ROLE_LABELS[e.data.role]}: ${e.data.outcome}${e.data.note ? ` (${e.data.note})` : ""}.`;
+    case "ChangeReserveSet":
+      return `Reserve für Change Requests: ${formatChf(e.data.amountChf)}.`;
   }
 }

@@ -1,4 +1,4 @@
-import { DEFAULT_PROFILE, MODEL } from "@hermes-helfer/core";
+import { CR_FLAGS, CR_FLAG_LABELS, CR_SECTIONS, DEFAULT_PROFILE, MODEL } from "@hermes-helfer/core";
 import { exportJWK, generateKeyPair, SignJWT, createLocalJWKSet } from "jose";
 import { describe, expect, it } from "vitest";
 import { AzureOpenAiProvider } from "../src/agents/azure-openai-provider";
@@ -125,7 +125,7 @@ describe("project summaries (read model)", () => {
 describe("Kritiker structure check", () => {
   it("reports missing, thin and open sections", () => {
     const skill = MODEL.skill("konzept.test-engineer");
-    const findings = checkDraftStructure(skill, {
+    const findings = checkDraftStructure(skill.sections, {
       summary: "s",
       sections: [
         {
@@ -259,6 +259,34 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     expect(body).not.toHaveProperty("temperature");
     expect(body).not.toHaveProperty("max_tokens");
     expect(body).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("drafts a change request with its areas as structured output, never with effort or cost", async () => {
+    const out = {
+      summary: "S",
+      sections: [{ heading: "Ausgangslage", body: "B" }],
+      openPoints: [],
+      flags: Object.fromEntries(CR_FLAGS.map((f) => [f, { value: f === "daten", reason: "R" }])),
+    };
+    const { fn, calls } = fakeFetch(200, {
+      choices: [{ finish_reason: "stop", message: { content: JSON.stringify(out) } }],
+    });
+    const p = new AzureOpenAiProvider(cfg, async () => "tok", fn);
+    const res = await p.draftChangeRequest({
+      agent: MODEL.agent("A10"),
+      project: req.project,
+      idea: { title: "Export", description: "Export der Kreditoren", requestedBy: "Revision" },
+      sections: CR_SECTIONS,
+      flags: CR_FLAGS.map((id) => ({ id, ...CR_FLAG_LABELS[id] })),
+    });
+    expect(res.draft.flags.daten).toEqual({ value: true, reason: "R" });
+    expect(res.draft.content).toEqual({ summary: "S", sections: out.sections, openPoints: [] });
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body.response_format.json_schema).toMatchObject({ name: "change_request", strict: true });
+    expect(body.response_format.json_schema.schema.properties.flags.required).toEqual([...CR_FLAGS]);
+    expect(body.messages[0].content).toMatch(/Schätze weder Aufwand noch Kosten/);
+    // The wish is passed as data, not as instructions.
+    expect(JSON.parse(body.messages[1].content).wunsch_als_daten).toMatchObject({ titel: "Export" });
   });
 
   it("can use a dated api-version and a reasoning effort", async () => {

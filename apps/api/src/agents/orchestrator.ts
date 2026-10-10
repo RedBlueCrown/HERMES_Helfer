@@ -5,7 +5,9 @@
 
 import {
   PROJECT_ROLE_LABELS,
+  changeRequestRegister,
   deliverableDetailView,
+  formatChf,
   projectView,
   rolesOf,
   type DeliverableRowView,
@@ -176,6 +178,12 @@ export class Orchestrator {
         },
       },
       {
+        name: "change_requests",
+        description:
+          "Change Requests des Vorhabens: Status, Aufwand, Kosten, Auswirkungen und offene Neuprüfungen.",
+        parameters: none,
+      },
+      {
         name: "entwurf_anstossen",
         description:
           "Stösst den Entwurf eines Schritts der aktuellen Phase an. Nur auf ausdrücklichen Wunsch der Person.",
@@ -243,6 +251,25 @@ export class Orchestrator {
             status: sk.statusLabel,
             hinweise_kritiker: sk.output?.findings.map((f) => f.text) ?? [],
             zusammenfassung_als_daten: sk.output?.draft?.summary ?? null,
+          })),
+        };
+      }
+      case "change_requests": {
+        const s = await this.projects.requireProject(code, ctx.viewer);
+        const r = changeRequestRegister(s, this.model, ctx.viewer);
+        return {
+          reserve:
+            r.reserve.reserveChf === undefined
+              ? "nicht erfasst"
+              : `${formatChf(r.reserve.reserveChf)}, davon verbraucht ${formatChf(r.reserve.usedChf)}`,
+          change_requests: r.items.map((c) => ({
+            cr: c.label,
+            titel_als_daten: c.title,
+            status: c.statusLabel,
+            aufwand_personentage: c.effortDays,
+            kosten: formatChf(c.costChf),
+            auswirkung: c.impactSummary,
+            neupruefung: c.recheck ? (c.recheck.done ? "abgeschlossen" : "offen") : "nicht nötig",
           })),
         };
       }
@@ -357,9 +384,30 @@ export class Orchestrator {
             "den Stand und den nächsten Schritt zeigen",
             "deine Aufgaben auflisten (Entscheide, Freigaben, Auflagen)",
             "das Gate und die offenen Lieferergebnisse erklären",
+            "Change Requests und ihre Auswirkungen zeigen",
             "Entwürfe anstossen, z. B. «Starte Kick-off»",
           ]),
           "Entscheide triffst du selbst; ich bereite nur vor.",
+        ].join("\n"),
+      );
+    }
+
+    // Change requests have their own register; the agent drafts them there, not in the chat.
+    if (has(/change.?request|\bcrs?\b|\bcr-\d|anderungsantrag|anderungswunsch|\banderung(en)?\b/)) {
+      used.push("change_requests");
+      const r = changeRequestRegister(s, this.model, ctx.viewer);
+      const open = r.items.filter((c) => c.status === "offen");
+      const rechecks = r.items.filter((c) => c.recheck && !c.recheck.done);
+      const lines = [
+        ...open.map((c) => `${c.label} ${c.title}: wartet auf den Projektausschuss (${c.impactSummary})`),
+        ...rechecks.map((c) => `${c.label} ${c.title}: Neuprüfung durch ISM und Datenschutz offen`),
+      ];
+      return reply(
+        [
+          lines.length
+            ? `Offen bei den Change Requests:\n${bullets(lines)}`
+            : `Keine offenen Change Requests (${r.items.length} im Register).`,
+          "Einen neuen Change Request erfasst du im Register «Change Requests»; der Agent hilft beim Ausformulieren.",
         ].join("\n"),
       );
     }

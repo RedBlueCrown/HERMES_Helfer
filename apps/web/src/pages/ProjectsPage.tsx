@@ -1,4 +1,5 @@
 import {
+  Button,
   Caption1,
   Dropdown,
   Option,
@@ -12,6 +13,7 @@ import {
 } from "@fluentui/react-components";
 import { useDeferredValue, useState } from "react";
 import { useMe, useProjects, useReference } from "../api/hooks";
+import { NewProjectDialog } from "../components/NewProjectDialog";
 import { Pager, ProjectTable, type ProjectColumn } from "../components/ProjectTable";
 import { ErrorView } from "../components/ui";
 
@@ -36,6 +38,7 @@ const useStyles = makeStyles({
     margin: `${tokens.spacingVerticalM} 0`,
   },
   muted: { color: tokens.colorNeutralForeground3 },
+  create: { marginLeft: "auto" },
 });
 
 export function ProjectsPage() {
@@ -46,6 +49,7 @@ export function ProjectsPage() {
   const [q, setQ] = useState("");
   const [phase, setPhase] = useState("");
   const [offset, setOffset] = useState(0);
+  const [creating, setCreating] = useState(false);
   const deferredQ = useDeferredValue(q);
   const projects = useProjects({ q: deferredQ, phase, scope, limit: PAGE, offset });
   const phaseLabel = ref.data?.phases.find((p) => p.id === phase)?.label ?? "Alle Phasen";
@@ -55,7 +59,13 @@ export function ProjectsPage() {
       <div className={s.head}>
         <Title2 as="h1">Vorhaben</Title2>
         {projects.data ? <Caption1 className={s.muted}>{projects.data.total} Vorhaben</Caption1> : null}
+        {me.data?.can.createProject ? (
+          <Button appearance="primary" className={s.create} onClick={() => setCreating(true)}>
+            Neues Vorhaben
+          </Button>
+        ) : null}
       </div>
+      <NewProjectDialog open={creating} onClose={() => setCreating(false)} />
       {me.data?.can.seeAllProjects ? (
         <TabList
           selectedValue={scope}

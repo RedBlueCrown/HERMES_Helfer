@@ -1,7 +1,13 @@
 import {
   AGENTS,
+  CR_FLAGS,
+  CR_FLAG_LABELS,
+  CR_RECHECK_ROLES,
+  CR_SECTIONS,
   DECISIONS,
   DUE_OPTIONS,
+  EVENT_CATEGORIES,
+  RECHECK_OUTCOMES,
   GLOBAL_ROLE_LABELS,
   INVOLVEMENT_OPTIONS,
   PHASE_IDS,
@@ -10,6 +16,7 @@ import {
   SIGNAL_IDS,
   canCreateProject,
   canVerifyAudit,
+  changeRequestRegister,
   describeEvent,
   deliverableDetailView,
   eventCategory,
@@ -23,6 +30,7 @@ import {
 } from "@hermes-helfer/core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import type { ChangeRequestAgent } from "./agents/change-request-agent";
 import type { Orchestrator } from "./agents/orchestrator";
 import type { ProviderInfo } from "./agents/provider";
 import type { RunService } from "./agents/runner";
@@ -45,6 +53,7 @@ export interface RouteDeps {
   projects: ProjectService;
   runs: RunService;
   orchestrator: Orchestrator;
+  changeRequestAgent: ChangeRequestAgent;
   authenticator: Authenticator;
   provider: ProviderInfo;
   devUsers: readonly DevUser[];
@@ -97,6 +106,15 @@ const Draft = z
       MAX_DRAFT_CHARS,
     "Der Entwurf ist zu lang (höchstens 100'000 Zeichen).",
   );
+
+const CrFlagsBody = z.object({
+  daten: z.boolean(),
+  schnittstelle: z.boolean(),
+  sonderloesung: z.boolean(),
+  oberflaeche: z.boolean(),
+  extern: z.boolean(),
+});
+const CrTitle = z.string().trim().min(4, "Bitte einen Titel erfassen (mindestens 4 Zeichen).").max(200);
 
 export const MAX_CHAT_CHARS = 2000;
 const ChatBody = z.object({
@@ -172,6 +190,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     roles: PROJECT_ROLES.map((r) => ({ id: r, label: PROJECT_ROLE_LABELS[r] })),
     decisions: DECISIONS,
     dueOptions: DUE_OPTIONS,
+    changeRequests: {
+      flags: CR_FLAGS.map((id) => ({ id, ...CR_FLAG_LABELS[id] })),
+      sections: CR_SECTIONS,
+      recheckOutcomes: RECHECK_OUTCOMES,
+    },
     involvementOptions: INVOLVEMENT_OPTIONS,
     agents: AGENTS,
   }));
@@ -344,13 +367,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       z.object({
         before: z.coerce.number().int().min(1).optional(),
         limit: z.coerce.number().int().min(1).max(200).default(50),
-        category: z
-          .enum(["entscheid", "entwurf", "freigabe", "beteiligung", "rollen", "vorhaben"])
-          .optional(),
+        category: z.enum(EVENT_CATEGORIES).optional(),
       }),
       req.query,
     );
     const s = await projects.requireProject(code, ctx(req).viewer);
+    const crNumbers = new Map(Object.values(s.changeRequests).map((c) => [c.id, c.number]));
     const all = (await repo.events(s.projectId)).filter(
       (e) => (!q.before || e.seq < q.before) && (!q.category || eventCategory(e) === q.category),
     );
@@ -361,7 +383,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         at: e.at,
         type: e.type,
         category: eventCategory(e),
-        text: describeEvent(e, model),
+        text: describeEvent(e, model, crNumbers),
         actor: {
           displayName: e.actor.displayName,
           roles: e.actor.roles.map(roleLabel).filter((x): x is string => !!x),
@@ -380,6 +402,90 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       throw new HttpError(403, "forbidden", "Die Integrität prüfen können Projektleitung und PMO.");
     }
     return repo.verify(s.projectId);
+  });
+
+  // ---------- Change Requests ----------
+
+  app.get("/api/projects/:code/change-requests", async (req) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const c = ctx(req);
+    return changeRequestRegister(await projects.requireProject(code, c.viewer), model, c.viewer, deps.now());
+  });
+
+  // Agent A10 drafts a request from a rough wish; nothing is stored until the person submits.
+  app.post(
+    "/api/projects/:code/change-requests/draft",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (req) => {
+      const { code } = params(req, z.object({ code: Code }));
+      const body = parse(
+        z.object({
+          title: CrTitle,
+          description: z.string().trim().min(10, "Bitte den Wunsch kurz beschreiben.").max(4000),
+          requestedBy: z.string().trim().max(120).default(""),
+        }),
+        req.body,
+      );
+      return deps.changeRequestAgent.draft(code, ctx(req), body);
+    },
+  );
+
+  app.post("/api/projects/:code/change-requests", async (req, reply) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const body = parse(
+      z.object({
+        title: CrTitle,
+        requestedBy: z.string().trim().min(2, "Bitte angeben, wer die Änderung beantragt.").max(120),
+        effortDays: z.number().positive("Bitte den Aufwand in Personentagen schätzen.").max(2000),
+        flags: CrFlagsBody,
+        content: Draft,
+        aiAssisted: z.boolean().default(false),
+      }),
+      req.body,
+    );
+    const info = deps.provider;
+    const result = await projects.submitChangeRequest(code, ctx(req), {
+      title: body.title,
+      requestedBy: body.requestedBy,
+      effortDays: body.effortDays,
+      flags: body.flags,
+      content: body.content,
+      producer: body.aiAssisted
+        ? { kind: "ai", agent: "A10", provider: info.provider, model: info.model }
+        : { kind: "human" },
+    });
+    return reply.code(201).send(result);
+  });
+
+  app.post("/api/projects/:code/change-requests/:crId/withdraw", async (req) => {
+    const { code, crId } = params(req, z.object({ code: Code, crId: z.uuid() }));
+    const body = parse(z.object({ reason: z.string().max(2000) }), req.body);
+    return projects.withdrawChangeRequest(code, ctx(req), crId, body.reason);
+  });
+
+  app.post("/api/projects/:code/change-requests/:crId/decision", async (req) => {
+    const { code, crId } = params(req, z.object({ code: Code, crId: z.uuid() }));
+    const body = parse(DecisionBody, req.body);
+    return projects.decideChangeRequest(code, ctx(req), crId, body);
+  });
+
+  app.post("/api/projects/:code/change-requests/:crId/recheck", async (req) => {
+    const { code, crId } = params(req, z.object({ code: Code, crId: z.uuid() }));
+    const body = parse(
+      z.object({
+        role: z.enum(CR_RECHECK_ROLES),
+        outcome: z.enum(RECHECK_OUTCOMES),
+        note: z.string().max(1000).default(""),
+      }),
+      req.body,
+    );
+    return projects.confirmRecheck(code, ctx(req), crId, body.role, body.outcome, body.note);
+  });
+
+  app.put("/api/projects/:code/change-reserve", async (req) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const body = parse(z.object({ amountChf: z.number().int().min(0).max(1_000_000_000) }), req.body);
+    return projects.setChangeReserve(code, ctx(req), body.amountChf);
   });
 
   app.post(

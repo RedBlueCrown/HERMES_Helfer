@@ -70,6 +70,7 @@ export const MODEL: HermesModel = buildModel(PHASES, AGENTS, MODEL_VERSION);
 
 export { AGENTS } from "./agents";
 export { PHASES } from "./hermes-model";
+export * from "./change-requests";
 export * from "./participation";
 export * from "./roles";
 export * from "./types";

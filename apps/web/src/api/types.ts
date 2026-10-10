@@ -2,14 +2,20 @@
 
 import type {
   AgentDef,
+  CrFlag,
+  DraftContent,
+  Finding,
   GlobalRole,
   PhaseId,
   PortfolioOverview,
+  Producer,
   ProjectListItem,
   ProjectRole,
 } from "@hermes-helfer/core";
 
 export type {
+  ChangeRequestRegisterView,
+  ChangeRequestView,
   ChecklistView,
   ConditionView,
   DeliverableDetailView,
@@ -44,6 +50,19 @@ export interface Reference {
   dueOptions: string[];
   involvementOptions: string[];
   agents: AgentDef[];
+  changeRequests: {
+    flags: { id: CrFlag; label: string; hint: string }[];
+    sections: string[];
+    recheckOutcomes: string[];
+  };
+}
+
+/** The Change-Request agent's proposal (not stored until submitted). */
+export interface ChangeRequestProposal {
+  content: DraftContent;
+  flags: Record<CrFlag, { value: boolean; reason: string }>;
+  findings: Finding[];
+  producer: Producer;
 }
 
 export interface ProjectPage {

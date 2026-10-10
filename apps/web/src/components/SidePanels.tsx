@@ -42,7 +42,8 @@ const useStyles = makeStyles({
 export interface Navigate {
   openDeliverable(id: string): void;
   openGate(): void;
-  showTab(tab: "ergebnisse" | "beteiligung" | "verlauf"): void;
+  showTab(tab: "ergebnisse" | "beteiligung" | "aenderungen" | "verlauf"): void;
+  openChangeRequest(id: string): void;
 }
 
 export function NextStepCard({ code, view, nav }: { code: string; view: ProjectView; nav: Navigate }) {
@@ -58,6 +59,7 @@ export function NextStepCard({ code, view, nav }: { code: string; view: ProjectV
       });
     } else if (n.kind === "gate") nav.openGate();
     else if (n.kind === "involve") nav.showTab("beteiligung");
+    else if (n.kind === "recheck" && n.crId) nav.openChangeRequest(n.crId);
     else if (n.deliverableId) nav.openDeliverable(n.deliverableId);
   };
   return (
@@ -95,6 +97,9 @@ function taskAction(t: TaskView, nav: Navigate): (() => void) | undefined {
     case "involve":
     case "assign-role":
       return () => nav.showTab("beteiligung");
+    case "decide-cr":
+    case "recheck":
+      return t.crId ? () => nav.openChangeRequest(t.crId!) : undefined;
     case "condition":
       return undefined;
   }

@@ -6,7 +6,7 @@ Status: the templates compile and pass the linter in CI. They have **not yet bee
 
 ## Quick test environment
 
-One script does all steps below with your own Azure CLI sign-in. It uses the smaller, removable settings in [`infra/test.bicepparam`](../infra/test.bicepparam) (database S0, no delete locks, no Defender) with the same security set-up as the pilot.
+One script does all steps below with your own Azure CLI sign-in. It uses the smaller, removable settings in [`infra/test.bicepparam`](../infra/test.bicepparam) (database S0, no delete locks, no Defender) with the same security set-up as the pilot. The guide for trying it, with first steps, checks of the agents and troubleshooting: [staging.md](staging.md).
 
 In [Azure Cloud Shell](https://shell.azure.com) (Bash), or anywhere with the Azure CLI, `jq`, `git` and `curl`:
 
@@ -18,7 +18,7 @@ scripts/deploy-azure.sh
 
 It checks that the model is offered in the region, deploys the infrastructure, creates the app registrations, gives **you** the PMO role, builds the image in the registry, runs the migrations and waits until the app answers. At the end it prints the address. The first run takes about 20 to 30 minutes; run it again to deploy a new version.
 
-You need Owner on the subscription and, in Entra ID, Application Administrator (or Cloud Application Administrator). Options: `ENV_NAME`, `LOCATION`, `RESOURCE_GROUP`, `PARAMS` (see the top of the script).
+You need Owner on the subscription and, in Entra ID, Application Administrator (or Cloud Application Administrator). Options: `ENV_NAME`, `LOCATION`, `RESOURCE_GROUP`, `PARAMS`, and for the model `MODEL`, `MODEL_VERSION`, `MODEL_SKU`, `MODEL_CAPACITY`, `REASONING_EFFORT` (see the top of the script). The script stops early if the model is not offered in the region or the quota is too small.
 
 While it runs, the environment costs money even without use (container, private endpoints, database). Remove everything with:
 
@@ -111,7 +111,7 @@ The app connects on its next start; restart it if needed:
 **7. Check.**
 
 - `https://<appUrl>/api/ready` answers `{"status":"ready"}`.
-- Sign in as a member of the PMO group, create a project, start a draft.
+- Sign in as a member of the PMO group, create a project («Neues Vorhaben»), start a draft, and ask the assistant a free-text question (its header names the model).
 - In Application Insights: requests named by route (`GET /api/projects/:code`), dependencies to SQL and Azure OpenAI, metric `hh.ai_run.duration`.
 
 **8. Conditional Access.** The identity team adds the enterprise application "HERMES Helfer (pilot)" to a policy with MFA and compliant devices.

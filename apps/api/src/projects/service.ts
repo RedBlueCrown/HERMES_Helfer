@@ -10,6 +10,8 @@ import {
   canViewProject,
   checkCompleteCondition,
   checkConfirmChecklistItem,
+  checkConfirmRecheck,
+  checkDecideChangeRequest,
   checkDecideGate,
   checkDecideSkill,
   checkEditOutput,
@@ -18,10 +20,14 @@ import {
   checkReactivate,
   checkRecordParticipation,
   checkRelease,
+  checkSetChangeReserve,
   checkStartSkill,
+  checkSubmitChangeRequest,
   checkUpdateProfile,
+  checkWithdrawChangeRequest,
   contentVersion as currentContentVersion,
   findChecklist,
+  nextCrNumber,
   openChecklistItems,
   rolesOf,
   validateDecision,
@@ -29,17 +35,21 @@ import {
   type Actor,
   type Channel,
   type ConditionSpec,
+  type CrFlags,
   type DecisionInput,
   type DraftContent,
   type PhaseId,
+  type Producer,
   type ProjectEvent,
   type ProjectProfile,
   type ProjectRole,
   type ProjectState,
+  type RecheckOutcome,
+  type RecheckRole,
   type Viewer,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
-import { checkDraftStructure } from "../agents/kritiker";
+import { checkChangeRequest, checkDraftStructure } from "../agents/kritiker";
 import { HttpError, assertCheck, notFound, unprocessable } from "../errors";
 import { projectIdForCode, type ProjectRepository } from "./repository";
 
@@ -70,6 +80,16 @@ export const STALE_VERSION =
 /** Optimistic concurrency per document: refuse when the content changed since the person looked at it. */
 function assertSameVersion<T>(current: T | undefined, seen: T): void {
   if (current !== seen) throw new HttpError(409, "stale", STALE_VERSION);
+}
+
+export interface ChangeRequestInput {
+  title: string;
+  requestedBy: string;
+  effortDays: number;
+  flags: CrFlags;
+  content: DraftContent;
+  /** "ai" when the requester used the Change-Request agent's draft. */
+  producer: Producer;
 }
 
 export interface CreateProjectInput {
@@ -211,7 +231,7 @@ export class ProjectService {
             runId,
             skillId,
             draft,
-            findings: checkDraftStructure(skill, draft),
+            findings: checkDraftStructure(skill.sections, draft),
             producer: { kind: "human" },
           },
         },
@@ -343,6 +363,93 @@ export class ProjectService {
       assertCheck(checkCompleteCondition(s, ctx.viewer, conditionId));
       const text = s.conditions[conditionId]!.text;
       return [{ type: "ConditionCompleted", data: { conditionId, text, note: note.trim() } }];
+    });
+  }
+
+  // ---------- Change Requests ----------
+
+  submitChangeRequest(code: string, ctx: RequestContext, input: ChangeRequestInput) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkSubmitChangeRequest(s, this.model, ctx.viewer));
+      if (input.content.summary.trim().length < 10) {
+        throw unprocessable("Bitte die Änderung kurz beschreiben (mindestens 10 Zeichen).");
+      }
+      return [
+        {
+          type: "ChangeRequestSubmitted",
+          data: {
+            crId: this.newId(),
+            number: nextCrNumber(s),
+            title: input.title.trim(),
+            requestedBy: input.requestedBy.trim(),
+            effortDays: input.effortDays,
+            flags: input.flags,
+            content: input.content,
+            // Checked again here: the requester may have changed the agent's text.
+            findings: checkChangeRequest(input.content, input.flags),
+            producer: input.producer,
+          },
+        },
+      ];
+    });
+  }
+
+  withdrawChangeRequest(code: string, ctx: RequestContext, crId: string, reason: string) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkWithdrawChangeRequest(s, ctx.viewer, crId));
+      if (reason.trim().length < 5)
+        throw unprocessable("Bitte begründen, warum der Change Request zurückgezogen wird.");
+      return [{ type: "ChangeRequestWithdrawn", data: { crId, reason: reason.trim() } }];
+    });
+  }
+
+  /** The Projektausschuss decides with Konsent and always gives a reason. */
+  decideChangeRequest(code: string, ctx: RequestContext, crId: string, input: DecisionInput) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkDecideChangeRequest(s, ctx.viewer, crId));
+      const error = validateDecision(input, {
+        veto: false,
+        konsentRequired: true,
+        openChecklistItems: 0,
+        reasonRequired: true,
+      });
+      if (error) throw unprocessable(error);
+      return [
+        {
+          type: "ChangeRequestDecided",
+          data: {
+            crId,
+            decision: input.decision,
+            reason: input.reason.trim(),
+            konsent: input.decision !== "zurückgewiesen" && input.konsent,
+            conditions: this.conditions(input),
+          },
+        },
+      ];
+    });
+  }
+
+  confirmRecheck(
+    code: string,
+    ctx: RequestContext,
+    crId: string,
+    role: RecheckRole,
+    outcome: RecheckOutcome,
+    note: string,
+  ) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkConfirmRecheck(s, ctx.viewer, crId, role));
+      if (outcome === "Massnahme ergänzt" && note.trim().length < 5) {
+        throw unprocessable("Bitte die ergänzte Massnahme nennen.");
+      }
+      return [{ type: "ChangeRecheckConfirmed", data: { crId, role, outcome, note: note.trim() } }];
+    });
+  }
+
+  setChangeReserve(code: string, ctx: RequestContext, amountChf: number) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkSetChangeReserve(s, this.model, ctx.viewer));
+      return [{ type: "ChangeReserveSet", data: { amountChf } }];
     });
   }
 

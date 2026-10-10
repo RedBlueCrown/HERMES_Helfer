@@ -4,7 +4,7 @@ Things we deliberately postponed: error cases that still need proper handling, p
 
 When an item is done, delete it here and mention it in the pull request.
 
-Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event store, the container image, telemetry and the Azure templates are built and tested in CI; the first deployment to Azure is still open. Increment 5: the first version of the portfolio view is built (architecture §7.1).
+Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event store, the container image, telemetry and the Azure templates are built and tested in CI; the first deployment to Azure is still open ([staging.md](staging.md)). Increment 4: Change Requests with agent A10 are built (architecture §5.5). Increment 5: the first version of the portfolio view is built (§7.1).
 
 ---
 
@@ -37,9 +37,11 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | E23 | **Clock skew** between Entra and the server | 30 seconds of tolerance when validating tokens. | Monitor time synchronisation in the hosting environment. |
 | E24 | **Gate decided while its state changed** (a draft was edited after the form was opened) | The engine checks the gate state again when the decision arrives, so the API answers 409 or 422. | Same as E06: reload and explain. |
 | E25 | **Profile edits while the page refreshes** (e.g. during a running draft the page polls every 1.5 s) | Unsaved changes in the profile form are reset when the project data changes. | Keep the form state until saved or cancelled; show a hint if the profile changed meanwhile. |
-| E26 | **Assigning a role needs the person's Entra ID object ID** | The PL types the ID and the name; the API does not check them against the directory. | A people picker using Microsoft Graph (on behalf of the PL) that only offers internal accounts. |
+| E26 | **Assigning a role needs the person's Entra ID object ID** | The PL types the ID and the name; the API does not check them against the directory. «Mich selbst» fills in one's own ID (to try the app alone). | A people picker using Microsoft Graph (on behalf of the PL) that only offers internal accounts. |
 | E27 | **The app starts before the migration job ran** (first deployment, new schema) | The app cannot sign in to the database or finds an older schema; it does not become ready and Container Apps restarts it. The previous revision keeps serving. | Run the job automatically in the deployment pipeline before the new revision starts. |
 | E28 | **A model version is retired by Microsoft** | Deployments are pinned (`NoAutoUpgrade`); after the retirement date the calls fail and runs end with "Modell nicht erreichbar". | Watch the retirement schedule, alert 60 days ahead, and plan the upgrade with the evaluation set (H11). |
+| E30 | **A model answer takes very long** (reasoning models, high load) | The assistant's chat and the Change-Request agent answer within the request; Azure's ingress ends requests after 240 seconds, and the person sees an error. The Change-Request agent leaves out the Kritiker's review after 90 seconds. Drafts of deliverables run in the background and are not affected. | Stream the answer, or run the chat and the change request draft as background runs like drafts. |
+| E31 | **A submitted change request needs a correction** | It cannot be edited; the requester withdraws it and submits a new one. | Edit until the Projektausschuss decides, versioned like drafts, with the decision naming the version (principle 5). |
 | E29 | **A gate is passed while Auflagen due at it are still open** | Allowed: the gate criterion "Auflagen erledigt" does not block. The Auflagen are then overdue in the project and in the portfolio. | As decided in F30: block the gate, or ask the decider to confirm the open Auflagen. |
 
 ## 2. Placeholders to replace
@@ -58,6 +60,7 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | P11 | **Model choice** in `infra/pilot.bicepparam` (gpt-5.1, Standard, Sweden Central) is a proposal | Decision F3/F4, then check availability and quota in the region |
 | P09 | Due dates of Auflagen are three fixed options ("1 Woche", "2 Wochen", "bis zum nächsten Gate"); the app computes the due date and the overdue state from them | A date the decider picks, and reminders before it (questions F15, F30) |
 | P12 | Portfolio signals and their levels, and the 30 days without activity (`packages/core/src/engine/portfolio.ts`) are proposals | Decision F29 |
+| P13 | Change requests: 1,200 CHF per person-day, the five areas and the impact rules come from the prototype (`packages/core/src/model/change-requests.ts`, `engine/change-requests.ts`) | Decisions F31 and F32 |
 
 ## 3. Hardening and deferred technology
 

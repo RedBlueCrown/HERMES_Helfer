@@ -26,6 +26,7 @@ const CATEGORIES: [string, string][] = [
   ["beteiligung", "Beteiligung"],
   ["rollen", "Rollen"],
   ["vorhaben", "Vorhaben"],
+  ["aenderung", "Change Requests"],
 ];
 const CHANNEL: Record<string, string> = { web: "Web", chat: "Assistent", agent: "Agent", system: "System" };
 

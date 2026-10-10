@@ -3,6 +3,7 @@
 // point of view (it builds a fresh object and never touches the events).
 
 import type { HermesModel } from "../model";
+import type { CrFlags, RecheckOutcome, RecheckRole } from "../model/change-requests";
 import type { PhaseId, ProjectProfile, ProjectRole } from "../model/types";
 import type { Actor, ConditionSpec, Decision, DraftContent, Finding, Producer, StoredEvent } from "./events";
 
@@ -52,13 +53,46 @@ export interface RunRecord {
 
 export interface ConditionState extends ConditionSpec {
   phase: PhaseId;
-  /** "skill:<skillId>" or "gate:<phaseId>" */
+  /** "skill:<skillId>", "gate:<phaseId>" or "cr:<changeRequestId>" */
   source: string;
   createdAt: string;
   createdBy: ActorRef;
   doneAt?: string;
   doneBy?: ActorRef;
   doneNote?: string;
+}
+
+export type ChangeRequestStatus = "offen" | "angenommen" | "abgelehnt" | "zurueckgezogen";
+
+export interface ChangeRequestState {
+  id: string;
+  number: number;
+  title: string;
+  requestedBy: string;
+  effortDays: number;
+  flags: CrFlags;
+  content: DraftContent;
+  findings: Finding[];
+  producer: Producer;
+  /** Phase in which the request was submitted. */
+  phase: PhaseId;
+  submittedAt: string;
+  submittedBy: ActorRef;
+  status: ChangeRequestStatus;
+  decision?: {
+    decision: Decision;
+    reason: string;
+    konsent: boolean;
+    at: string;
+    by: ActorRef;
+    conditionIds: string[];
+  };
+  withdrawn?: { reason: string; at: string; by: ActorRef };
+  /**
+   * Accepted requests that touch personal data: SchuBAn, ISDS and DSFA are checked
+   * again; each recheck role confirms. Absent when no recheck is needed.
+   */
+  recheck?: Partial<Record<RecheckRole, { outcome: RecheckOutcome; note: string; at: string; by: ActorRef }>>;
 }
 
 export interface GateDecisionRecord {
@@ -96,6 +130,9 @@ export interface ProjectState {
   /** Phases whose gate was passed in the app. */
   passed: PhaseId[];
   conditions: Record<string, ConditionState>;
+  changeRequests: Record<string, ChangeRequestState>;
+  /** Reserve for changes from the project order, in CHF; undefined until the PL records it. */
+  changeReserveChf?: number;
 }
 
 export const participationKey = (phase: PhaseId, participantId: string) => `${phase}:${participantId}`;
@@ -277,6 +314,55 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
       c.doneNote = e.data.note;
       return;
     }
+    case "ChangeRequestSubmitted":
+      s.changeRequests[e.data.crId] = {
+        id: e.data.crId,
+        number: e.data.number,
+        title: e.data.title,
+        requestedBy: e.data.requestedBy,
+        effortDays: e.data.effortDays,
+        flags: { ...e.data.flags },
+        content: e.data.content,
+        findings: e.data.findings,
+        producer: e.data.producer,
+        phase: s.phase,
+        submittedAt: e.at,
+        submittedBy: ref(e.actor),
+        status: "offen",
+      };
+      return;
+    case "ChangeRequestWithdrawn": {
+      const cr = s.changeRequests[e.data.crId];
+      if (!cr) return;
+      cr.status = "zurueckgezogen";
+      cr.withdrawn = { reason: e.data.reason, at: e.at, by: ref(e.actor) };
+      return;
+    }
+    case "ChangeRequestDecided": {
+      const cr = s.changeRequests[e.data.crId];
+      if (!cr) return;
+      const accepted = e.data.decision !== "zurückgewiesen";
+      cr.status = accepted ? "angenommen" : "abgelehnt";
+      cr.decision = {
+        decision: e.data.decision,
+        reason: e.data.reason,
+        konsent: e.data.konsent,
+        at: e.at,
+        by: ref(e.actor),
+        conditionIds: addConditions(s, e.data.conditions, s.phase, `cr:${cr.id}`, e),
+      };
+      if (accepted && cr.flags.daten) cr.recheck = {};
+      return;
+    }
+    case "ChangeRecheckConfirmed": {
+      const cr = s.changeRequests[e.data.crId];
+      if (!cr?.recheck) return;
+      cr.recheck[e.data.role] = { outcome: e.data.outcome, note: e.data.note, at: e.at, by: ref(e.actor) };
+      return;
+    }
+    case "ChangeReserveSet":
+      s.changeReserveChf = e.data.amountChf;
+      return;
     default: {
       const unknown: never = e;
       throw new Error(`Unknown event type ${(unknown as StoredEvent).type}`);
@@ -311,6 +397,7 @@ export function foldEvents(events: readonly StoredEvent[], model: HermesModel): 
     gateDecisions: {},
     passed: [],
     conditions: {},
+    changeRequests: {},
   };
   for (let i = 1; i < events.length; i++) {
     const e = events[i]!;

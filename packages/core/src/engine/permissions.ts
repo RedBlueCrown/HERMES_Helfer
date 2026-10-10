@@ -3,6 +3,7 @@
 // human viewer holding the role, and the agent runtime has no tool for them.
 
 import type { HermesModel } from "../model";
+import { CR_RECHECK_ROLES, type RecheckRole } from "../model/change-requests";
 import { PROJECT_ROLE_LABELS, RESTRICTED_READERS } from "../model/roles";
 import type {
   ApproverDef,
@@ -13,6 +14,7 @@ import type {
   ProjectRole,
   SkillDef,
 } from "../model/types";
+import { pendingRecheckRoles } from "./change-requests";
 import { isInvolved, participantsFor } from "./participation";
 import { checklistKey, type ProjectState } from "./state";
 import {
@@ -254,6 +256,58 @@ export function checkManageMembers(s: ProjectState, v: Viewer): Check {
 
 export function checkUpdateProfile(s: ProjectState, model: HermesModel, v: Viewer): Check {
   if (!isPL(s, v)) return forbidden("Nur die Projektleitung ändert das Vorhabensprofil.");
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
+  return OK;
+}
+
+// ---------- Change Requests ----------
+
+/** Anyone with a role in the project may submit a change request. */
+export function checkSubmitChangeRequest(s: ProjectState, model: HermesModel, v: Viewer): Check {
+  if (!rolesOf(s, v.userId).length) {
+    return forbidden("Change Requests erfassen die Mitglieder des Vorhabens.");
+  }
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
+  return OK;
+}
+
+/** The requester or the PL withdraws an open request. */
+export function checkWithdrawChangeRequest(s: ProjectState, v: Viewer, crId: string): Check {
+  const cr = s.changeRequests[crId];
+  if (!cr) return invalid("Diesen Change Request gibt es nicht.");
+  if (cr.submittedBy.userId !== v.userId && !isPL(s, v)) {
+    return forbidden("Zurückziehen können die erfassende Person und die Projektleitung.");
+  }
+  if (cr.status !== "offen") return invalid("Der Change Request ist bereits entschieden oder zurückgezogen.");
+  return OK;
+}
+
+/** The Projektausschuss decides change requests, with Konsent. */
+export function checkDecideChangeRequest(s: ProjectState, v: Viewer, crId: string): Check {
+  const cr = s.changeRequests[crId];
+  if (!cr) return invalid("Diesen Change Request gibt es nicht.");
+  if (!rolesOf(s, v.userId).includes("PA")) {
+    return forbidden(`Change Requests entscheidet die Rolle ${PROJECT_ROLE_LABELS.PA}.`);
+  }
+  if (cr.status !== "offen") return invalid("Der Change Request ist bereits entschieden oder zurückgezogen.");
+  return OK;
+}
+
+/** ISM and Datenschutz each confirm the recheck after an accepted request touching personal data. */
+export function checkConfirmRecheck(s: ProjectState, v: Viewer, crId: string, role: RecheckRole): Check {
+  const cr = s.changeRequests[crId];
+  if (!cr) return invalid("Diesen Change Request gibt es nicht.");
+  if (!CR_RECHECK_ROLES.includes(role)) return invalid("Die Neuprüfung bestätigen ISM und Datenschutz.");
+  if (!rolesOf(s, v.userId).includes(role)) {
+    return forbidden(`Diesen Teil der Neuprüfung bestätigt die Rolle ${PROJECT_ROLE_LABELS[role]}.`);
+  }
+  if (!pendingRecheckRoles(cr).includes(role)) return invalid("Für diese Rolle ist keine Neuprüfung offen.");
+  return OK;
+}
+
+/** The PL records the reserve for changes from the project order. */
+export function checkSetChangeReserve(s: ProjectState, model: HermesModel, v: Viewer): Check {
+  if (!isPL(s, v)) return forbidden("Die Reserve erfasst die Projektleitung gemäss Projektauftrag.");
   if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
   return OK;
 }

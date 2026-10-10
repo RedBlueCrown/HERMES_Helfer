@@ -17,6 +17,12 @@
 #   YES=1                             do not ask before deploying
 #   SKIP_BUILD=1 TAG=<tag>            use an image already in the registry
 #
+# The model behind the agents (default: from the parameter file):
+#   MODEL=gpt-5.1 MODEL_VERSION=2025-11-13
+#   MODEL_SKU=Standard                Standard: only this region. DataZoneStandard: EU data zone.
+#   MODEL_CAPACITY=50                 quota in thousand tokens per minute (10 is enough to try it)
+#   REASONING_EFFORT=low              GPT-5 series only: none, minimal, low, medium, high
+#
 # Needs Owner on the subscription (or the resource group) and, in Entra ID,
 # Application Administrator or Cloud Application Administrator. Run it again
 # to deploy a new version. scripts/destroy-azure.sh removes everything.
@@ -61,18 +67,54 @@ done
 
 step "Model in $LOCATION"
 PARAMS_JSON=$(az bicep build-params --file "$PARAMS" --stdout | jq -r '.parametersJson')
-model() { jq -r ".parameters.draftModel.value.$1" <<<"$PARAMS_JSON"; }
-MODEL=$(model model)
-VERSION=$(model version)
-SKU=$(model sku)
-CAPACITY=$(model capacity)
+from_params() { jq -r ".parameters.draftModel.value.$1" <<<"$PARAMS_JSON"; }
+DEPLOYMENT=$(from_params name)
+MODEL=${MODEL:-$(from_params model)}
+VERSION=${MODEL_VERSION:-$(from_params version)}
+SKU=${MODEL_SKU:-$(from_params sku)}
+CAPACITY=${MODEL_CAPACITY:-$(from_params capacity)}
+[[ "$CAPACITY" =~ ^[1-9][0-9]*$ ]] || fail "MODEL_CAPACITY must be a whole number (thousand tokens per minute)."
+case "${REASONING_EFFORT:-}" in
+  "" | none | minimal | low | medium | high) ;;
+  *) fail "REASONING_EFFORT must be none, minimal, low, medium or high." ;;
+esac
+case "$SKU" in
+  Standard) REGION_LABEL="$(az account list-locations --query "[?name=='$LOCATION'].displayName | [0]" -o tsv) (regional)" ;;
+  DataZoneStandard) REGION_LABEL="EU Data Zone" ;;
+  *) fail "MODEL_SKU must be Standard or DataZoneStandard; Global Standard may process data outside the EU." ;;
+esac
 offered=$(az cognitiveservices model list -l "$LOCATION" \
   --query "[?model.name=='$MODEL' && model.version=='$VERSION'].model.skus[].name" -o tsv | sort -u)
 grep -qx "$SKU" <<<"$offered" ||
-  fail "$MODEL ($VERSION) is not offered as $SKU in $LOCATION (offered: ${offered:-none}). Choose another model in $PARAMS; list: az cognitiveservices model list -l $LOCATION -o table"
+  fail "$MODEL ($VERSION) is not offered as $SKU in $LOCATION (offered: ${offered:-none}). Pick another one with MODEL=… MODEL_VERSION=…; list: az cognitiveservices model list -l $LOCATION -o table"
 quota=$(az cognitiveservices usage list -l "$LOCATION" \
   --query "[?name.value=='OpenAI.$SKU.$MODEL'] | [0].[limit, currentValue]" -o tsv 2>/dev/null || true)
-echo "$MODEL $VERSION ($SKU) is offered. Quota in thousand tokens per minute (limit, used): ${quota:-unknown}; this deployment needs $CAPACITY."
+if [ -n "$quota" ]; then
+  read -r limit used <<<"$quota"
+  # On a re-run, this environment's own deployment already counts as used.
+  own=0
+  account=$(az resource list -g "$RG" --resource-type Microsoft.CognitiveServices/accounts --query "[0].name" -o tsv 2>/dev/null || true)
+  if [ -n "$account" ]; then
+    own=$(az cognitiveservices account deployment show -g "$RG" -n "$account" --deployment-name "$DEPLOYMENT" \
+      --query sku.capacity -o tsv 2>/dev/null || echo 0)
+  fi
+  available=$((${limit%.*} - ${used%.*} + ${own:-0}))
+  echo "$MODEL $VERSION ($SKU) is offered. Quota: $available thousand tokens per minute available, $CAPACITY needed."
+  [ "$available" -ge "$CAPACITY" ] ||
+    fail "Not enough quota for $MODEL ($SKU) in $LOCATION. Use less (MODEL_CAPACITY=10 is enough to try it), or request more: Azure AI Foundry portal → Management center → Quota."
+else
+  echo "$MODEL $VERSION ($SKU) is offered. Quota unknown; the deployment needs $CAPACITY thousand tokens per minute."
+fi
+
+# The parameter file plus the model chosen above, for both deployments of main.bicep.
+PARAMS_FILE=$(mktemp)
+trap 'rm -f "$PARAMS_FILE"' EXIT
+MODEL_JSON=$(jq -nc --arg n "$DEPLOYMENT" --arg m "$MODEL" --arg v "$VERSION" --arg s "$SKU" \
+  --argjson c "$CAPACITY" '{name: $n, model: $m, version: $v, sku: $s, capacity: $c}')
+jq --argjson m "$MODEL_JSON" --arg label "$REGION_LABEL" --arg effort "${REASONING_EFFORT:-}" \
+  '.parameters.draftModel.value = $m | .parameters.chatModel.value = $m
+   | .parameters.aiRegionLabel.value = $label | .parameters.aiReasoningEffort.value = $effort' \
+  <<<"$PARAMS_JSON" >"$PARAMS_FILE"
 
 step "Resource group"
 az group create -n "$RG" -l "$LOCATION" --tags application=hermes-helfer environment="$ENV_NAME" -o none
@@ -82,7 +124,7 @@ az group create -n "$RG" -l "$LOCATION" --tags application=hermes-helfer environ
 deploy() {
   local name=$1
   shift
-  local args=(-g "$RG" -n "hermes-helfer-$name" --parameters "$PARAMS"
+  local args=(-g "$RG" -n "hermes-helfer-$name" --template-file infra/main.bicep --parameters "@$PARAMS_FILE"
     --parameters environmentName="$ENV_NAME" "$@" --query properties.outputs -o json)
   az deployment group create "${args[@]}" || {
     echo "Retrying in 90 seconds (role assignments may not be effective yet) …" >&2
@@ -163,10 +205,11 @@ cat <<EOF
 
 HERMES Helfer is running: $APP_URL
 
-Sign in with your account; you have the PMO role.
-1. Create a project ("Neues Vorhaben") and make yourself project lead (PL).
-2. Open a deliverable and start a draft: Azure OpenAI ($MODEL) writes it, the Kritiker checks it.
-3. Ask the assistant, for example «Was ist als Nächstes?».
+Sign in with your account; you have the PMO role. Then (docs/staging.md):
+1. "Neues Vorhaben": create a project with yourself as project lead.
+2. "Beteiligte und Rollen" → "Mich selbst": give yourself more roles (e.g. Auftraggeber, ISM).
+3. Start a draft ("Entwurf erstellen"): Azure OpenAI ($MODEL) writes it, the Kritiker checks it.
+4. "Assistent fragen", e.g. «Was ist als Nächstes?», and "Change Requests" → "Mit dem Agenten ausarbeiten".
 Other people need one of the app roles: Entra admin center → Enterprise applications →
 "HERMES Helfer API ($ENV_NAME)" → Users and groups.
 

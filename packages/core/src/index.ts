@@ -8,5 +8,6 @@ export * from "./engine/decisions";
 export * from "./engine/tasks";
 export * from "./engine/views";
 export * from "./engine/conditions";
+export * from "./engine/change-requests";
 export * from "./engine/portfolio";
 export * from "./engine/describe";

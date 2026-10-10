@@ -1,7 +1,9 @@
 // "Meine Aufgaben" and "Als Nächstes" (prototype: myItems, nextAction).
 
 import type { HermesModel } from "../model";
+import type { RecheckRole } from "../model/change-requests";
 import type { PhaseId, ProjectRole } from "../model/types";
+import { openChangeRequests, openRechecks, pendingRecheckRoles } from "./change-requests";
 import { openParticipation } from "./participation";
 import {
   checkDecideGate,
@@ -29,7 +31,9 @@ export type MyTask =
   | { kind: "condition"; conditionId: string }
   | { kind: "checklist"; ownerId: string; itemId: string }
   | { kind: "involve"; phase: PhaseId; participantId: string }
-  | { kind: "assign-role"; role: ProjectRole };
+  | { kind: "assign-role"; role: ProjectRole }
+  | { kind: "decide-cr"; crId: string }
+  | { kind: "recheck"; crId: string; role: RecheckRole };
 
 export function myTasks(s: ProjectState, model: HermesModel, v: Viewer): MyTask[] {
   const out: MyTask[] = [];
@@ -52,7 +56,17 @@ export function myTasks(s: ProjectState, model: HermesModel, v: Viewer): MyTask[
       (a, b) => Number(b.kind === "decide-skill" && b.veto) - Number(a.kind === "decide-skill" && a.veto),
     );
     out.push(...decisions);
+    // Rechecks after a change request hold the gate, so they come before it.
+    for (const c of openRechecks(s)) {
+      for (const role of pendingRecheckRoles(c)) {
+        if (roles.includes(role)) out.push({ kind: "recheck", crId: c.id, role });
+      }
+    }
     if (checkDecideGate(s, model, v, phase.id).ok) out.push({ kind: "decide-gate", phase: phase.id });
+  }
+
+  if (roles.includes("PA")) {
+    for (const c of openChangeRequests(s)) out.push({ kind: "decide-cr", crId: c.id });
   }
 
   for (const c of Object.values(s.conditions)) {
@@ -91,6 +105,7 @@ export type NextStep =
   | { kind: "release"; deliverableIds: string[] }
   | { kind: "checklist"; deliverableIds: string[] }
   | { kind: "involve"; participantIds: string[] }
+  | { kind: "recheck"; crIds: string[] }
   | { kind: "gate" }
   | { kind: "idle" }
   | { kind: "finished" };
@@ -130,6 +145,9 @@ export function nextStep(s: ProjectState, model: HermesModel): NextStep {
 
   const involve = openParticipation(s, model, phase.id).map((x) => x.id);
   if (involve.length) return { kind: "involve", participantIds: involve };
+
+  const rechecks = openRechecks(s).map((c) => c.id);
+  if (rechecks.length) return { kind: "recheck", crIds: rechecks };
 
   if (gateStatus(s, model, phase.id) === "ready") return { kind: "gate" };
   return { kind: "idle" };

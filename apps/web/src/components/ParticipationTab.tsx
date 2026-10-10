@@ -31,7 +31,7 @@ import {
   type ProjectRole,
 } from "@hermes-helfer/core";
 import { useState } from "react";
-import { useApi, projectPath, useProjectCommand } from "../api/hooks";
+import { useApi, projectPath, useMe, useProjectCommand } from "../api/hooks";
 import type { ParticipantView, PhaseView, ProjectView } from "../api/types";
 import { errorText, formatDate, useNotify } from "./ui";
 
@@ -208,6 +208,7 @@ function MembersCard({ code, view }: { code: string; view: ProjectView }) {
     a.del(`${projectPath(code)}/members/${encodeURIComponent(v.userId)}/roles/${v.role}`),
   );
   const manage = view.can.manageMembers;
+  const me = useMe();
   return (
     <section className={s.card} aria-label="Rollen im Vorhaben">
       <div>
@@ -282,6 +283,15 @@ function MembersCard({ code, view }: { code: string; view: ProjectView }) {
             <Field label="Kennung (Entra ID)">
               <Input value={userId} onChange={(_, d) => setUserId(d.value)} />
             </Field>
+            <Button
+              disabled={!me.data}
+              onClick={() => {
+                setUserId(me.data!.userId);
+                setName(me.data!.displayName);
+              }}
+            >
+              Mich selbst
+            </Button>
             <Field label="Name">
               <Input value={name} onChange={(_, d) => setName(d.value)} />
             </Field>

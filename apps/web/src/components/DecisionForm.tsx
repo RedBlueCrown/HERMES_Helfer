@@ -38,6 +38,8 @@ export interface DecisionFormProps {
   /** Committee decision for gates. */
   gateKonsent?: boolean;
   veto?: boolean;
+  /** A reason even for a plain approval (change requests). */
+  reasonRequired?: boolean;
   rejectLabel: string;
   submitting: boolean;
   error?: string;
@@ -71,7 +73,7 @@ export function DecisionForm(p: DecisionFormProps) {
   const touch = () => p.onEdit?.();
   const roleDef = p.roles?.find((r) => r.role === role);
   const konsentRequired = p.roles ? !!roleDef?.konsent : !!p.gateKonsent;
-  const reasonRequired = decision !== "freigegeben" || !!p.veto;
+  const reasonRequired = decision !== "freigegeben" || !!p.veto || !!p.reasonRequired;
   const setCondition = (i: number, patch: Partial<(typeof conditions)[number]>) => {
     touch();
     setConditions((list) => list.map((c, j) => (j === i ? { ...c, ...patch } : c)));
@@ -118,7 +120,9 @@ export function DecisionForm(p: DecisionFormProps) {
         hint={
           p.veto
             ? "Diese Rolle hat ein Veto: Ein Entscheid braucht immer eine Begründung."
-            : "Wird im Projektverlauf festgehalten."
+            : p.reasonRequired
+              ? "Jeder Entscheid zu einem Change Request braucht eine Begründung. Sie steht im Projektverlauf."
+              : "Wird im Projektverlauf festgehalten."
         }
       >
         <Textarea

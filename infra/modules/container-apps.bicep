@@ -45,6 +45,8 @@ param ai {
   draftDeployment: string
   chatDeployment: string
   regionLabel: string
+  @description('Empty: not set, the model default.')
+  reasoningEffort: string
 }
 
 param appInsightsConnectionString string
@@ -148,6 +150,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (deployApp) {
               { name: 'AZURE_OPENAI_DEPLOYMENT_DRAFT', value: ai.draftDeployment }
               { name: 'AZURE_OPENAI_DEPLOYMENT_CHAT', value: ai.chatDeployment }
               { name: 'AZURE_OPENAI_REGION_LABEL', value: ai.regionLabel }
+              { name: 'AZURE_OPENAI_REASONING_EFFORT', value: ai.reasoningEffort }
               { name: 'TRUSTED_PROXIES', value: appsPrefix }
             ]),
             e => !empty(e.value)

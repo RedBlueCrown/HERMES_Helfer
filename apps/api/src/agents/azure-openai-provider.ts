@@ -4,11 +4,13 @@
 // deployment (todo-later P07).
 
 import type { TokenCredential } from "@azure/identity";
-import type { DraftContent, Finding } from "@hermes-helfer/core";
+import { CR_FLAGS, type DraftContent, type Finding } from "@hermes-helfer/core";
 import { z } from "zod";
 import {
   AiProviderError,
   type AiProvider,
+  type ChangeRequestDraft,
+  type ChangeRequestDraftRequest,
   type ChatMessage,
   type ChatResponse,
   type CritiqueRequest,
@@ -17,7 +19,14 @@ import {
   type ToolSpec,
   type Usage,
 } from "./provider";
-import { critiqueSystemPrompt, critiqueUserPrompt, draftSystemPrompt, draftUserPrompt } from "./prompts";
+import {
+  changeRequestSystemPrompt,
+  changeRequestUserPrompt,
+  critiqueSystemPrompt,
+  critiqueUserPrompt,
+  draftSystemPrompt,
+  draftUserPrompt,
+} from "./prompts";
 
 export interface AzureOpenAiConfig {
   endpoint: string;
@@ -30,7 +39,7 @@ export interface AzureOpenAiConfig {
   /** Upper bound for reasoning and answer tokens per call (unbounded consumption, architecture §8.2). */
   maxCompletionTokens?: number;
   /** Only for reasoning models such as the GPT-5 series. */
-  reasoningEffort?: "minimal" | "low" | "medium" | "high";
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
 }
 
 export type TokenSource = () => Promise<string>;
@@ -51,6 +60,28 @@ const DRAFT_SCHEMA = {
       },
     },
     openPoints: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+const FLAG_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["value", "reason"],
+  properties: { value: { type: "boolean" }, reason: { type: "string" } },
+} as const;
+
+const CHANGE_REQUEST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["summary", "sections", "openPoints", "flags"],
+  properties: {
+    ...DRAFT_SCHEMA.properties,
+    flags: {
+      type: "object",
+      additionalProperties: false,
+      required: [...CR_FLAGS],
+      properties: Object.fromEntries(CR_FLAGS.map((f) => [f, FLAG_SCHEMA])),
+    },
   },
 } as const;
 
@@ -75,6 +106,16 @@ const DraftOut = z.object({
   summary: z.string().max(4000),
   sections: z.array(z.object({ heading: z.string().max(200), body: z.string().max(30_000) })).max(40),
   openPoints: z.array(z.string().max(500)).max(50),
+});
+const FlagOut = z.object({ value: z.boolean(), reason: z.string().max(500) });
+const ChangeRequestOut = DraftOut.extend({
+  flags: z.object({
+    daten: FlagOut,
+    schnittstelle: FlagOut,
+    sonderloesung: FlagOut,
+    oberflaeche: FlagOut,
+    extern: FlagOut,
+  }),
 });
 const CritiqueOut = z.object({
   findings: z
@@ -225,6 +266,21 @@ export class AzureOpenAiProvider implements AiProvider {
       DraftOut,
     );
     return { draft: value, ...(usage ? { usage } : {}) };
+  }
+
+  async draftChangeRequest(
+    req: ChangeRequestDraftRequest,
+  ): Promise<{ draft: ChangeRequestDraft; usage?: Usage }> {
+    const { value, usage } = await this.structured(
+      this.cfg.draftDeployment,
+      changeRequestSystemPrompt(req),
+      changeRequestUserPrompt(req),
+      "change_request",
+      CHANGE_REQUEST_SCHEMA,
+      ChangeRequestOut,
+    );
+    const { flags, ...content } = value;
+    return { draft: { content, flags }, ...(usage ? { usage } : {}) };
   }
 
   async critique(req: CritiqueRequest): Promise<{ findings: Finding[]; usage?: Usage }> {

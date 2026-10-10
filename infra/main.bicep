@@ -76,6 +76,10 @@ param chatModel modelDeployment
 @description('Shown to users as the place of processing, for example "Sweden Central (regional)".')
 param aiRegionLabel string
 
+@description('Reasoning models only (GPT-5 series): less effort answers faster. Empty: the model default.')
+@allowed(['', 'none', 'minimal', 'low', 'medium', 'high'])
+param aiReasoningEffort string = ''
+
 var name = 'hh-${environmentName}'
 
 module identities 'modules/identities.bicep' = {
@@ -204,6 +208,7 @@ module apps 'modules/container-apps.bicep' = {
       draftDeployment: ai.outputs.draftDeployment
       chatDeployment: ai.outputs.chatDeployment
       regionLabel: aiRegionLabel
+      reasoningEffort: aiReasoningEffort
     }
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     apiSize: apiSize

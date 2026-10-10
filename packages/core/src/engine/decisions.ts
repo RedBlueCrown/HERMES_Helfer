@@ -20,6 +20,8 @@ export interface DecisionInput {
 export interface DecisionContext {
   /** Lifting a veto always needs a reason. */
   veto: boolean;
+  /** A reason even for a plain approval (change requests). */
+  reasonRequired?: boolean;
   /** Committee decision: "Konsent festgestellt" is required (unless rejected). */
   konsentRequired: boolean;
   /** Open items of a checklist that must be complete before approval. */
@@ -33,7 +35,7 @@ export function validateDecision(input: DecisionInput, ctx: DecisionContext): st
   if (!DECISIONS.includes(input.decision)) return "Bitte einen Entscheid wählen.";
   const reason = input.reason.trim();
   if (ctx.veto && reason.length < MIN_REASON) return "Beim Aufheben eines Vetos ist eine Begründung Pflicht.";
-  if (input.decision !== "freigegeben" && reason.length < MIN_REASON) {
+  if ((ctx.reasonRequired || input.decision !== "freigegeben") && reason.length < MIN_REASON) {
     return `Bitte eine Begründung erfassen (mindestens ${MIN_REASON} Zeichen).`;
   }
   if (input.decision === "mit Auflagen") {

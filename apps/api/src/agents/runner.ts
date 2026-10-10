@@ -8,6 +8,8 @@ import {
   deliverableStatus,
   type Actor,
   type AgentDef,
+  type AgentId,
+  type Channel,
   type Finding,
   type HermesModel,
   type ProjectEvent,
@@ -20,8 +22,15 @@ import { randomUUID } from "node:crypto";
 import { HttpError, assertCheck, notFound } from "../errors";
 import type { ProjectRepository } from "../projects/repository";
 import { PROJECT_NOT_FOUND, actorFor, type ProjectService, type RequestContext } from "../projects/service";
-import { checkDraftStructure, mergeFindings } from "./kritiker";
-import { AiProviderError, USER_FACING_REASON, type AiProvider, type ProjectContext } from "./provider";
+import { checkDraftStructure, mergeFindings, skillCritique } from "./kritiker";
+import {
+  AiProviderError,
+  USER_FACING_REASON,
+  type AiProvider,
+  type ProjectContext,
+  type ProviderInfo,
+  type Usage,
+} from "./provider";
 
 // No-op unless telemetry is on (telemetry.ts).
 const meter = metrics.getMeter("hermes-helfer");
@@ -38,6 +47,53 @@ export interface Logger {
   info(obj: object, msg?: string): void;
   warn(obj: object, msg?: string): void;
   error(obj: object, msg?: string): void;
+}
+
+export interface AiRunRecord {
+  runId: string;
+  projectId: string;
+  /** Skill id, or "cr.entwurf" for the Change-Request agent. */
+  skillId: string;
+  agent: AgentId;
+  outcome: "completed" | "failed";
+  findings: number;
+  durationMs: number;
+  usage: Usage;
+  requestedBy: string;
+  channel: Channel;
+  correlationId: string;
+}
+
+/**
+ * Stream 2 of the audit design (architecture §9): metadata only, no content.
+ * Metrics without people or projects: no per-person evaluation (§9.6).
+ */
+export function recordAiRun(log: Logger, info: ProviderInfo, r: AiRunRecord): void {
+  const dimensions = { skill: r.skillId, agent: r.agent, outcome: r.outcome, model: info.model };
+  RUN_DURATION.record(r.durationMs, dimensions);
+  RUN_TOKENS.add(r.usage.inputTokens, { ...dimensions, direction: "input" });
+  RUN_TOKENS.add(r.usage.outputTokens, { ...dimensions, direction: "output" });
+  log.info(
+    {
+      type: "ai_run",
+      runId: r.runId,
+      projectId: r.projectId,
+      skillId: r.skillId,
+      agent: r.agent,
+      provider: info.provider,
+      model: info.model,
+      region: info.region,
+      outcome: r.outcome,
+      findings: r.findings,
+      durationMs: r.durationMs,
+      inputTokens: r.usage.inputTokens,
+      outputTokens: r.usage.outputTokens,
+      requestedBy: r.requestedBy,
+      channel: r.channel,
+      correlationId: r.correlationId,
+    },
+    "ai_run",
+  );
 }
 
 export const SYSTEM_ACTOR: Actor = { userId: "system", displayName: "System", roles: [], channel: "system" };
@@ -146,7 +202,7 @@ export class RunService {
       if (drafted.usage) usage = drafted.usage;
       let content: Finding[];
       try {
-        const critique = await this.provider.critique({ skill, deliverables, draft: drafted.draft });
+        const critique = await this.provider.critique(skillCritique(skill, deliverables, drafted.draft));
         content = critique.findings;
         if (critique.usage) {
           usage = {
@@ -170,7 +226,7 @@ export class RunService {
           runId,
           skillId: skill.id,
           draft: drafted.draft,
-          findings: mergeFindings(checkDraftStructure(skill, drafted.draft), content),
+          findings: mergeFindings(checkDraftStructure(skill.sections, drafted.draft), content),
           producer: { kind: "ai", agent: agent.id, provider: info.provider, model: info.model },
         },
       };
@@ -187,36 +243,19 @@ export class RunService {
       await this.repo.append(projectId, cur.lastSeq, [event], agentActor(agent), ctx.correlationId);
     });
 
-    const outcome = event.type === "SkillRunCompleted" ? "completed" : "failed";
-    const durationMs = Date.now() - started;
-    // Metrics without people or projects: no per-person evaluation (architecture §9.6).
-    const dimensions = { skill: skill.id, agent: agent.id, outcome, model: info.model };
-    RUN_DURATION.record(durationMs, dimensions);
-    RUN_TOKENS.add(usage.inputTokens, { ...dimensions, direction: "input" });
-    RUN_TOKENS.add(usage.outputTokens, { ...dimensions, direction: "output" });
-
-    // Stream 2 of the audit design (architecture §9): metadata only, no content.
-    this.log.info(
-      {
-        type: "ai_run",
-        runId,
-        projectId,
-        skillId: skill.id,
-        agent: agent.id,
-        provider: info.provider,
-        model: info.model,
-        region: info.region,
-        outcome,
-        findings: event.type === "SkillRunCompleted" ? event.data.findings.length : 0,
-        durationMs,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        requestedBy: ctx.viewer.userId,
-        channel: ctx.channel,
-        correlationId: ctx.correlationId,
-      },
-      "ai_run",
-    );
+    recordAiRun(this.log, info, {
+      runId,
+      projectId,
+      skillId: skill.id,
+      agent: agent.id,
+      outcome: event.type === "SkillRunCompleted" ? "completed" : "failed",
+      findings: event.type === "SkillRunCompleted" ? event.data.findings.length : 0,
+      durationMs: Date.now() - started,
+      usage,
+      requestedBy: ctx.viewer.userId,
+      channel: ctx.channel,
+      correlationId: ctx.correlationId,
+    });
   }
 
   /** Resolves when no run is in flight (tests, graceful shutdown). */

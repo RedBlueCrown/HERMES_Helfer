@@ -12,7 +12,8 @@ Stand: 10. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-arc
 - **Fachliche Regeln:** F16 bis F20
 - **Protokollierung:** F21 bis F24
 - **Betrieb der Pilotumgebung:** F25 bis F28
-- **Portfolio:** F29 und F30 (neu)
+- **Portfolio:** F29 und F30
+- **Change Requests:** F31 und F32 (neu)
 
 ---
 
@@ -378,9 +379,11 @@ Heute gelten diese Signale:
 |---|---|---|
 | Veto offen | Ein Entscheid mit Veto zu einem Pflichtergebnis (z. B. ISDS, Go-live) ist offen, das Gate ist blockiert. | hoch |
 | Auflagen überfällig | Eine Auflage ist nach ihrer Frist noch offen. | hoch |
+| Neuprüfung offen | Ein angenommener Change Request betrifft Personendaten; SchuBAn, ISDS und DSFA werden neu geprüft, das Gate bleibt bis dahin zu. | mittel |
 | Gate zurückgewiesen | Der letzte Gate-Entscheid der aktuellen Phase lautet «zurückgewiesen». | mittel |
 | Rollen unbesetzt | Eine Rolle, die in der aktuellen Phase entscheidet, hat im Vorhaben niemand. | mittel |
 | Ohne Aktivität | Seit 30 Tagen kein neuer Eintrag in der Projektakte. | mittel |
+| Change Request offen | Ein Change Request wartet auf den Entscheid des Projektausschusses. | Hinweis |
 | Gate-Entscheid fällig | Alle Kriterien sind erfüllt, das Gate wartet auf den Entscheid. | Hinweis |
 
 1. Stimmen diese Signale und ihre Dringlichkeit?
@@ -406,5 +409,33 @@ Wer «mit Auflagen» entscheidet, wählt heute eine von drei Fristen. Die App re
 3. Sollen die Verantwortlichen vor Ablauf der Frist erinnert werden (siehe F15)?
 
 **Meine Empfehlung:** 1. Ein Datum wählen können, die drei Fristen bleiben als Vorschläge. 2. Nicht blockieren, aber beim Gate-Entscheid die offenen Auflagen bestätigen lassen. 3. Ja, drei Tage vorher in Teams.
+
+**Antwort:**
+
+---
+
+## Teil G: Change Requests
+
+Change Requests sind gebaut, wie im Prototyp: Ein Mitglied des Vorhabens beschreibt den Wunsch, der Change-Request-Agent arbeitet ihn aus, das Team schätzt den Aufwand, der HERMES Helfer rechnet die Auswirkungen in acht Bereichen, und der Projektausschuss entscheidet mit Konsent. Betrifft eine Änderung Personendaten, prüfen ISM und Datenschutz SchuBAn, ISDS-Konzept und DSFA neu; bis dahin bleibt das Gate zu. Beschreibung in [`target-architecture.md`](target-architecture.md), Abschnitt 5.5.
+
+### F31 · Kosten und Reserve
+
+1. Die Kosten rechnet die App mit **1'200 CHF pro Personentag** (Wert aus dem Prototyp). Welcher Ansatz gilt bei euch? Gibt es verschiedene Ansätze, zum Beispiel intern und extern?
+2. Die **Reserve für Änderungen** erfasst die Projektleitung gemäss Projektauftrag. Ist das so richtig, oder kommt die Reserve aus einem anderen System (siehe F11)?
+3. Ein Change Request ohne Reserve oder über der Reserve gilt beim Budget als «hohe Auswirkung». Passt diese Regel?
+
+**Meine Empfehlung:** Ein Ansatz für den Pilot, die Reserve erfasst die Projektleitung.
+
+**Antwort:**
+
+---
+
+### F32 · Wer erfasst, wer entscheidet?
+
+1. Heute darf jedes Mitglied des Vorhabens einen Change Request erfassen. Soll das so bleiben, oder erfasst immer die Projektleitung?
+2. Heute entscheidet der Projektausschuss jeden Change Request. Soll ab einer Grösse (zum Beispiel über der Reserve) das Portfolio-Gremium mitentscheiden?
+3. Die Neuprüfung nach einer Änderung an Personendaten bestätigen ISM und Datenschutz je einzeln. Reicht das, oder braucht es dafür einen eigenen Entscheid mit Begründung?
+
+**Meine Empfehlung:** 1. alle Mitglieder; 2. ab Überschreiten der Reserve zusätzlich das Portfolio-Gremium; 3. so lassen.
 
 **Antwort:**

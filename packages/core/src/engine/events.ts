@@ -2,6 +2,7 @@
 // is computed from it (state.ts), and the API hash-chains it (tamper evidence).
 // Events are facts. Never change the meaning of an existing event type; add a new one.
 
+import type { CrFlags, RecheckOutcome, RecheckRole } from "../model/change-requests";
 import type { AgentId, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
 
 export type Decision = "freigegeben" | "mit Auflagen" | "zurückgewiesen";
@@ -95,7 +96,41 @@ export type ProjectEvent =
         conditions: ConditionSpec[];
       };
     }
-  | { type: "ConditionCompleted"; data: { conditionId: string; text: string; note: string } };
+  | { type: "ConditionCompleted"; data: { conditionId: string; text: string; note: string } }
+  | {
+      type: "ChangeRequestSubmitted";
+      data: {
+        crId: string;
+        /** Running number in the project: CR-01, CR-02 … */
+        number: number;
+        title: string;
+        /** Who asked for the change (a role or unit, e.g. "Fachstelle"). */
+        requestedBy: string;
+        /** Estimated effort in person-days. */
+        effortDays: number;
+        flags: CrFlags;
+        content: DraftContent;
+        findings: Finding[];
+        /** "ai": drafted with the Change-Request agent, then reviewed and submitted by a person. */
+        producer: Producer;
+      };
+    }
+  | { type: "ChangeRequestWithdrawn"; data: { crId: string; reason: string } }
+  | {
+      type: "ChangeRequestDecided";
+      data: {
+        crId: string;
+        decision: Decision;
+        reason: string;
+        konsent: boolean;
+        conditions: ConditionSpec[];
+      };
+    }
+  | {
+      type: "ChangeRecheckConfirmed";
+      data: { crId: string; role: RecheckRole; outcome: RecheckOutcome; note: string };
+    }
+  | { type: "ChangeReserveSet"; data: { amountChf: number } };
 
 export type EventType = ProjectEvent["type"];
 
