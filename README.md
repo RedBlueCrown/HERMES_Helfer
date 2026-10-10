@@ -66,5 +66,7 @@ CI runs all of them on every push (`.github/workflows/ci.yml`), plus the event s
 
 - [Target architecture and agent design](docs/target-architecture.md)
 - [Deploying the Azure pilot environment](docs/deployment.md)
+- [Working on HERMES Helfer](CONTRIBUTING.md): how to propose and review changes
+- [Security](SECURITY.md): reporting vulnerabilities
 - [Offene Fragen](docs/offene-fragen.md): questions for the business side, in German
 - [To do later](docs/todo-later.md): error cases, placeholders and hardening still open
