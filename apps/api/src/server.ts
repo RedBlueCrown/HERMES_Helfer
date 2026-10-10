@@ -57,7 +57,8 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
       return typeof h === "string" && CORRELATION_ID.test(h) ? h : randomUUID();
     },
     bodyLimit: 1_048_576,
-    trustProxy: config.NODE_ENV === "production",
+    // Only named proxies (in Azure the Container Apps ingress subnet) may set the client address.
+    trustProxy: config.TRUSTED_PROXIES ?? false,
   });
 
   const projects = new ProjectService(deps.repo);
@@ -84,7 +85,14 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
       },
     },
   });
-  await app.register(rateLimit, { max: 600, timeWindow: "1 minute" });
+  // Per signed-in person: in a company many people share a few egress addresses.
+  // Runs after sign-in (preHandler); before it, per client address.
+  await app.register(rateLimit, {
+    max: config.RATE_LIMIT_PER_MINUTE,
+    timeWindow: "1 minute",
+    hook: "preHandler",
+    keyGenerator: (req) => (req.user ? `user:${req.user.userId}` : `ip:${req.ip}`),
+  });
 
   // Telemetry: name requests by route instead of URL, and keep the correlation id
   // that users see in error messages. No-op without telemetry (telemetry.ts).

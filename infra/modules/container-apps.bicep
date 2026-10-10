@@ -6,6 +6,10 @@ param name string
 param location string
 param tags object
 param appsSubnetId string
+
+@description('Address range of the apps subnet: the ingress proxies forward client addresses from there.')
+param appsPrefix string
+
 param workspaceId string
 
 @description('Container image, for example cr….azurecr.io/hermes-helfer:<git sha>. Empty: environment only.')
@@ -138,6 +142,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (deployApp) {
               { name: 'AZURE_OPENAI_DEPLOYMENT_DRAFT', value: ai.draftDeployment }
               { name: 'AZURE_OPENAI_DEPLOYMENT_CHAT', value: ai.chatDeployment }
               { name: 'AZURE_OPENAI_REGION_LABEL', value: ai.regionLabel }
+              { name: 'TRUSTED_PROXIES', value: appsPrefix }
             ]),
             e => !empty(e.value)
           )

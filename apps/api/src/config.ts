@@ -11,7 +11,8 @@ const schema = z.object({
   HOST: z.string().default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
-  AUTH_MODE: z.enum(["entra", "dev"]).default("dev"),
+  // Secure default: dev sign-in only when asked for explicitly (dev.env, tests).
+  AUTH_MODE: z.enum(["entra", "dev"]).default("entra"),
   ENTRA_TENANT_ID: z.string().optional(),
   ENTRA_API_CLIENT_ID: z.string().optional(),
   ENTRA_REQUIRED_SCOPE: z.string().default("access_as_user"),
@@ -42,6 +43,10 @@ const schema = z.object({
   AZURE_OPENAI_API_VERSION: z.string().default("2024-10-21"),
   AZURE_OPENAI_REGION_LABEL: z.string().default("EU"),
   WEB_DIST_DIR: z.string().optional(),
+  /** Addresses or CIDR ranges of reverse proxies whose X-Forwarded-For is trusted; unset trusts none. */
+  TRUSTED_PROXIES: z.string().optional(),
+  /** Requests per minute per signed-in person (or per client address before sign-in). */
+  RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(600),
   APPLICATIONINSIGHTS_CONNECTION_STRING: z.string().optional(),
 });
 
@@ -72,6 +77,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       refuse("Demo data (SEED_DEMO, SEED_SYNTHETIC_PROJECTS) is not allowed with NODE_ENV=production.");
     }
   }
+  // Container Apps and App Service set these; dev sign-in never runs there, whatever NODE_ENV says.
+  const inAzure = Boolean(env.CONTAINER_APP_NAME || env.CONTAINER_APP_JOB_NAME || env.WEBSITE_SITE_NAME);
+  if (c.AUTH_MODE === "dev" && inAzure) refuse("AUTH_MODE=dev is not allowed in Azure.");
   if (c.AUTH_MODE === "entra" && (!c.ENTRA_TENANT_ID || !c.ENTRA_API_CLIENT_ID || !c.ENTRA_WEB_CLIENT_ID)) {
     refuse("AUTH_MODE=entra needs ENTRA_TENANT_ID, ENTRA_API_CLIENT_ID and ENTRA_WEB_CLIENT_ID.");
   }

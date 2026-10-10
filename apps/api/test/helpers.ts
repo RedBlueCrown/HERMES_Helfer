@@ -17,7 +17,7 @@ export async function testServer(
     env?: Record<string, string>;
   } = {},
 ) {
-  const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", ...opts.env });
+  const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", AUTH_MODE: "dev", ...opts.env });
   const store = new MemoryEventStore();
   const repo = new ProjectRepository(store, MODEL);
   if (opts.seed !== false) await seedDemo(repo);

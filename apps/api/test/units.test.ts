@@ -54,14 +54,29 @@ describe("configuration guards", () => {
     expect(() => loadConfig({ AUTH_MODE: "entra", ENTRA_TENANT_ID: "t", ENTRA_API_CLIENT_ID: "a" })).toThrow(
       /ENTRA_WEB_CLIENT_ID/,
     );
-    expect(() => loadConfig({ STORE: "sql" })).toThrow(/SQL_SERVER/);
+    expect(() => loadConfig({ AUTH_MODE: "dev", STORE: "sql" })).toThrow(/SQL_SERVER/);
     expect(() =>
-      loadConfig({ STORE: "sql", SQL_SERVER: "s", SQL_DATABASE: "d", SQL_AUTH: "password" }),
+      loadConfig({
+        AUTH_MODE: "dev",
+        STORE: "sql",
+        SQL_SERVER: "s",
+        SQL_DATABASE: "d",
+        SQL_AUTH: "password",
+      }),
     ).toThrow(/SQL_USER/);
-    expect(loadConfig({})).toMatchObject({ AUTH_MODE: "dev", STORE: "memory", SEED_DEMO: false });
+    expect(loadConfig({ AUTH_MODE: "dev" })).toMatchObject({ STORE: "memory", SEED_DEMO: false });
     // Empty values count as unset.
-    expect(loadConfig({ ENTRA_API_SCOPE: "", PORT: " " })).toMatchObject({ PORT: 3001 });
-    expect(loadConfig({ ENTRA_API_SCOPE: "" }).ENTRA_API_SCOPE).toBeUndefined();
+    expect(loadConfig({ AUTH_MODE: "dev", ENTRA_API_SCOPE: "", PORT: " " })).toMatchObject({ PORT: 3001 });
+    expect(loadConfig({ AUTH_MODE: "dev", ENTRA_API_SCOPE: "" }).ENTRA_API_SCOPE).toBeUndefined();
+  });
+
+  it("fails closed: Entra ID sign-in by default, never dev sign-in in Azure", () => {
+    expect(() => loadConfig({})).toThrow(/ENTRA_TENANT_ID/);
+    // An empty NODE_ENV becomes "development", but that does not switch on dev sign-in.
+    expect(() => loadConfig({ NODE_ENV: "" })).toThrow(/ENTRA_TENANT_ID/);
+    for (const azure of [{ CONTAINER_APP_NAME: "ca-hh-pilot-api" }, { WEBSITE_SITE_NAME: "hh" }]) {
+      expect(() => loadConfig({ AUTH_MODE: "dev", NODE_ENV: "development", ...azure })).toThrow(/in Azure/);
+    }
   });
 });
 

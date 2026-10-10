@@ -111,6 +111,28 @@ describe("platform endpoints", () => {
     expect(res.json().error.code).toBe("unavailable");
   });
 
+  it("limits requests per signed-in person, not per shared company address", async () => {
+    server = await testServer({ env: { RATE_LIMIT_PER_MINUTE: "3" } });
+    for (let i = 0; i < 3; i++) expect((await server.as("u-anna").get("/api/me")).statusCode).toBe(200);
+    const limited = await server.as("u-anna").get("/api/me");
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json().error.code).toBe("rate_limited");
+    // Same client address, other person.
+    expect((await server.as("u-peter").get("/api/me")).statusCode).toBe(200);
+  });
+
+  it("takes the client address only from trusted proxies, so it cannot be spoofed", async () => {
+    // app.inject connects from 127.0.0.1, which plays the Container Apps ingress here.
+    server = await testServer({ env: { RATE_LIMIT_PER_MINUTE: "2", TRUSTED_PROXIES: "127.0.0.1" } });
+    const health = (forwardedFor: string) =>
+      server!.app.inject({ url: "/api/health", headers: { "x-forwarded-for": forwardedFor } });
+    expect((await health("203.0.113.7")).statusCode).toBe(200);
+    // A forged entry in front does not make the same client someone else.
+    expect((await health("198.51.100.1, 203.0.113.7")).statusCode).toBe(200);
+    expect((await health("198.51.100.2, 203.0.113.7")).statusCode).toBe(429);
+    expect((await health("203.0.113.8")).statusCode).toBe(200);
+  });
+
   it("serves the web app with security and cache headers, and client routes as index.html", async () => {
     const dir = mkdtempSync(join(tmpdir(), "hh-web-"));
     mkdirSync(join(dir, "assets"));

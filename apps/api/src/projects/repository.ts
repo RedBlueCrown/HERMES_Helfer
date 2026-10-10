@@ -129,7 +129,10 @@ export class ProjectRepository {
         correlationId,
         ...(at ? { at } : {}),
       });
-      this.merge(projectId, stored);
+      // Commands read through the cache first, so it normally stands at expectedSeq.
+      // If it lags (another instance wrote), fetch what it missed instead of merging a gap.
+      if ((this.cache.get(projectId)?.state.lastSeq ?? 0) === expectedSeq) this.merge(projectId, stored);
+      else await this.sync(projectId);
       return stored;
     } catch (err) {
       if (err instanceof ConcurrencyError) {

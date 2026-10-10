@@ -23,7 +23,7 @@ echo "--- refuses the image defaults without production settings"
 if docker run --rm "$IMAGE" >/tmp/hh-prod.log 2>&1; then
   echo "expected the API to refuse to start"; exit 1
 fi
-grep -q "AUTH_MODE=dev is not allowed" /tmp/hh-prod.log
+grep -q "is not allowed with NODE_ENV=production" /tmp/hh-prod.log
 
 echo "--- migration job is in the image"
 if docker run --rm "$IMAGE" dist/migrate.js >/tmp/hh-migrate.log 2>&1; then

@@ -82,6 +82,7 @@ resource links 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01
 ]
 
 output appsSubnetId string = vnet.properties.subnets[0].id
+output appsPrefix string = appsPrefix
 output endpointsSubnetId string = vnet.properties.subnets[1].id
 output sqlZoneId string = zones[0].id
 output blobZoneId string = zones[1].id

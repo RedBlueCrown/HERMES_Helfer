@@ -179,6 +179,21 @@ export function sharedStoreContract(store: () => EventStore): void {
     expect(seenByA?.released["kickoff"]).toBeDefined();
   });
 
+  it("catches up when it writes ahead of its cache, instead of seeing a gap", async () => {
+    const corrupt: string[] = [];
+    const a = new ProjectRepository(store(), MODEL);
+    const b = new ProjectRepository(store(), MODEL, { onCorruptProject: (id) => corrupt.push(id) });
+    const c = code();
+    const projectId = `p-${c.toLowerCase()}`;
+    await a.append(projectId, 0, [created(c)], ACTOR, "c-a");
+    await b.get(projectId);
+    await a.append(projectId, 1, [released("a")], ACTOR, "c-a");
+    // b has seen event 1 only, but writes after event 2.
+    await b.append(projectId, 2, [released("b")], ACTOR, "c-b");
+    expect(corrupt).toEqual([]);
+    expect((await b.get(projectId))?.lastSeq).toBe(3);
+  });
+
   it("refuses a write from an instance that has not seen the latest event", async () => {
     const a = new ProjectRepository(store(), MODEL);
     const b = new ProjectRepository(store(), MODEL);

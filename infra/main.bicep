@@ -160,6 +160,7 @@ module apps 'modules/container-apps.bicep' = {
     location: location
     tags: tags
     appsSubnetId: network.outputs.appsSubnetId
+    appsPrefix: network.outputs.appsPrefix
     workspaceId: monitoring.outputs.workspaceId
     image: image
     registryServer: registry.outputs.loginServer
