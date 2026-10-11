@@ -3,6 +3,7 @@ import { exportJWK, generateKeyPair, SignJWT, createLocalJWKSet } from "jose";
 import { describe, expect, it } from "vitest";
 import { AzureOpenAiProvider } from "../src/agents/azure-openai-provider";
 import { checkDraftStructure } from "../src/agents/kritiker";
+import { cut, fitSections } from "../src/agents/output";
 import { AiProviderError } from "../src/agents/provider";
 import { createEntraAuthenticator } from "../src/auth";
 import { loadConfig } from "../src/config";
@@ -144,6 +145,79 @@ describe("Kritiker structure check", () => {
     expect(texts).toContain("Abschnitt «Abnahmekriterien je Klasse» fehlt.");
     expect(texts).toContain("Abschnitt «Mängelklassen» ist sehr knapp.");
     expect(texts.some((t) => t.includes("[OFFEN]"))).toBe(true);
+    // An empty section counts as missing.
+    expect(
+      checkDraftStructure(["Ziele"], {
+        summary: "",
+        sections: [{ heading: "Ziele", body: " " }],
+        openPoints: [],
+      }),
+    ).toEqual([{ severity: "warnung", source: "checkliste", text: "Abschnitt «Ziele» fehlt." }]);
+  });
+});
+
+describe("agent output that does not fit (review F7)", () => {
+  it("cuts over-long text instead of refusing it", () => {
+    expect(cut("kurz", 10)).toBe("kurz");
+    expect(cut("abcdefghij", 5)).toBe("abcd…");
+    expect(cut("abc 😀def", 6).length).toBeLessThanOrEqual(6);
+    expect(cut("abc 😀def", 6)).toBe("abc…");
+  });
+
+  it("fits a change request into its five sections, whatever headings the model used", () => {
+    const { draft, findings } = fitSections(
+      {
+        summary: "S",
+        sections: [
+          { heading: "ausgangslage", body: "Heute wird von Hand exportiert." },
+          { heading: "Gewünschte Änderung", body: "Ein Export." },
+          { heading: "Gewünschte Änderung", body: "Als CSV." },
+          { heading: "Begründung", body: "Spart Zeit." },
+          { heading: "Risiken", body: "Datenabfluss." },
+          { heading: "", body: "" },
+        ],
+        openPoints: [],
+      },
+      CR_SECTIONS,
+    );
+    expect(draft.sections.map((x) => x.heading)).toEqual([...CR_SECTIONS]);
+    expect(draft.sections.map((x) => x.body)).toEqual([
+      "Heute wird von Hand exportiert.",
+      "Ein Export.\n\nAls CSV.",
+      "Spart Zeit.\n\nRisiken:\nDatenabfluss.",
+      "",
+      "",
+    ]);
+    expect(findings).toEqual([
+      {
+        severity: "hinweis",
+        source: "checkliste",
+        text: "Der Agent hat einen Abschnitt «Risiken» geschrieben, der nicht zur Vorlage gehört; der Text steht unter «Begründung und Nutzen».",
+      },
+    ]);
+    // The missing sections are reported by the structure check.
+    expect(checkDraftStructure(CR_SECTIONS, draft).map((f) => f.text)).toEqual(
+      expect.arrayContaining(["Abschnitt «Alternativen» fehlt."]),
+    );
+  });
+
+  it("names empty headings and merges repeated ones when there is no template", () => {
+    const { draft } = fitSections(
+      {
+        summary: "S",
+        sections: [
+          { heading: "Ziel", body: "A" },
+          { heading: "", body: "B" },
+          { heading: "ziel", body: "C" },
+        ],
+        openPoints: [],
+      },
+      [],
+    );
+    expect(draft.sections).toEqual([
+      { heading: "Ziel", body: "A\n\nC" },
+      { heading: "Abschnitt 2", body: "B" },
+    ]);
   });
 });
 
@@ -385,8 +459,10 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     });
     expect(notFound).toBeInstanceOf(AiProviderError);
     expect(notFound.message).toBe("Azure OpenAI 404 DeploymentNotFound: no such deployment");
-    const cut = await fail(200, { choices: [{ finish_reason: "length", message: { content: '{"summ' } }] });
-    expect(cut).toMatchObject({ reason: "invalid_output" });
+    const cutOff = await fail(200, {
+      choices: [{ finish_reason: "length", message: { content: '{"summ' } }],
+    });
+    expect(cutOff).toMatchObject({ reason: "invalid_output" });
   });
 
   it("maps rate limits, content filters and invalid output to provider errors", async () => {
@@ -399,6 +475,10 @@ describe("Azure OpenAI provider (against a fake API)", () => {
       }
     };
     expect(await reason(429, "slow down")).toBe("rate_limited");
+    // Unknown fields or types are refused; over-long text and surplus items are not (below).
+    expect(
+      await reason(200, { choices: [{ finish_reason: "stop", message: { content: '{"summary":1}' } }] }),
+    ).toBe("invalid_output");
     expect(await reason(400, '{"error":{"code":"content_filter"}}')).toBe("blocked");
     expect(
       await reason(200, { choices: [{ finish_reason: "content_filter", message: { content: null } }] }),
@@ -406,6 +486,88 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     expect(
       await reason(200, { choices: [{ finish_reason: "stop", message: { content: "kein JSON" } }] }),
     ).toBe("invalid_output");
+  });
+
+  it("keeps the strict schemas sent to Azure and the parsers in step (contract)", async () => {
+    type Schema = {
+      type?: string;
+      enum?: unknown[];
+      properties?: Record<string, Schema>;
+      required?: string[];
+      additionalProperties?: boolean;
+      items?: Schema;
+    };
+    /** Objects that break strict mode: every property required, no others (Azure refuses the call). */
+    const notStrict: string[] = [];
+    /** An answer the schema allows: every property, one item per list, the first value of an enum. */
+    const instance = (x: Schema, path: string): unknown => {
+      if (x.enum) return x.enum[0];
+      if (x.type === "object") {
+        const keys = Object.keys(x.properties!);
+        if (x.additionalProperties !== false || JSON.stringify(x.required) !== JSON.stringify(keys)) {
+          notStrict.push(path);
+        }
+        return Object.fromEntries(keys.map((k) => [k, instance(x.properties![k]!, `${path}.${k}`)]));
+      }
+      if (x.type === "array") return [instance(x.items!, `${path}[]`)];
+      if (x.type === "string") return "Text";
+      if (x.type === "boolean") return true;
+      throw new Error(`Typ nicht abgedeckt: ${path}`);
+    };
+    const schemas: string[] = [];
+    const echo = (async (_url: string, init: RequestInit) => {
+      const format = JSON.parse(init.body as string).response_format.json_schema;
+      schemas.push(format.name);
+      const content = JSON.stringify(instance(format.schema, format.name));
+      return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }));
+    }) as unknown as typeof fetch;
+    const p = new AzureOpenAiProvider(cfg, async () => "tok", echo);
+    await p.draft(req);
+    await p.draftChangeRequest({
+      agent: MODEL.agent("A10"),
+      project: req.project,
+      idea: { title: "Export", description: "Export der Kreditoren", requestedBy: "Revision" },
+      sections: CR_SECTIONS,
+      flags: CR_FLAGS.map((id) => ({ id, ...CR_FLAG_LABELS[id] })),
+    });
+    await p.reviewRisks({
+      agent: MODEL.agent("A12"),
+      project: req.project,
+      triggers: [{ id: "profil:lieferant", text: "Ein externer Lieferant ist beteiligt." }],
+      roles: [{ id: "PL", label: "Projektleitung" }],
+      max: 5,
+    });
+    await p.draftStatusReport({
+      agent: MODEL.agent("A2"),
+      project: req.project,
+      criteria: [],
+      facts: [],
+    });
+    await p.critique({
+      key: "change-request",
+      document: "Change Request",
+      sections: CR_SECTIONS,
+      results: [],
+      draft: { summary: "S", sections: [], openPoints: [] },
+    });
+    expect(schemas).toEqual(["entwurf", "change_request", "risikopruefung", "statusbericht", "kritik"]);
+    expect(notStrict).toEqual([]);
+  });
+
+  it("cuts over-long text and surplus items instead of wasting the call", async () => {
+    const long = {
+      summary: "x".repeat(5000),
+      sections: Array.from({ length: 45 }, (_, i) => ({ heading: `Teil ${i}`, body: "B" })),
+      openPoints: ["y".repeat(600)],
+    };
+    const { fn } = fakeFetch(200, {
+      choices: [{ finish_reason: "stop", message: { content: JSON.stringify(long) } }],
+    });
+    const { draft } = await new AzureOpenAiProvider(cfg, async () => "tok", fn).draft(req);
+    expect(draft.summary).toHaveLength(4000);
+    expect(draft.summary.endsWith("…")).toBe(true);
+    expect(draft.sections).toHaveLength(40);
+    expect(draft.openPoints[0]).toHaveLength(500);
   });
 
   it("maps tool calls in chat", async () => {

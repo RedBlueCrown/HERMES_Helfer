@@ -30,6 +30,7 @@ import {
   type ToolSpec,
   type Usage,
 } from "./provider";
+import { clampedList, clampedText } from "./output";
 import {
   changeRequestSystemPrompt,
   changeRequestUserPrompt,
@@ -197,12 +198,15 @@ const CRITIQUE_SCHEMA = {
   },
 } as const;
 
+// The parsers cut over-long text and drop surplus items instead of refusing the
+// answer (output.ts); the limits are those of the API's own requests, so what
+// the agent proposes can be submitted as it is.
 const DraftOut = z.object({
-  summary: z.string().max(4000),
-  sections: z.array(z.object({ heading: z.string().max(200), body: z.string().max(30_000) })).max(40),
-  openPoints: z.array(z.string().max(500)).max(50),
+  summary: clampedText(4000),
+  sections: clampedList(z.object({ heading: clampedText(200), body: clampedText(30_000) }), 40),
+  openPoints: clampedList(clampedText(500), 50),
 });
-const FlagOut = z.object({ value: z.boolean(), reason: z.string().max(500) });
+const FlagOut = z.object({ value: z.boolean(), reason: clampedText(500) });
 const ChangeRequestOut = DraftOut.extend({
   flags: z.object({
     daten: FlagOut,
@@ -214,50 +218,41 @@ const ChangeRequestOut = DraftOut.extend({
 });
 const LevelOut = z.enum(RISK_LEVELS);
 const RiskReviewOut = z.object({
-  newRisks: z
-    .array(
-      z.object({
-        title: z.string().max(200),
-        description: z.string().max(2000),
-        probability: LevelOut,
-        impact: LevelOut,
-        ownerRole: z.enum(PROJECT_ROLES),
-        mitigation: z.string().max(1000),
-        reason: z.string().max(500),
-        trigger: z.string().max(80),
-      }),
-    )
-    .max(20),
-  reassessments: z
-    .array(
-      z.object({
-        risk: z.string().max(20),
-        probability: LevelOut,
-        impact: LevelOut,
-        mitigation: z.string().max(1000),
-        reason: z.string().max(500),
-        trigger: z.string().max(80),
-      }),
-    )
-    .max(20),
+  newRisks: clampedList(
+    z.object({
+      title: clampedText(200),
+      description: clampedText(2000),
+      probability: LevelOut,
+      impact: LevelOut,
+      ownerRole: z.enum(PROJECT_ROLES),
+      mitigation: clampedText(1000),
+      reason: clampedText(500),
+      trigger: clampedText(80),
+    }),
+    20,
+  ),
+  reassessments: clampedList(
+    z.object({
+      risk: clampedText(20),
+      probability: LevelOut,
+      impact: LevelOut,
+      mitigation: clampedText(1000),
+      reason: clampedText(500),
+      trigger: clampedText(80),
+    }),
+    20,
+  ),
 });
 const StatusReportOut = z.object({
-  overview: z.string().max(4000),
-  outlook: z.string().max(4000),
-  criteria: z
-    .array(
-      z.object({
-        id: z.enum(STATUS_CRITERION_IDS),
-        problem: z.string().max(2000),
-        measure: z.string().max(2000),
-      }),
-    )
-    .max(12),
+  overview: clampedText(4000),
+  outlook: clampedText(4000),
+  criteria: clampedList(
+    z.object({ id: z.enum(STATUS_CRITERION_IDS), problem: clampedText(2000), measure: clampedText(2000) }),
+    12,
+  ),
 });
 const CritiqueOut = z.object({
-  findings: z
-    .array(z.object({ severity: z.enum(["hinweis", "warnung"]), text: z.string().max(500) }))
-    .max(10),
+  findings: clampedList(z.object({ severity: z.enum(["hinweis", "warnung"]), text: clampedText(500) }), 10),
 });
 
 const ApiResponse = z.object({

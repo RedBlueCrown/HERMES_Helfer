@@ -26,7 +26,8 @@ export function checkDraftStructure(sections: readonly string[], draft: DraftCon
   const byHeading = new Map(draft.sections.map((s) => [s.heading.trim().toLowerCase(), s]));
   for (const heading of sections) {
     const section = byHeading.get(heading.toLowerCase());
-    if (!section) {
+    // An empty section counts as missing (output.ts fits drafts into all sections).
+    if (!section?.body.trim()) {
       findings.push({ severity: "warnung", source: "checkliste", text: `Abschnitt «${heading}» fehlt.` });
     } else if (section.body.trim().length < 40) {
       findings.push({

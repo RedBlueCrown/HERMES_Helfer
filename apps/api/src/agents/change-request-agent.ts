@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { HttpError, assertCheck } from "../errors";
 import type { ProjectService, RequestContext } from "../projects/service";
 import { changeRequestCritique, checkChangeRequest, mergeFindings } from "./kritiker";
+import { fitSections } from "./output";
 import {
   AiProviderError,
   USER_FACING_REASON,
@@ -94,7 +95,10 @@ export class ChangeRequestAgent {
         flags: CR_FLAGS.map((id) => ({ id, ...CR_FLAG_LABELS[id] })),
       });
       usage = add(usage, drafted.usage);
-      const { content, flags } = drafted.draft;
+      // The form shows the five sections by heading; submitting needs each one (review F7).
+      const fitted = fitSections(drafted.draft.content, CR_SECTIONS);
+      const content = fitted.draft;
+      const { flags } = drafted.draft;
       let review: Finding[];
       if (Date.now() - started > CRITIQUE_BUDGET_MS) {
         review = [
@@ -134,7 +138,7 @@ export class ChangeRequestAgent {
         wish: idea.description,
         content,
         flags,
-        findings: mergeFindings(checkChangeRequest(content, values), review),
+        findings: mergeFindings([...checkChangeRequest(content, values), ...fitted.findings], review),
       };
       const proposalId = this.proposals.put({
         kind: "change-request",

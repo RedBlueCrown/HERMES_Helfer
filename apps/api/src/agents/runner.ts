@@ -25,6 +25,7 @@ import { HttpError, assertCheck, notFound } from "../errors";
 import type { ProjectRepository } from "../projects/repository";
 import { PROJECT_NOT_FOUND, actorFor, type ProjectService, type RequestContext } from "../projects/service";
 import { checkDraftStructure, mergeFindings, skillCritique } from "./kritiker";
+import { fitSections } from "./output";
 import {
   AiProviderError,
   USER_FACING_REASON,
@@ -214,9 +215,10 @@ export class RunService {
         project: projectContext(s, this.model, ctx.viewer),
       });
       if (drafted.usage) usage = drafted.usage;
+      const fitted = fitSections(drafted.draft, skill.sections);
       let content: Finding[];
       try {
-        const critique = await this.provider.critique(skillCritique(skill, deliverables, drafted.draft));
+        const critique = await this.provider.critique(skillCritique(skill, deliverables, fitted.draft));
         content = critique.findings;
         if (critique.usage) {
           usage = {
@@ -239,8 +241,11 @@ export class RunService {
         data: {
           runId,
           skillId: skill.id,
-          draft: drafted.draft,
-          findings: mergeFindings(checkDraftStructure(skill.sections, drafted.draft), content),
+          draft: fitted.draft,
+          findings: mergeFindings(
+            [...checkDraftStructure(skill.sections, fitted.draft), ...fitted.findings],
+            content,
+          ),
           producer: { kind: "ai", agent: agent.id, provider: info.provider, model: info.model },
         },
       };

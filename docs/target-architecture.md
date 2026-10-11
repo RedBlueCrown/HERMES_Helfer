@@ -408,7 +408,7 @@ The page «Portfolio» answers two questions for the PMO and the Portfolio-Gremi
 | Excessive agency | Tool allowlist per agent, decision operations never exposed, every run started by a person in the pilot |
 | Disclosure of sensitive information | Server-side, role-filtered context. Restricted deliverables only for permitted roles. |
 | Hallucination | Structured output against the template, mandatory sources (once SharePoint is connected), Kritiker, human release |
-| Insecure output handling | Model output is rendered as text, never as HTML, and external links are not loaded automatically |
+| Insecure output handling | Model output is rendered as text, never as HTML, and external links are not loaded automatically. The answer must match a strict JSON schema; text over the API's limits is cut and surplus items dropped rather than the paid call wasted, and drafts are fitted into the template's sections, with a hint where text moved (`apps/api/src/agents/output.ts`). A contract test keeps the schemas sent to Azure and the parsers in step. |
 | Unbounded consumption | Rate limits, maximum steps per run, timeouts, later token quotas in APIM |
 | Supply chain | Pinned model versions, prompts and skills in Git, evaluation gate before deploying |
 
