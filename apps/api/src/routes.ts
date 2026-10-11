@@ -195,7 +195,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   const ctx = (req: FastifyRequest): RequestContext => {
     if (!req.user) throw new HttpError(401, "not_authenticated", "Bitte anmelden.");
-    return { viewer: req.user, channel: "web", correlationId: req.id };
+    return {
+      viewer: req.user,
+      channel: "web",
+      correlationId: req.id,
+      ...(req.abortSignal ? { signal: req.abortSignal } : {}),
+    };
   };
   const params = <S extends z.ZodType>(req: FastifyRequest, schema: S) => parse(schema, req.params);
 

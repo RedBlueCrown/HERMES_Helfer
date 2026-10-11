@@ -30,6 +30,7 @@ import {
   AiProviderError,
   USER_FACING_REASON,
   type AiProvider,
+  type CallContext,
   type ProjectContext,
   type ProviderInfo,
   type Usage,
@@ -98,6 +99,12 @@ export function recordAiRun(log: Logger, info: ProviderInfo, r: AiRunRecord): vo
     "ai_run",
   );
 }
+
+/** The model call is for the person who asked; it stops when they close the request. */
+export const callFor = (ctx: RequestContext, withSignal = true): CallContext => ({
+  userId: ctx.viewer.userId,
+  ...(withSignal && ctx.signal ? { signal: ctx.signal } : {}),
+});
 
 export const SYSTEM_ACTOR: Actor = { userId: "system", displayName: "System", roles: [], channel: "system" };
 
@@ -208,17 +215,17 @@ export class RunService {
     let event: ProjectEvent;
     let usage = { inputTokens: 0, outputTokens: 0 };
     try {
-      const drafted = await this.provider.draft({
-        agent,
-        skill,
-        deliverables,
-        project: projectContext(s, this.model, ctx.viewer),
-      });
+      // The draft runs in the background: it continues when the person leaves the page.
+      const call = callFor(ctx, false);
+      const drafted = await this.provider.draft(
+        { agent, skill, deliverables, project: projectContext(s, this.model, ctx.viewer) },
+        call,
+      );
       if (drafted.usage) usage = drafted.usage;
       const fitted = fitSections(drafted.draft, skill.sections);
       let content: Finding[];
       try {
-        const critique = await this.provider.critique(skillCritique(skill, deliverables, fitted.draft));
+        const critique = await this.provider.critique(skillCritique(skill, deliverables, fitted.draft), call);
         content = critique.findings;
         if (critique.usage) {
           usage = {

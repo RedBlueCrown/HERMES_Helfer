@@ -196,23 +196,45 @@ export interface ChatResponse {
   usage?: Usage;
 }
 
+/** Whom a model call is for, and when to stop it (quota.ts). */
+export interface CallContext {
+  /** The person the tokens count against (daily budget). */
+  userId: string;
+  /** Stops the call, for example when the person closed the request. */
+  signal?: AbortSignal;
+}
+
 export interface AiProvider {
   readonly info: ProviderInfo;
-  draft(req: DraftRequest): Promise<{ draft: DraftContent; usage?: Usage }>;
-  critique(req: CritiqueRequest): Promise<{ findings: Finding[]; usage?: Usage }>;
+  draft(req: DraftRequest, ctx?: CallContext): Promise<{ draft: DraftContent; usage?: Usage }>;
+  critique(req: CritiqueRequest, ctx?: CallContext): Promise<{ findings: Finding[]; usage?: Usage }>;
   /** Agent A10: turns a rough wish into a change request. Never estimates effort or cost. */
-  draftChangeRequest(req: ChangeRequestDraftRequest): Promise<{ draft: ChangeRequestDraft; usage?: Usage }>;
+  draftChangeRequest(
+    req: ChangeRequestDraftRequest,
+    ctx?: CallContext,
+  ): Promise<{ draft: ChangeRequestDraft; usage?: Usage }>;
   /** Agent A12: proposes new risks and reassessments of open ones. Never accepts them. */
-  reviewRisks(req: RiskReviewRequest): Promise<{ review: RiskReview; usage?: Usage }>;
+  reviewRisks(req: RiskReviewRequest, ctx?: CallContext): Promise<{ review: RiskReview; usage?: Usage }>;
   /** Agent A2: drafts the texts of a status report. Never chooses the colours. */
-  draftStatusReport(req: StatusReportDraftRequest): Promise<{ draft: StatusReportDraft; usage?: Usage }>;
-  chat?(messages: ChatMessage[], tools: ToolSpec[]): Promise<ChatResponse>;
+  draftStatusReport(
+    req: StatusReportDraftRequest,
+    ctx?: CallContext,
+  ): Promise<{ draft: StatusReportDraft; usage?: Usage }>;
+  chat?(messages: ChatMessage[], tools: ToolSpec[], ctx?: CallContext): Promise<ChatResponse>;
 }
 
 /** A provider failure with a reason that is safe to show to users. */
 export class AiProviderError extends Error {
   constructor(
-    readonly reason: "rate_limited" | "blocked" | "timeout" | "invalid_output" | "provider_error",
+    readonly reason:
+      | "rate_limited"
+      | "blocked"
+      | "timeout"
+      | "invalid_output"
+      | "provider_error"
+      | "busy"
+      | "budget"
+      | "aborted",
     message: string,
   ) {
     super(message);
@@ -225,4 +247,7 @@ export const USER_FACING_REASON: Readonly<Record<AiProviderError["reason"], stri
   timeout: "Zeitüberschreitung beim KI-Modell",
   invalid_output: "Das KI-Modell hat keinen gültigen Entwurf geliefert",
   provider_error: "Das KI-Modell ist gerade nicht erreichbar",
+  busy: "Das KI-Modell ist gerade ausgelastet, bitte in einer Minute erneut versuchen",
+  budget: "Dein Tageskontingent für das KI-Modell ist aufgebraucht; morgen steht es wieder zur Verfügung",
+  aborted: "Abgebrochen",
 };

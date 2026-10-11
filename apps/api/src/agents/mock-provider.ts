@@ -9,19 +9,21 @@ import {
   type Level,
   type ProjectRole,
 } from "@hermes-helfer/core";
-import type {
-  AiProvider,
-  ChangeRequestDraft,
-  ChangeRequestDraftRequest,
-  CritiqueRequest,
-  DraftRequest,
-  ProposedReassessment,
-  ProposedRisk,
-  ProviderInfo,
-  RiskReview,
-  RiskReviewRequest,
-  StatusReportDraft,
-  StatusReportDraftRequest,
+import {
+  AiProviderError,
+  type AiProvider,
+  type CallContext,
+  type ChangeRequestDraft,
+  type ChangeRequestDraftRequest,
+  type CritiqueRequest,
+  type DraftRequest,
+  type ProposedReassessment,
+  type ProposedRisk,
+  type ProviderInfo,
+  type RiskReview,
+  type RiskReviewRequest,
+  type StatusReportDraft,
+  type StatusReportDraftRequest,
 } from "./provider";
 
 /** Content hints the mock Kritiker raises for some skills (todo-later P03). */
@@ -347,12 +349,26 @@ export class MockProvider implements AiProvider {
 
   constructor(private readonly latencyMs = 0) {}
 
-  private wait(): Promise<void> {
-    return this.latencyMs ? new Promise((r) => setTimeout(r, this.latencyMs)) : Promise.resolve();
+  /** The latency of a model; stops like a model call when the request is closed. */
+  private wait(ctx?: CallContext): Promise<void> {
+    const signal = ctx?.signal;
+    if (signal?.aborted) return Promise.reject(new AiProviderError("aborted", "The request was closed"));
+    if (!this.latencyMs) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", stop);
+        resolve();
+      }, this.latencyMs);
+      const stop = () => {
+        clearTimeout(timer);
+        reject(new AiProviderError("aborted", "The request was closed"));
+      };
+      signal?.addEventListener("abort", stop, { once: true });
+    });
   }
 
-  async draft(req: DraftRequest) {
-    await this.wait();
+  async draft(req: DraftRequest, ctx?: CallContext) {
+    await this.wait(ctx);
     return { draft: mockDraft(req) };
   }
 
@@ -360,18 +376,18 @@ export class MockProvider implements AiProvider {
     return { findings: mockFindings(req.key) };
   }
 
-  async draftChangeRequest(req: ChangeRequestDraftRequest) {
-    await this.wait();
+  async draftChangeRequest(req: ChangeRequestDraftRequest, ctx?: CallContext) {
+    await this.wait(ctx);
     return { draft: mockChangeRequest(req) };
   }
 
-  async reviewRisks(req: RiskReviewRequest) {
-    await this.wait();
+  async reviewRisks(req: RiskReviewRequest, ctx?: CallContext) {
+    await this.wait(ctx);
     return { review: mockRiskReview(req) };
   }
 
-  async draftStatusReport(req: StatusReportDraftRequest) {
-    await this.wait();
+  async draftStatusReport(req: StatusReportDraftRequest, ctx?: CallContext) {
+    await this.wait(ctx);
     return { draft: mockStatusReport(req) };
   }
 }

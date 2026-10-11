@@ -11,6 +11,7 @@ import { ProposalStore } from "./agents/proposals";
 import { StatusReportAgent } from "./agents/status-report-agent";
 import { Orchestrator } from "./agents/orchestrator";
 import type { AiProvider } from "./agents/provider";
+import { AiQuota, QuotaProvider } from "./agents/quota";
 import { RunService } from "./agents/runner";
 import type { AuthenticatedUser, Authenticator, DevUser } from "./auth";
 import type { Config } from "./config";
@@ -23,6 +24,8 @@ import { StoreUnavailableError, type EventStore } from "./store/event-store";
 declare module "fastify" {
   interface FastifyRequest {
     user: AuthenticatedUser | null;
+    /** Aborted when the client closes the request before the answer is sent. */
+    abortSignal: AbortSignal | null;
   }
 }
 
@@ -68,13 +71,23 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
   });
 
   const projects = new ProjectService(deps.repo);
-  const runs = new RunService(deps.repo, projects, deps.provider, app.log);
-  const orchestrator = new Orchestrator(projects, runs, deps.provider, app.log);
-  const proposals = new ProposalStore();
-  const changeRequestAgent = new ChangeRequestAgent(projects, deps.provider, app.log, proposals);
   const now = deps.now ?? (() => new Date());
-  const riskAgent = new RiskAgent(projects, deps.provider, app.log, proposals, now);
-  const statusReportAgent = new StatusReportAgent(projects, deps.provider, app.log, proposals, now);
+  // Every agent shares the deployment's quota (agents/quota.ts).
+  const provider = new QuotaProvider(
+    deps.provider,
+    new AiQuota({
+      maxConcurrent: config.AI_MAX_CONCURRENT_CALLS,
+      waitMs: config.AI_QUEUE_WAIT_MS,
+      dailyTokensPerUser: config.AI_DAILY_TOKENS_PER_USER,
+      now: () => now().getTime(),
+    }),
+  );
+  const runs = new RunService(deps.repo, projects, provider, app.log);
+  const orchestrator = new Orchestrator(projects, runs, provider, app.log);
+  const proposals = new ProposalStore();
+  const changeRequestAgent = new ChangeRequestAgent(projects, provider, app.log, proposals);
+  const riskAgent = new RiskAgent(projects, provider, app.log, proposals, now);
+  const statusReportAgent = new StatusReportAgent(projects, provider, app.log, proposals, now);
 
   const production = config.NODE_ENV === "production";
   await app.register(helmet, {
@@ -116,6 +129,16 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
       span.setAttribute("http.route", route);
     }
     span.setAttribute("hh.correlation_id", req.id);
+  });
+
+  // A model call made for a request stops when the person closes it (review F9).
+  app.decorateRequest("abortSignal", null);
+  app.addHook("onRequest", async (req, reply) => {
+    const controller = new AbortController();
+    req.abortSignal = controller.signal;
+    reply.raw.once("close", () => {
+      if (!reply.raw.writableFinished) controller.abort();
+    });
   });
 
   app.decorateRequest("user", null);

@@ -89,6 +89,8 @@ export interface RequestContext {
   viewer: Viewer;
   channel: Channel;
   correlationId: string;
+  /** Aborted when the person closes the request; stops model calls made for it. */
+  signal?: AbortSignal;
 }
 
 export interface CommandResult {

@@ -34,7 +34,7 @@ import {
   type Usage,
 } from "./provider";
 import type { ProposalStore } from "./proposals";
-import { projectContext, recordAiRun, type Logger } from "./runner";
+import { callFor, projectContext, recordAiRun, type Logger } from "./runner";
 
 export interface RiskProposal extends ProposedRisk {
   /** Deterministic checks: a similar open risk, a high risk without a measure. */
@@ -110,13 +110,16 @@ export class RiskAgent {
 
     let result: RiskReviewResult;
     try {
-      const answer = await this.provider.reviewRisks({
-        agent,
-        project: projectContext(s, model, ctx.viewer),
-        triggers,
-        roles: PROJECT_ROLES.map((id) => ({ id, label: PROJECT_ROLE_LABELS[id] })),
-        max: RISK_PROPOSALS_MAX,
-      });
+      const answer = await this.provider.reviewRisks(
+        {
+          agent,
+          project: projectContext(s, model, ctx.viewer),
+          triggers,
+          roles: PROJECT_ROLES.map((id) => ({ id, label: PROJECT_ROLE_LABELS[id] })),
+          max: RISK_PROPOSALS_MAX,
+        },
+        callFor(ctx),
+      );
       if (answer.usage) usage = answer.usage;
       const { review } = answer;
       const open = new Map(openRisks(s).map((r) => [riskLabel(r.number), r]));

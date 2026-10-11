@@ -26,7 +26,7 @@ import {
   type Usage,
 } from "./provider";
 import type { ProposalStore } from "./proposals";
-import { projectContext, recordAiRun, type Logger } from "./runner";
+import { callFor, projectContext, recordAiRun, type Logger } from "./runner";
 
 /** What the server keeps of a draft until the requester submits it (proposals.ts). */
 export interface ChangeRequestProposalContent {
@@ -87,13 +87,16 @@ export class ChangeRequestAgent {
 
     let proposal: ChangeRequestProposal;
     try {
-      const drafted = await this.provider.draftChangeRequest({
-        agent,
-        project: context,
-        idea,
-        sections: CR_SECTIONS,
-        flags: CR_FLAGS.map((id) => ({ id, ...CR_FLAG_LABELS[id] })),
-      });
+      const drafted = await this.provider.draftChangeRequest(
+        {
+          agent,
+          project: context,
+          idea,
+          sections: CR_SECTIONS,
+          flags: CR_FLAGS.map((id) => ({ id, ...CR_FLAG_LABELS[id] })),
+        },
+        callFor(ctx),
+      );
       usage = add(usage, drafted.usage);
       // The form shows the five sections by heading; submitting needs each one (review F7).
       const fitted = fitSections(drafted.draft.content, CR_SECTIONS);
@@ -112,6 +115,7 @@ export class ChangeRequestAgent {
         try {
           const critique = await this.provider.critique(
             changeRequestCritique(content, context.releasedResults),
+            callFor(ctx),
           );
           usage = add(usage, critique.usage);
           review = critique.findings;

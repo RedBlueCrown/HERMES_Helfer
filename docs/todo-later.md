@@ -65,6 +65,7 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | P12 | Portfolio signals and their levels, and the 30 days without activity (`packages/core/src/engine/portfolio.ts`) are proposals | Decision F29 |
 | P13 | Change requests: 1,200 CHF per person-day, the five areas and the impact rules come from the prototype (`packages/core/src/model/change-requests.ts`, `engine/change-requests.ts`) | Decisions F31 and F32 |
 | P15 | Status report: the six criteria, the rules of the suggestion, the 30-day rhythm and the figures entered by hand (`packages/core/src/model/status-report.ts`, `engine/status-report.ts`) | Decisions F35 and F36 |
+| P17 | Shared model quota: 8 calls at a time, 30 s wait for a free slot, 1 million tokens per person and day (`apps/api/src/config.ts`); in the API's memory, so per instance | With the deployment's capacity (F3/F4) and the first weeks of use; with several instances in APIM (H03) |
 | P16 | Separation of duties: the incompatible roles (PL with PA, ISM or DS), the PMO assigning the control roles and the four-eyes principle for change requests (`packages/core/src/model/policy.ts`); off in the test environment | Decision F37 |
 | P14 | Risks: the scale (probability × impact, 1 to 3 each), high from 6 and medium from 3, the statuses, and at most five proposals per review (`packages/core/src/model/risks.ts`); the offline Risiko agent's typical risks (`apps/api/src/agents/mock-provider.ts`) | Decisions F33 and F34 |
 

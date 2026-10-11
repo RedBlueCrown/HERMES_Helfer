@@ -618,6 +618,28 @@ describe("change requests", () => {
     expect(res.json().error.message).toMatch(/Hohe Auslastung.*ohne den Agenten/);
   });
 
+  it("refuses the agent once the person's daily token budget is used up, others go on", async () => {
+    const mock = new MockProvider(0);
+    const usage = { inputTokens: 600, outputTokens: 500 };
+    server = await testServer({
+      env: { AI_DAILY_TOKENS_PER_USER: "1000" },
+      provider: {
+        info: mock.info,
+        draft: (r) => mock.draft(r),
+        critique: (r) => mock.critique(r),
+        draftChangeRequest: async (r) => ({ ...(await mock.draftChangeRequest(r)), usage }),
+        reviewRisks: (r) => mock.reviewRisks(r),
+        draftStatusReport: (r) => mock.draftStatusReport(r),
+      },
+    });
+    const draft = (user: string) => server!.as(user).post("/api/projects/ERP/change-requests/draft", wish);
+    expect((await draft("u-nina")).statusCode).toBe(200);
+    const refused = await draft("u-nina");
+    expect(refused.statusCode).toBe(503);
+    expect(refused.json().error.message).toMatch(/Tageskontingent.*ohne den Agenten/);
+    expect((await draft("u-jonas")).statusCode).toBe(200);
+  });
+
   it("is decided by the Projektausschuss with Konsent, then rechecked by ISM and Datenschutz", async () => {
     server = await testServer();
     const { proposalId } = await draftWith(server, "u-nina");

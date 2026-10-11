@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { AzureOpenAiProvider } from "../src/agents/azure-openai-provider";
 import { checkDraftStructure } from "../src/agents/kritiker";
 import { cut, fitSections } from "../src/agents/output";
+import { AiQuota } from "../src/agents/quota";
 import { AiProviderError } from "../src/agents/provider";
 import { createEntraAuthenticator } from "../src/auth";
 import { loadConfig } from "../src/config";
@@ -218,6 +219,79 @@ describe("agent output that does not fit (review F7)", () => {
       { heading: "Ziel", body: "A\n\nC" },
       { heading: "Abschnitt 2", body: "B" },
     ]);
+  });
+});
+
+describe("shared model quota (review F9)", () => {
+  const deferred = () => {
+    let resolve!: (usage: { inputTokens: number; outputTokens: number }) => void;
+    const promise = new Promise<{ usage: { inputTokens: number; outputTokens: number } }>((r) => {
+      resolve = (usage) => r({ usage });
+    });
+    return { promise, resolve };
+  };
+  const reasonOf = (p: Promise<unknown>) =>
+    p.then(
+      () => "ok",
+      (e: unknown) => (e instanceof AiProviderError ? e.reason : "other"),
+    );
+
+  it("runs at most the configured calls at a time; the next waits, then is refused as busy", async () => {
+    const quota = new AiQuota({ maxConcurrent: 1, waitMs: 50, dailyTokensPerUser: 0 });
+    const first = deferred();
+    const running = quota.run({ userId: "a" }, () => first.promise);
+    let secondStarted = false;
+    const second = quota.run({ userId: "b" }, async () => {
+      secondStarted = true;
+      return {};
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(secondStarted).toBe(false);
+    first.resolve({ inputTokens: 1, outputTokens: 1 });
+    await running;
+    await second;
+    expect(secondStarted).toBe(true);
+
+    const hold = deferred();
+    const holding = quota.run({ userId: "a" }, () => hold.promise);
+    expect(await reasonOf(quota.run({ userId: "b" }, async () => ({})))).toBe("busy");
+    hold.resolve({ inputTokens: 0, outputTokens: 0 });
+    await holding;
+    // A failed call frees its slot.
+    expect(await reasonOf(quota.run({ userId: "a" }, () => Promise.reject(new Error("x"))))).toBe("other");
+    expect(await reasonOf(quota.run({ userId: "a" }, async () => ({})))).toBe("ok");
+  });
+
+  it("stops waiting when the person closes the request", async () => {
+    const quota = new AiQuota({ maxConcurrent: 1, waitMs: 5_000, dailyTokensPerUser: 0 });
+    const hold = deferred();
+    const holding = quota.run({ userId: "a" }, () => hold.promise);
+    const controller = new AbortController();
+    const waiting = reasonOf(quota.run({ userId: "b", signal: controller.signal }, async () => ({})));
+    controller.abort();
+    expect(await waiting).toBe("aborted");
+    expect(await reasonOf(quota.run({ userId: "b", signal: controller.signal }, async () => ({})))).toBe(
+      "aborted",
+    );
+    hold.resolve({ inputTokens: 0, outputTokens: 0 });
+    await holding;
+    expect(await reasonOf(quota.run({ userId: "b" }, async () => ({})))).toBe("ok");
+  });
+
+  it("charges the tokens to the person and refuses more once the daily budget is used up", async () => {
+    let now = Date.UTC(2026, 9, 11, 22, 0);
+    const quota = new AiQuota({ maxConcurrent: 2, waitMs: 0, dailyTokensPerUser: 1000, now: () => now });
+    const spend = (userId: string, tokens: number) =>
+      quota.run({ userId }, async () => ({ usage: { inputTokens: tokens / 2, outputTokens: tokens / 2 } }));
+    await spend("a", 600);
+    await spend("a", 600);
+    expect(quota.usedToday("a")).toBe(1200);
+    expect(await reasonOf(spend("a", 10))).toBe("budget");
+    expect(await reasonOf(spend("b", 10))).toBe("ok");
+    // A new day (UTC), a new budget.
+    now += 3 * 3600_000;
+    expect(await reasonOf(spend("a", 10))).toBe("ok");
+    expect(quota.usedToday("a")).toBe(10);
   });
 });
 
@@ -568,6 +642,23 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     expect(draft.summary.endsWith("…")).toBe(true);
     expect(draft.sections).toHaveLength(40);
     expect(draft.openPoints[0]).toHaveLength(500);
+  });
+
+  it("stops the call when the person closes the request", async () => {
+    // Like fetch: rejects when the signal is or becomes aborted, and never answers otherwise.
+    const hanging = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        const abort = () => reject(new DOMException("The operation was aborted.", "AbortError"));
+        if (init.signal!.aborted) abort();
+        else init.signal!.addEventListener("abort", abort);
+      })) as unknown as typeof fetch;
+    const controller = new AbortController();
+    const call = new AzureOpenAiProvider(cfg, async () => "tok", hanging).draft(req, {
+      userId: "u",
+      signal: controller.signal,
+    });
+    controller.abort();
+    await expect(call).rejects.toMatchObject({ reason: "aborted" });
   });
 
   it("maps tool calls in chat", async () => {

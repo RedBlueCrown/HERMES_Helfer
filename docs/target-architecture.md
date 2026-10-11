@@ -409,7 +409,7 @@ The page «Portfolio» answers two questions for the PMO and the Portfolio-Gremi
 | Disclosure of sensitive information | Server-side, role-filtered context. Restricted deliverables only for permitted roles. |
 | Hallucination | Structured output against the template, mandatory sources (once SharePoint is connected), Kritiker, human release |
 | Insecure output handling | Model output is rendered as text, never as HTML, and external links are not loaded automatically. The answer must match a strict JSON schema; text over the API's limits is cut and surplus items dropped rather than the paid call wasted, and drafts are fitted into the template's sections, with a hint where text moved (`apps/api/src/agents/output.ts`). A contract test keeps the schemas sent to Azure and the parsers in step. |
-| Unbounded consumption | Rate limits, maximum steps per run, timeouts, later token quotas in APIM |
+| Unbounded consumption | Rate limits per person and route; at most a few model calls at a time across all agents, with a short wait before the person is told the model is busy; a daily token budget per person; a call stops when the person closes the request; maximum steps per run, timeouts (`apps/api/src/agents/quota.ts`). Later token quotas per project in APIM (H03). |
 | Supply chain | Pinned model versions, prompts and skills in Git, evaluation gate before deploying |
 
 ---
@@ -421,7 +421,7 @@ The page «Portfolio» answers two questions for the PMO and the Portfolio-Gremi
 | Stream | Contents | Store |
 |---|---|---|
 | **1. Projektakte** | All project events: runs, drafts, edits, releases, approvals with reasons, gate decisions with Konsent and Auflagen, "nicht zutreffend", participation, checklist confirmations, membership changes | Event store with a hash chain (pilot). Later Azure SQL ledger table, daily export to WORM storage, decision PDFs as records. |
-| **2. AI run audit** | Per run: who, which skill and version, model deployment, sizes, tokens, duration, outcome, Kritiker findings | Structured `ai_run` log entries (to Log Analytics), and the metrics `hh.ai_run.duration` and `hh.ai_run.tokens` in Application Insights via OpenTelemetry, without people or projects. Prompt content later in a separate store (§9.6). |
+| **2. AI run audit** | Per run: who, which skill and version, model deployment, sizes, tokens, duration, outcome, Kritiker findings | Structured `ai_run` log entries, and `chat` entries with tools and tokens (to Log Analytics), and the metrics `hh.ai_run.duration` and `hh.ai_run.tokens` in Application Insights via OpenTelemetry, without people or projects. Prompt content later in a separate store (§9.6). |
 | **3. Security and platform telemetry** | Entra sign-in and audit logs, Microsoft 365 audit log, Azure activity, APIM, WAF, Key Vault, PIM, Defender | Microsoft Sentinel |
 
 The **Verlauf** page shows stream 1 in plain German, and the integrity check verifies the hash chain on request.

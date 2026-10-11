@@ -22,8 +22,15 @@ import { z } from "zod";
 import { HttpError } from "../errors";
 import type { ProjectService, RequestContext } from "../projects/service";
 import { chatSystemPrompt } from "./prompts";
-import type { AiProvider, ChatMessage, ToolSpec } from "./provider";
-import type { Logger, RunService } from "./runner";
+import {
+  AiProviderError,
+  USER_FACING_REASON,
+  type AiProvider,
+  type ChatMessage,
+  type ToolSpec,
+  type Usage,
+} from "./provider";
+import { callFor, type Logger, type RunService } from "./runner";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -93,14 +100,16 @@ export class Orchestrator {
   async respond(code: string, ctx: RequestContext, message: string, history: ChatTurn[]): Promise<ChatReply> {
     const s = await this.projects.requireProject(code, ctx.viewer);
     const used: string[] = [];
+    const usage: Usage = { inputTokens: 0, outputTokens: 0 };
     let reply: ChatReply;
     if (this.provider.chat) {
       try {
-        reply = await this.withModel(code, s, ctx, message, history, used);
+        reply = await this.withModel(code, s, ctx, message, history, used, usage);
       } catch (err) {
         this.log.warn({ err, correlationId: ctx.correlationId }, "chat model failed, using rules");
         reply = await this.withRules(code, ctx, message, used);
-        reply.text = `${reply.text}\n\n(Das KI-Modell ist gerade nicht erreichbar; diese Antwort kommt aus den festen Regeln.)`;
+        const reason = USER_FACING_REASON[err instanceof AiProviderError ? err.reason : "provider_error"];
+        reply.text = `${reply.text}\n\n(${reason}; diese Antwort kommt aus den festen Regeln.)`;
       }
     } else {
       reply = await this.withRules(code, ctx, message, used);
@@ -114,6 +123,8 @@ export class Orchestrator {
         mode: reply.mode,
         tools: used,
         actions: reply.actions.map((a) => a.kind),
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
         correlationId: ctx.correlationId,
       },
       "chat",
@@ -362,6 +373,7 @@ export class Orchestrator {
     message: string,
     history: ChatTurn[],
     used: string[],
+    usage: Usage,
   ): Promise<ChatReply> {
     const actions: ChatAction[] = [];
     const messages: ChatMessage[] = [
@@ -380,7 +392,11 @@ export class Orchestrator {
     ];
     const specs = this.toolSpecs();
     for (let round = 0; round < 4; round++) {
-      const res = await this.provider.chat!(messages, specs);
+      const res = await this.provider.chat!(messages, specs, callFor(ctx));
+      if (res.usage) {
+        usage.inputTokens += res.usage.inputTokens;
+        usage.outputTokens += res.usage.outputTokens;
+      }
       if (!res.toolCalls.length) {
         return {
           text: res.content?.trim() || "Dazu habe ich keine Antwort.",

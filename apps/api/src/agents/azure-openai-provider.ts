@@ -16,6 +16,7 @@ import { z } from "zod";
 import {
   AiProviderError,
   type AiProvider,
+  type CallContext,
   type ChangeRequestDraft,
   type ChangeRequestDraftRequest,
   type ChatMessage,
@@ -314,7 +315,7 @@ export class AzureOpenAiProvider implements AiProvider {
     };
   }
 
-  private async call(deployment: string, body: Record<string, unknown>) {
+  private async call(deployment: string, body: Record<string, unknown>, signal?: AbortSignal) {
     const base = this.cfg.endpoint.replace(/\/$/, "");
     const v1 = this.cfg.apiVersion === "v1";
     const url = v1
@@ -326,17 +327,19 @@ export class AzureOpenAiProvider implements AiProvider {
       ...(this.cfg.maxCompletionTokens ? { max_completion_tokens: this.cfg.maxCompletionTokens } : {}),
       ...(this.cfg.reasoningEffort ? { reasoning_effort: this.cfg.reasoningEffort } : {}),
     };
+    const timeout = AbortSignal.timeout(this.cfg.timeoutMs ?? 180_000);
     let res: Response;
     try {
       res = await this.fetchImpl(url, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${await this.token()}` },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 180_000),
+        signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
       });
     } catch (err) {
-      const timeout = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-      throw new AiProviderError(timeout ? "timeout" : "provider_error", String(err));
+      if (signal?.aborted) throw new AiProviderError("aborted", "The request was closed");
+      const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+      throw new AiProviderError(timedOut ? "timeout" : "provider_error", String(err));
     }
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -369,14 +372,19 @@ export class AzureOpenAiProvider implements AiProvider {
     name: string,
     schema: unknown,
     out: z.ZodType<T>,
+    signal: AbortSignal | undefined,
   ): Promise<{ value: T; usage?: Usage }> {
-    const { message, usage } = await this.call(deployment, {
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
-    });
+    const { message, usage } = await this.call(
+      deployment,
+      {
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
+      },
+      signal,
+    );
     let json: unknown;
     try {
       json = JSON.parse(message.content ?? "");
@@ -388,7 +396,7 @@ export class AzureOpenAiProvider implements AiProvider {
     return { value: value.data, ...(usage ? { usage } : {}) };
   }
 
-  async draft(req: DraftRequest): Promise<{ draft: DraftContent; usage?: Usage }> {
+  async draft(req: DraftRequest, ctx?: CallContext): Promise<{ draft: DraftContent; usage?: Usage }> {
     const { value, usage } = await this.structured(
       this.cfg.draftDeployment,
       draftSystemPrompt(req),
@@ -396,12 +404,14 @@ export class AzureOpenAiProvider implements AiProvider {
       "entwurf",
       DRAFT_SCHEMA,
       DraftOut,
+      ctx?.signal,
     );
     return { draft: value, ...(usage ? { usage } : {}) };
   }
 
   async draftChangeRequest(
     req: ChangeRequestDraftRequest,
+    ctx?: CallContext,
   ): Promise<{ draft: ChangeRequestDraft; usage?: Usage }> {
     const { value, usage } = await this.structured(
       this.cfg.draftDeployment,
@@ -410,12 +420,16 @@ export class AzureOpenAiProvider implements AiProvider {
       "change_request",
       CHANGE_REQUEST_SCHEMA,
       ChangeRequestOut,
+      ctx?.signal,
     );
     const { flags, ...content } = value;
     return { draft: { content, flags }, ...(usage ? { usage } : {}) };
   }
 
-  async reviewRisks(req: RiskReviewRequest): Promise<{ review: RiskReview; usage?: Usage }> {
+  async reviewRisks(
+    req: RiskReviewRequest,
+    ctx?: CallContext,
+  ): Promise<{ review: RiskReview; usage?: Usage }> {
     const { value, usage } = await this.structured(
       this.cfg.draftDeployment,
       riskReviewSystemPrompt(req),
@@ -423,12 +437,14 @@ export class AzureOpenAiProvider implements AiProvider {
       "risikopruefung",
       riskReviewSchema(req.triggers.map((t) => t.id)),
       RiskReviewOut,
+      ctx?.signal,
     );
     return { review: value, ...(usage ? { usage } : {}) };
   }
 
   async draftStatusReport(
     req: StatusReportDraftRequest,
+    ctx?: CallContext,
   ): Promise<{ draft: StatusReportDraft; usage?: Usage }> {
     const { value, usage } = await this.structured(
       this.cfg.draftDeployment,
@@ -437,11 +453,12 @@ export class AzureOpenAiProvider implements AiProvider {
       "statusbericht",
       STATUS_REPORT_SCHEMA,
       StatusReportOut,
+      ctx?.signal,
     );
     return { draft: value, ...(usage ? { usage } : {}) };
   }
 
-  async critique(req: CritiqueRequest): Promise<{ findings: Finding[]; usage?: Usage }> {
+  async critique(req: CritiqueRequest, ctx?: CallContext): Promise<{ findings: Finding[]; usage?: Usage }> {
     const { value, usage } = await this.structured(
       this.cfg.draftDeployment,
       critiqueSystemPrompt(),
@@ -449,6 +466,7 @@ export class AzureOpenAiProvider implements AiProvider {
       "kritik",
       CRITIQUE_SCHEMA,
       CritiqueOut,
+      ctx?.signal,
     );
     return {
       findings: value.findings.map((f) => ({
@@ -460,33 +478,37 @@ export class AzureOpenAiProvider implements AiProvider {
     };
   }
 
-  async chat(messages: ChatMessage[], tools: ToolSpec[]): Promise<ChatResponse> {
-    const { message, usage } = await this.call(this.cfg.chatDeployment, {
-      messages: messages.map((m) => {
-        if (m.role === "tool") return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
-        if (m.role === "assistant") {
-          return {
-            role: "assistant",
-            content: m.content,
-            ...(m.toolCalls?.length
-              ? {
-                  tool_calls: m.toolCalls.map((t) => ({
-                    id: t.id,
-                    type: "function",
-                    function: { name: t.name, arguments: t.arguments },
-                  })),
-                }
-              : {}),
-          };
-        }
-        return { role: m.role, content: m.content };
-      }),
-      tools: tools.map((t) => ({
-        type: "function",
-        function: { name: t.name, description: t.description, parameters: t.parameters },
-      })),
-      tool_choice: "auto",
-    });
+  async chat(messages: ChatMessage[], tools: ToolSpec[], ctx?: CallContext): Promise<ChatResponse> {
+    const { message, usage } = await this.call(
+      this.cfg.chatDeployment,
+      {
+        messages: messages.map((m) => {
+          if (m.role === "tool") return { role: "tool", tool_call_id: m.toolCallId, content: m.content };
+          if (m.role === "assistant") {
+            return {
+              role: "assistant",
+              content: m.content,
+              ...(m.toolCalls?.length
+                ? {
+                    tool_calls: m.toolCalls.map((t) => ({
+                      id: t.id,
+                      type: "function",
+                      function: { name: t.name, arguments: t.arguments },
+                    })),
+                  }
+                : {}),
+            };
+          }
+          return { role: m.role, content: m.content };
+        }),
+        tools: tools.map((t) => ({
+          type: "function",
+          function: { name: t.name, description: t.description, parameters: t.parameters },
+        })),
+        tool_choice: "auto",
+      },
+      ctx?.signal,
+    );
     return {
       content: message.content ?? null,
       toolCalls: (message.tool_calls ?? []).map((t) => ({

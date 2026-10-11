@@ -53,6 +53,12 @@ const schema = z.object({
   AZURE_OPENAI_REASONING_EFFORT: z.enum(["none", "minimal", "low", "medium", "high"]).optional(),
   AZURE_OPENAI_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(180_000),
   AZURE_OPENAI_REGION_LABEL: z.string().default("EU"),
+  /** Model calls at the same time, across all agents (agents/quota.ts). */
+  AI_MAX_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(200).default(8),
+  /** How long a call waits for a free slot before the person is told the model is busy. */
+  AI_QUEUE_WAIT_MS: z.coerce.number().int().min(0).max(120_000).default(30_000),
+  /** Tokens per person and day (UTC), input and output; 0: no limit. */
+  AI_DAILY_TOKENS_PER_USER: z.coerce.number().int().min(0).max(1_000_000_000).default(1_000_000),
   WEB_DIST_DIR: z.string().optional(),
   /** Addresses or CIDR ranges of reverse proxies whose X-Forwarded-For is trusted; unset trusts none. */
   TRUSTED_PROXIES: z.string().optional(),

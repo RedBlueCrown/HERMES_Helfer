@@ -28,7 +28,7 @@ import { CRITIQUE_BUDGET_MS } from "./change-request-agent";
 import { checkStatusReport, mergeFindings, statusReportCritique, type StatusReportTexts } from "./kritiker";
 import { AiProviderError, USER_FACING_REASON, type AiProvider, type Usage } from "./provider";
 import type { ProposalStore } from "./proposals";
-import { projectContext, recordAiRun, type Logger } from "./runner";
+import { callFor, projectContext, recordAiRun, type Logger } from "./runner";
 
 /** What the PL has entered so far: the colours and any text. */
 export interface StatusReportInputSoFar {
@@ -122,19 +122,22 @@ export class StatusReportAgent {
 
     let proposal: StatusReportProposal;
     try {
-      const drafted = await this.provider.draftStatusReport({
-        agent,
-        project: context,
-        criteria: STATUS_CRITERIA.map((c) => ({
-          id: c.id,
-          label: c.label,
-          ampel: colours[c.id],
-          reasons: suggestion[c.id].reasons,
-          problem: input.criteria[c.id].problem,
-          measure: input.criteria[c.id].measure,
-        })),
-        facts,
-      });
+      const drafted = await this.provider.draftStatusReport(
+        {
+          agent,
+          project: context,
+          criteria: STATUS_CRITERIA.map((c) => ({
+            id: c.id,
+            label: c.label,
+            ampel: colours[c.id],
+            reasons: suggestion[c.id].reasons,
+            problem: input.criteria[c.id].problem,
+            measure: input.criteria[c.id].measure,
+          })),
+          facts,
+        },
+        callFor(ctx),
+      );
       usage = add(usage, drafted.usage);
       // Texts only for criteria that are not green; what the PL wrote stays if the agent left it out.
       const texts: StatusReportTexts = {
@@ -164,6 +167,7 @@ export class StatusReportAgent {
               { name: "Fakten", summary: facts.join(" ") },
               ...context.releasedResults,
             ]),
+            callFor(ctx),
           );
           usage = add(usage, critique.usage);
           review = critique.findings;
