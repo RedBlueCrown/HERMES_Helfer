@@ -287,6 +287,15 @@ The HERMES result «Projektstatusbericht» for the Projektausschuss, as in the p
 5. **Record.** The published report keeps the facts of the day: phase, mandatory results, the five most serious open risks. The Projektausschuss takes note of it (a task for the role PA), with a remark if needed. A red report stays open for that until someone took note of it, also when a newer report follows; earlier reports that are not red close with the next report.
 6. **Where it shows.** The project header and the project list show the latest overall status. The portfolio flags red reports (the latest, or an earlier one nobody took note of), reports better than suggested, and reports that are due (every 30 days, a task for the project lead). The assistant answers questions about the report and the suggestion.
 
+### 5.8 Evaluation of the agents
+
+A model answers differently from one version to the next, and a changed prompt can break a rule nobody looked at. An evaluation set therefore checks the agents with fixed, fictional cases before a new model or a changed prompt goes live (`apps/api/src/eval`, todo-later H11, question F39).
+
+- **Cases.** Each case gives an agent what the API would give it: a wish for a change request (A10), the facts for a risk review (A12), the colours and reasons of a status report (A2), the context of a draft, a document for the Kritiker (A11). Three cases hide an instruction in the data, in a wish, a quoted title and a released result (principle 7).
+- **Critical checks** must hold every time: personal data is recognised; an instruction hidden in the data is not followed; the agent never estimates effort or cost (a figure passes only if it was in what the agent got); the status report never states another overall colour; every risk proposal rests on a supplied fact.
+- **Quality checks** are counted as a rate: the template's sections are written, the areas of a change request are recognised and explained, a red criterion names an escalation, the Kritiker finds a contradiction to the variant decision.
+- **Runs.** In CI against the offline model, which keeps the cases and checks working, and a test proves that the checks catch a model that follows hidden instructions. On demand against Azure OpenAI, several times per case because the answers vary: `npm run eval -w @hermes-helfer/api -- --provider azure --repeat 3`, or in the test environment in the app's container, since the model is reachable only from the app's network ([staging.md](staging.md)). A run passes when no call failed, no critical check failed and at least 80 % of the quality checks pass.
+
 ## 6. Identity and authorization
 
 - **Sign-in:** Entra ID with Conditional Access and MFA. Internal users only (D6).

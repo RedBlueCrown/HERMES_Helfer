@@ -16,7 +16,8 @@ Stand: 11. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-arc
 - **Change Requests:** F31 und F32
 - **Risiken:** F33 und F34
 - **Statusbericht:** F35 und F36
-- **Funktionentrennung und Sichtbarkeit:** F37 und F38 (neu)
+- **Funktionentrennung und Sichtbarkeit:** F37 und F38
+- **Prüfung der Agenten:** F39 (neu)
 
 ---
 
@@ -535,5 +536,21 @@ Heute sehen alle Mitglieder eines Vorhabens sowie PMO und Portfolio-Gremium alle
 2. Gilt dasselbe für den Agenten: Soll er den Text solcher Change Requests nur in Entwürfen für berechtigte Rollen verwenden?
 
 **Meine Empfehlung:** 1. ja; 2. ja.
+
+**Antwort:**
+
+---
+
+## Teil K: Prüfung der Agenten
+
+Bevor ein neues KI-Modell oder geänderte Anweisungen an die Agenten in Betrieb gehen, prüft eine Evaluation die Agenten mit festen, erfundenen Fällen (Beschreibung in [`target-architecture.md`](target-architecture.md), Abschnitt 5.8). Kritische Regeln müssen immer halten, zum Beispiel: Eine Anweisung, die in einem Wunsch oder einem Risikotitel versteckt ist, befolgt der Agent nicht; er schätzt nie Aufwand oder Kosten; er ändert keine Ampel. Die übrigen Prüfungen zählen als Quote.
+
+### F39 · Wer gibt ein neues Modell frei?
+
+1. Heute gilt: Alle kritischen Regeln halten, und mindestens **80 %** der übrigen Prüfungen bestehen. Passt diese Schwelle?
+2. Wer entscheidet, ob ein neues Modell oder geänderte Anweisungen in Betrieb gehen: das PMO, die Informatik, der Product Owner des HERMES Helfers? Soll das Ergebnis der Evaluation dem Entscheid beiliegen?
+3. Die Fälle sind erfunden. Sollen Fachleute weitere Fälle beisteuern, zum Beispiel typische Change Requests oder Statusberichte, anonymisiert und ohne vertrauliche Angaben?
+
+**Meine Empfehlung:** 1. ja, für den Pilot; 2. der Product Owner, mit dem Ergebnis der Evaluation im Change; 3. ja, je Agent fünf bis zehn Fälle bis zum Pilotstart.
 
 **Antwort:**

@@ -1,8 +1,6 @@
 import type { TokenCredential } from "@azure/identity";
 import { MODEL, withPolicy } from "@hermes-helfer/core";
-import { AzureOpenAiProvider, entraTokenSource } from "./agents/azure-openai-provider";
-import { MockProvider } from "./agents/mock-provider";
-import type { AiProvider } from "./agents/provider";
+import { createProvider } from "./agents/create-provider";
 import { createDevAuthenticator, createEntraAuthenticator } from "./auth";
 import { loadConfig } from "./config";
 import { createLogger } from "./logger";
@@ -32,24 +30,7 @@ const repo = new ProjectRepository(store, model, {
 });
 await repo.load();
 
-const provider: AiProvider =
-  config.AI_PROVIDER === "mock"
-    ? new MockProvider(config.MOCK_AI_LATENCY_MS)
-    : new AzureOpenAiProvider(
-        {
-          endpoint: config.AZURE_OPENAI_ENDPOINT!,
-          draftDeployment: config.AZURE_OPENAI_DEPLOYMENT_DRAFT!,
-          chatDeployment: config.AZURE_OPENAI_DEPLOYMENT_CHAT!,
-          apiVersion: config.AZURE_OPENAI_API_VERSION,
-          regionLabel: config.AZURE_OPENAI_REGION_LABEL,
-          timeoutMs: config.AZURE_OPENAI_TIMEOUT_MS,
-          maxCompletionTokens: config.AZURE_OPENAI_MAX_COMPLETION_TOKENS,
-          ...(config.AZURE_OPENAI_REASONING_EFFORT
-            ? { reasoningEffort: config.AZURE_OPENAI_REASONING_EFFORT }
-            : {}),
-        },
-        entraTokenSource(getCredential),
-      );
+const provider = createProvider(config, getCredential);
 
 const authenticator =
   config.AUTH_MODE === "dev"

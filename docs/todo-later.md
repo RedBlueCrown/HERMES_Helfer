@@ -83,7 +83,7 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | H08 | CSP without `'unsafe-inline'` for styles (Fluent UI injects styles at runtime; needs nonce support) | Before go-live |
 | H09 | Accessibility check against WCAG 2.1 AA | Before the pilot goes live |
 | H10 | External pentest | Before go-live |
-| H11 | Evaluation set per skill, run in CI on every prompt or model change | Once the real model is connected |
+| H11 | The evaluation set exists (`apps/api/src/eval`, architecture §5.8): nine fictional cases for A2, A10, A11 and A12, critical and quality checks, run against the offline model in CI and in the app's container against Azure. Still to do: cases for every skill and for the assistant's chat, a judge for the quality of texts, a stored baseline to compare runs automatically, and a run against Azure on every prompt or model change | Cases from the business (F39) before the pilot; the rest with the pilot's model (F3/F4) |
 | H12 | Each project stores its model version, but only the current one exists in code. Keep older versions loadable by `modelVersion`, an audited migration by the PMO, and a replay check before each deployment: fold every stream under the old and the new configuration and fail if a decided fact differs | Before the first model change |
 | H13 | Split the web bundle (about 1 MB, 270 KB compressed) into vendor chunks | Before the pilot goes live |
 | H14 | Pin GitHub Actions to commit SHAs, add ESLint (React hooks, security rules) | Increment 2 |

@@ -10,7 +10,8 @@
     "migrate": "node --enable-source-maps --import ./dist/telemetry.js dist/migrate.js",
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "tsx src/eval/main.ts"
   },
   "dependencies": {
     "@azure/identity": "^4.13.3",
