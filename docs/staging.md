@@ -28,7 +28,7 @@ The agents that work in this environment:
 ## Before you start
 
 1. **Azure subscription** in which you are **Owner** (the templates create role assignments and private endpoints).
-2. **Entra ID**: the role **Application Administrator** or **Cloud Application Administrator**, or an administrator who runs the script with you. The script creates two app registrations and grants consent for the organisation.
+2. **Entra ID**: the role **Application Administrator** or **Cloud Application Administrator**, or an administrator who runs the script with you. The script creates two app registrations and grants consent for the organisation. It needs a **work account**: a personal Microsoft account (outlook.com, hotmail.com, live.com) cannot create the app registrations, not even as administrator of the directory (see below).
 3. **Model and quota.** The default is `gpt-5.1` (version `2025-11-13`) as *Standard* deployment in Sweden Central, with 50,000 tokens per minute. Check whether your subscription has it:
 
    ```bash
@@ -38,6 +38,18 @@ The agents that work in this environment:
 
    10,000 tokens per minute are enough to try it (`MODEL_CAPACITY=10`). If the model is missing or needs a registration, request it in the Azure AI Foundry portal (Management center → Quota), or choose another model (next section).
 4. **A shell:** [Azure Cloud Shell](https://shell.azure.com) (Bash) has everything. Elsewhere you need the Azure CLI, `jq`, `git` and `curl`. No Docker: the image is built in the container registry.
+
+### With a personal Microsoft account
+
+A subscription you signed up for with a personal Microsoft account comes with its own directory («Default Directory»), and that account is its administrator. The Bicep extension for Microsoft Graph, which creates the app registrations, does not accept personal accounts, so the script stops at «Entra ID app registrations» with *Authorization_RequestDenied*. Create a work account in that directory once:
+
+1. Azure portal, signed in with the personal account → **Microsoft Entra ID** → Overview: note the **tenant ID** and the **primary domain** (`….onmicrosoft.com`).
+2. **Users → New user → Create new user**: user principal name for example `hh-admin@<primary domain>`, display name, note the password. Tab **Assignments → Add role → Global Administrator** (in your own test directory the simplest; *Application Administrator* is enough for the app registrations). Create.
+3. **Subscriptions →** your subscription **→ Access control (IAM) → Add role assignment → Privileged administrator roles → Owner →** member: the new user. The default condition (all roles except the privileged administrator roles) is enough. Review + assign.
+4. Sign in with the new account: `az logout`, then `az login --tenant <tenant ID>`. The first sign-in asks for a new password and to set up multifactor authentication (Microsoft Authenticator). In Cloud Shell: sign out of the portal, sign in with the new account and open Cloud Shell again.
+5. Run `scripts/deploy-azure.sh` again. It continues where it stopped; the infrastructure exists already, so that step is quick.
+
+The script gives the PMO role to the account that runs it, so you sign in to the app with the new account. To sign in with your personal account as well: Enterprise applications → «HERMES Helfer API (test)» → Users and groups → add it with a role.
 
 ## Deploy
 
@@ -108,6 +120,7 @@ Nine cases, three times each: about 30 model calls. The report lists every case,
 | The script stops: «… is not offered as Standard in swedencentral» | The model or version is not available in the region | `MODEL=… MODEL_VERSION=…` or another `LOCATION`; list: `az cognitiveservices model list -l swedencentral -o table` |
 | The script stops: «Not enough quota» | Too little quota for the model | `MODEL_CAPACITY=10`, or request more in the Foundry portal |
 | The deployment fails with *InsufficientQuota* or a note on registration | The model needs approval or more quota | Request it, or pick another model |
+| The script stops at «Entra ID app registrations»: *Authorization_RequestDenied: Insufficient privileges* | A personal Microsoft account, or an account without the Entra role | Personal account: «With a personal Microsoft account» above. Otherwise: Application Administrator, or ask an administrator |
 | `az acr build` fails | Some subscription types (free trial, student) cannot use ACR Tasks | The script prints the `docker build` and `docker push` commands; then run it with `SKIP_BUILD=1 TAG=…` |
 | Sign-in shows *AADSTS50105* | Your account has no app role | Assign a role (step 11); the script gives it to the person who runs it |
 | Drafts fail with «Das KI-Modell ist gerade nicht erreichbar» right after the first deployment | The app's permission on the model takes a few minutes to become effective | Wait 10 minutes and try again; the logs show the status code (401/403) |

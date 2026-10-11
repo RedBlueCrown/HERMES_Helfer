@@ -24,8 +24,9 @@
 #   REASONING_EFFORT=low              GPT-5 series only: none, minimal, low, medium, high
 #
 # Needs Owner on the subscription (or the resource group) and, in Entra ID,
-# Application Administrator or Cloud Application Administrator. Run it again
-# to deploy a new version. scripts/destroy-azure.sh removes everything.
+# Application Administrator or Cloud Application Administrator, with a work
+# account: personal Microsoft accounts cannot create the app registrations.
+# Run it again to deploy a new version. scripts/destroy-azure.sh removes everything.
 set -euo pipefail
 
 ENV_NAME=${ENV_NAME:-test}
@@ -48,6 +49,19 @@ az account show >/dev/null 2>&1 || fail "Not signed in to Azure. Run: az login"
 SUBSCRIPTION=$(az account show --query name -o tsv)
 USER_ID=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)
 [ -n "$USER_ID" ] || fail "Sign in as a person (az login), so the script can give you the PMO role."
+
+# Bicep's Microsoft Graph extension, which creates the app registrations, does not
+# accept personal Microsoft accounts (outlook.com, hotmail.com …), not even as
+# administrator of the directory. Their tokens name live.com as identity provider.
+idp_of() {
+  local payload
+  payload=$(cut -d. -f2 <<<"$1" | tr '_-' '/+')
+  while [ $((${#payload} % 4)) -ne 0 ]; do payload="$payload="; done
+  base64 -d <<<"$payload" 2>/dev/null | jq -r '.idp // empty' 2>/dev/null || true
+}
+if [ "$(idp_of "$(az account get-access-token --query accessToken -o tsv)")" = "live.com" ]; then
+  fail "You are signed in with a personal Microsoft account ($(az account show --query user.name -o tsv)). It cannot create the Entra ID app registrations, even as administrator of the directory. Create a work account in this directory, give it Owner on the subscription, sign in with it (az login --tenant $(az account show --query tenantId -o tsv)) and run the script again: docs/staging.md, «With a personal Microsoft account»."
+fi
 
 echo "Subscription:   $SUBSCRIPTION"
 echo "Resource group: $RG ($LOCATION)"
