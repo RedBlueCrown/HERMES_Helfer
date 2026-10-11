@@ -4,7 +4,7 @@ Things we deliberately postponed: error cases that still need proper handling, p
 
 When an item is done, delete it here and mention it in the pull request.
 
-Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event store, the container image, telemetry and the Azure templates are built and tested in CI; the first deployment to Azure is still open ([staging.md](staging.md)). Increment 4: Change Requests with agent A10 and the risk register with agent A12 are built (architecture §5.5, §5.6). Increment 5: the first version of the portfolio view is built (§7.1).
+Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event store, the container image, telemetry and the Azure templates are built and tested in CI; the first deployment to Azure is still open ([staging.md](staging.md)). Increment 4: Change Requests with agent A10 and the risk register with agent A12 are built (architecture §5.5, §5.6), and the status report (§5.7). Increment 5: the first version of the portfolio view is built (§7.1).
 
 ---
 
@@ -44,6 +44,7 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | E31 | **A submitted change request needs a correction** | It cannot be edited; the requester withdraws it and submits a new one. | Edit until the Projektausschuss decides, versioned like drafts, with the decision naming the version (principle 5). |
 | E32 | **The PL closes the Risiko agent's proposals without accepting them** | Nothing was stored; the next review calls the model again. | Keep the last review per project for a few days, or store the proposals of a weekly background review (H20). |
 | E33 | **A risk's title or description needs a correction** | Title and description cannot be changed; the PL or the responsible role closes the risk with a reason and records a new one. | Edit them, versioned, with the change in the risk's history. |
+| E34 | **A published status report contains an error** | It cannot be changed; the project lead publishes a new one, which becomes the latest. | A correction within a day, versioned, as long as the Projektausschuss has not taken note. |
 | E29 | **A gate is passed while Auflagen due at it are still open** | Allowed: the gate criterion "Auflagen erledigt" does not block. The Auflagen are then overdue in the project and in the portfolio. | As decided in F30: block the gate, or ask the decider to confirm the open Auflagen. |
 
 ## 2. Placeholders to replace
@@ -63,6 +64,7 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | P09 | Due dates of Auflagen are three fixed options ("1 Woche", "2 Wochen", "bis zum nächsten Gate"); the app computes the due date and the overdue state from them | A date the decider picks, and reminders before it (questions F15, F30) |
 | P12 | Portfolio signals and their levels, and the 30 days without activity (`packages/core/src/engine/portfolio.ts`) are proposals | Decision F29 |
 | P13 | Change requests: 1,200 CHF per person-day, the five areas and the impact rules come from the prototype (`packages/core/src/model/change-requests.ts`, `engine/change-requests.ts`) | Decisions F31 and F32 |
+| P15 | Status report: the six criteria, the rules of the suggestion, the 30-day rhythm and the figures entered by hand (`packages/core/src/model/status-report.ts`, `engine/status-report.ts`) | Decisions F35 and F36 |
 | P14 | Risks: the scale (probability × impact, 1 to 3 each), high from 6 and medium from 3, the statuses, and at most five proposals per review (`packages/core/src/model/risks.ts`); the offline Risiko agent's typical risks (`apps/api/src/agents/mock-provider.ts`) | Decisions F33 and F34 |
 
 ## 3. Hardening and deferred technology
@@ -87,5 +89,6 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | H16 | The API keeps all events of all projects in memory (about 300 projects fit in 2 GB). Events shrink once drafts move to SharePoint (Increment 3); otherwise evict rarely used projects | Increment 3 |
 | H18 | `scripts/deploy-azure.sh` builds the image with ACR Tasks, which some subscription types (free trial, student) cannot use. The script then names the Docker commands | When the deployment runs from GitHub Actions (H03) |
 | H17 | `npm audit` reports `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) through `tedious`. Not exploitable here: tedious only passes fixed format strings. No fixed version exists yet | Watch for a tedious release |
+| H21 | The status report exists only in the app. Planned: a Word or PDF document from the template in the project's SharePoint site, and a notice to the Projektausschuss when a report is published (F15, F36) | Increment 3 |
 | H20 | The Risiko agent runs only when the PL asks for it. Planned: a weekly review and one after events (rejected gate, accepted change request) as a background agent that stores its proposals and notifies the PL (F15, F33) | With H02 |
 | H19 | The portfolio read model (one summary per project) lives in the API's memory and is rebuilt from the cached events after a restart. Keep the summaries in a SQL table, updated with each append, once H16 evicts events | With H16 |

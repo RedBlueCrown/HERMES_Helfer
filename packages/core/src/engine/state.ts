@@ -5,8 +5,19 @@
 import type { HermesModel } from "../model";
 import type { CrFlags, RecheckOutcome, RecheckRole } from "../model/change-requests";
 import type { RiskStatus } from "../model/risks";
+import type { StatusCriterion } from "../model/status-report";
 import type { Level, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
-import type { Actor, ConditionSpec, Decision, DraftContent, Finding, Producer, StoredEvent } from "./events";
+import type {
+  Actor,
+  ConditionSpec,
+  Decision,
+  DraftContent,
+  Finding,
+  Producer,
+  StatusEntry,
+  StatusFigures,
+  StoredEvent,
+} from "./events";
 
 export interface ActorRef {
   userId: string;
@@ -127,6 +138,23 @@ export interface RiskState extends RiskValues {
   history: RiskAssessmentRecord[];
 }
 
+export interface StatusReportState {
+  id: string;
+  number: number;
+  criteria: Record<StatusCriterion, StatusEntry>;
+  overview: string;
+  outlook: string;
+  figures: StatusFigures;
+  phase: PhaseId;
+  mandatory: { done: number; total: number };
+  risks: { label: string; title: string; score: number }[];
+  producer: Producer;
+  publishedAt: string;
+  publishedBy: ActorRef;
+  /** The Projektausschuss took note of the report. */
+  acknowledgements: { at: string; by: ActorRef; note: string }[];
+}
+
 export interface GateDecisionRecord {
   decision: Decision;
   reason: string;
@@ -166,6 +194,7 @@ export interface ProjectState {
   /** Reserve for changes from the project order, in CHF; undefined until the PL records it. */
   changeReserveChf?: number;
   risks: Record<string, RiskState>;
+  statusReports: Record<string, StatusReportState>;
 }
 
 export const participationKey = (phase: PhaseId, participantId: string) => `${phase}:${participantId}`;
@@ -396,6 +425,30 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
     case "ChangeReserveSet":
       s.changeReserveChf = e.data.amountChf;
       return;
+    case "StatusReportPublished":
+      s.statusReports[e.data.reportId] = {
+        id: e.data.reportId,
+        number: e.data.number,
+        criteria: e.data.criteria,
+        overview: e.data.overview,
+        outlook: e.data.outlook,
+        figures: e.data.figures,
+        phase: e.data.phase,
+        mandatory: e.data.mandatory,
+        risks: e.data.risks,
+        producer: e.data.producer,
+        publishedAt: e.at,
+        publishedBy: ref(e.actor),
+        acknowledgements: [],
+      };
+      return;
+    case "StatusReportAcknowledged":
+      s.statusReports[e.data.reportId]?.acknowledgements.push({
+        at: e.at,
+        by: ref(e.actor),
+        note: e.data.note,
+      });
+      return;
     case "RiskRecorded": {
       const values: RiskValues = {
         probability: e.data.probability,
@@ -468,6 +521,7 @@ export function foldEvents(events: readonly StoredEvent[], model: HermesModel): 
     conditions: {},
     changeRequests: {},
     risks: {},
+    statusReports: {},
   };
   for (let i = 1; i < events.length; i++) {
     const e = events[i]!;

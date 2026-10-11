@@ -1,5 +1,7 @@
 import {
   AGENTS,
+  AMPEL_LABELS,
+  AMPEL_VALUES,
   CR_FLAGS,
   CR_FLAG_LABELS,
   CR_RECHECK_ROLES,
@@ -18,6 +20,9 @@ import {
   RISK_SCORE_MEDIUM,
   RISK_STATUSES,
   SIGNAL_IDS,
+  STATUS_CRITERIA,
+  STATUS_CRITERION_IDS,
+  STATUS_REPORT_INTERVAL_DAYS,
   canCreateProject,
   canVerifyAudit,
   changeRequestRegister,
@@ -29,6 +34,7 @@ import {
   projectView,
   riskRegister,
   rolesOf,
+  statusReportRegister,
   seesAllProjects,
   type GlobalRole,
   type ProjectRole,
@@ -40,6 +46,7 @@ import type { ChangeRequestAgent } from "./agents/change-request-agent";
 import type { Orchestrator } from "./agents/orchestrator";
 import type { ProviderInfo } from "./agents/provider";
 import type { RiskAgent } from "./agents/risk-agent";
+import type { StatusReportAgent } from "./agents/status-report-agent";
 import type { RunService } from "./agents/runner";
 import type { Authenticator, DevUser } from "./auth";
 import { HttpError, notFound, parse } from "./errors";
@@ -62,6 +69,7 @@ export interface RouteDeps {
   orchestrator: Orchestrator;
   changeRequestAgent: ChangeRequestAgent;
   riskAgent: RiskAgent;
+  statusReportAgent: StatusReportAgent;
   authenticator: Authenticator;
   provider: ProviderInfo;
   devUsers: readonly DevUser[];
@@ -123,6 +131,25 @@ const CrFlagsBody = z.object({
   extern: z.boolean(),
 });
 const CrTitle = z.string().trim().min(4, "Bitte einen Titel erfassen (mindestens 4 Zeichen).").max(200);
+/** One entry per criterion; a record with enum keys requires all of them (Zod 4). */
+const StatusCriteriaBody = z.record(
+  z.enum(STATUS_CRITERION_IDS),
+  z.object({
+    ampel: z.enum(AMPEL_VALUES),
+    problem: z.string().max(2000).default(""),
+    measure: z.string().max(2000).default(""),
+  }),
+);
+const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum im Format JJJJ-MM-TT");
+const StatusFiguresBody = z
+  .object({
+    budgetChf: z.number().int().min(0).max(1_000_000_000).optional(),
+    spentChf: z.number().int().min(0).max(1_000_000_000).optional(),
+    progressPct: z.number().int().min(0).max(100).optional(),
+    plannedEnd: IsoDate.optional(),
+    forecastEnd: IsoDate.optional(),
+  })
+  .default({});
 const RiskValues = {
   probability: Level,
   impact: Level,
@@ -215,6 +242,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       statuses: RISK_STATUSES,
       scoreHigh: RISK_SCORE_HIGH,
       scoreMedium: RISK_SCORE_MEDIUM,
+    },
+    statusReport: {
+      criteria: STATUS_CRITERIA,
+      ampel: AMPEL_VALUES.map((id) => ({ id, ...AMPEL_LABELS[id] })),
+      intervalDays: STATUS_REPORT_INTERVAL_DAYS,
     },
     involvementOptions: INVOLVEMENT_OPTIONS,
     agents: AGENTS,
@@ -569,6 +601,61 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       note: body.note,
       producer: riskProducer(body.aiAssisted),
     });
+  });
+
+  // ---------- Status reports ----------
+
+  app.get("/api/projects/:code/status-reports", async (req) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const c = ctx(req);
+    return statusReportRegister(await projects.requireProject(code, c.viewer), model, c.viewer, deps.now());
+  });
+
+  // Agent A2 drafts the texts; nothing is stored until the PL publishes.
+  app.post(
+    "/api/projects/:code/status-reports/draft",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (req) => {
+      const { code } = params(req, z.object({ code: Code }));
+      const body = parse(z.object({ criteria: StatusCriteriaBody, figures: StatusFiguresBody }), req.body);
+      return deps.statusReportAgent.draft(code, ctx(req), body);
+    },
+  );
+
+  app.post("/api/projects/:code/status-reports", async (req, reply) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const body = parse(
+      z.object({
+        criteria: StatusCriteriaBody,
+        overview: z.string().max(4000),
+        outlook: z.string().max(4000).default(""),
+        figures: StatusFiguresBody,
+        aiAssisted: z.boolean().default(false),
+      }),
+      req.body,
+    );
+    const info = deps.provider;
+    const result = await projects.publishStatusReport(
+      code,
+      ctx(req),
+      {
+        criteria: body.criteria,
+        overview: body.overview,
+        outlook: body.outlook,
+        figures: body.figures,
+        producer: body.aiAssisted
+          ? { kind: "ai", agent: "A2", provider: info.provider, model: info.model }
+          : { kind: "human" },
+      },
+      deps.now(),
+    );
+    return reply.code(201).send(result);
+  });
+
+  app.post("/api/projects/:code/status-reports/:reportId/acknowledge", async (req) => {
+    const { code, reportId } = params(req, z.object({ code: Code, reportId: z.uuid() }));
+    const body = parse(z.object({ note: z.string().max(2000).default("") }), req.body);
+    return projects.acknowledgeStatusReport(code, ctx(req), reportId, body.note);
   });
 
   app.post(

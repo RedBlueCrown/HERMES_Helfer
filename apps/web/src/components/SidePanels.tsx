@@ -42,9 +42,10 @@ const useStyles = makeStyles({
 export interface Navigate {
   openDeliverable(id: string): void;
   openGate(): void;
-  showTab(tab: "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "verlauf"): void;
+  showTab(tab: "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "status" | "verlauf"): void;
   openChangeRequest(id: string): void;
   openRisk(id: string): void;
+  newStatusReport(): void;
 }
 
 export function NextStepCard({ code, view, nav }: { code: string; view: ProjectView; nav: Navigate }) {
@@ -103,6 +104,10 @@ function taskAction(t: TaskView, nav: Navigate): (() => void) | undefined {
       return t.crId ? () => nav.openChangeRequest(t.crId!) : undefined;
     case "risk":
       return t.riskId ? () => nav.openRisk(t.riskId!) : undefined;
+    case "status-report":
+      return () => nav.newStatusReport();
+    case "acknowledge-report":
+      return () => nav.showTab("status");
     case "condition":
       return undefined;
   }

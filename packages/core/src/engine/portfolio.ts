@@ -12,6 +12,8 @@ import { openChangeRequests, openRechecks } from "./change-requests";
 import { conditionDue } from "./conditions";
 import { rolesOf, type Viewer } from "./permissions";
 import { highRisks, openRisks } from "./risks";
+import { STATUS_REPORT_INTERVAL_DAYS, type Ampel } from "../model/status-report";
+import { latestStatusReport, reportOverall, statusReportDueAt } from "./status-report";
 import type { ProjectState } from "./state";
 import {
   gateStatus,
@@ -31,12 +33,14 @@ export const INACTIVE_AFTER_DAYS = 30;
 
 export const SIGNAL_IDS = [
   "veto",
+  "status-rot",
   "auflagen-ueberfaellig",
   "neupruefung",
   "gate-zurueckgewiesen",
   "rollen-fehlen",
   "risiko-hoch",
   "ohne-aktivitaet",
+  "statusbericht-faellig",
   "cr-offen",
   "gate-bereit",
 ] as const;
@@ -55,6 +59,12 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
     label: "Veto offen",
     level: "hoch",
     description: "Ein Entscheid mit Veto (z. B. ISDS, Go-live) ist offen und blockiert das Gate.",
+  },
+  "status-rot": {
+    label: "Status rot",
+    level: "hoch",
+    description:
+      "Der letzte Statusbericht meldet Rot: Neben Massnahmen ist eine Eskalation an die nächsthöhere Stufe nötig.",
   },
   "auflagen-ueberfaellig": {
     label: "Auflagen überfällig",
@@ -87,6 +97,11 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
     label: "Ohne Aktivität",
     level: "mittel",
     description: `Seit mindestens ${INACTIVE_AFTER_DAYS} Tagen kein neuer Eintrag in der Projektakte.`,
+  },
+  "statusbericht-faellig": {
+    label: "Statusbericht fällig",
+    level: "info",
+    description: `Der letzte Statusbericht ist älter als ${STATUS_REPORT_INTERVAL_DAYS} Tage, oder es gibt noch keinen.`,
   },
   "cr-offen": {
     label: "Change Request offen",
@@ -135,6 +150,10 @@ export interface ProjectSummary {
   openRisks: number;
   /** Open risks with a score from RISK_SCORE_HIGH on. */
   highRisks: number;
+  /** The latest status report: its overall colour and date. */
+  status?: { overall: Ampel; number: number; publishedAt: string };
+  /** When the next status report is due (the clock decides whether it is overdue). */
+  statusDueAt: string;
   projectLeads: string[];
   finished: boolean;
   createdAt: string;
@@ -179,6 +198,13 @@ export function projectSummary(s: ProjectState, model: HermesModel): ProjectSumm
     openRechecks: openRechecks(s).length,
     openRisks: openRisks(s).length,
     highRisks: highRisks(s).length,
+    ...(() => {
+      const last = latestStatusReport(s);
+      return last
+        ? { status: { overall: reportOverall(last), number: last.number, publishedAt: last.publishedAt } }
+        : {};
+    })(),
+    statusDueAt: statusReportDueAt(latestStatusReport(s)?.publishedAt, s.createdAt),
     projectLeads: Object.values(s.members)
       .filter((m) => m.roles.includes("PL"))
       .map((m) => m.displayName),
@@ -205,12 +231,14 @@ export function projectSignals(p: ProjectSummary, now: Date): SignalId[] {
   const on: Record<SignalId, boolean> = {
     // A pending veto on a mandatory result blocks the gate (status.ts).
     veto: !p.finished && p.gateStatus === "blocked",
+    "status-rot": !p.finished && p.status?.overall === "rot",
     "auflagen-ueberfaellig": overdueConditions(p, now) > 0,
     neupruefung: !p.finished && p.openRechecks > 0,
     "gate-zurueckgewiesen": !p.finished && p.gateRejected,
     "rollen-fehlen": !p.finished && p.missingRoles.length > 0,
     "risiko-hoch": !p.finished && p.highRisks > 0,
     "ohne-aktivitaet": !p.finished && inactiveDays(p, now) >= INACTIVE_AFTER_DAYS,
+    "statusbericht-faellig": !p.finished && now.getTime() >= Date.parse(p.statusDueAt),
     "cr-offen": !p.finished && p.openChangeRequests > 0,
     "gate-bereit": !p.finished && p.gateStatus === "ready",
   };
@@ -236,6 +264,8 @@ export interface ProjectListItem {
   overdueConditions: number;
   missingRoles: ProjectRole[];
   signals: SignalId[];
+  /** Overall colour of the latest status report. */
+  status?: Ampel;
   projectLeads: string[];
   myRoles: ProjectRole[];
   finished: boolean;
@@ -260,6 +290,7 @@ export function summaryListItem(p: ProjectSummary, myRoles: ProjectRole[], now: 
     overdueConditions: overdueConditions(p, now),
     missingRoles: p.missingRoles,
     signals: projectSignals(p, now),
+    ...(p.status ? { status: p.status.overall } : {}),
     projectLeads: p.projectLeads,
     myRoles,
     finished: p.finished,

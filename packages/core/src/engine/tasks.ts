@@ -13,6 +13,7 @@ import {
   type Viewer,
 } from "./permissions";
 import { highRisks } from "./risks";
+import { isStatusReportDue, reportAwaitingAcknowledgement } from "./status-report";
 import type { ProjectState } from "./state";
 import {
   deliverableStatus,
@@ -35,9 +36,12 @@ export type MyTask =
   | { kind: "assign-role"; role: ProjectRole }
   | { kind: "decide-cr"; crId: string }
   | { kind: "recheck"; crId: string; role: RecheckRole }
-  | { kind: "risk"; riskId: string };
+  | { kind: "risk"; riskId: string }
+  | { kind: "status-report" }
+  | { kind: "acknowledge-report"; reportId: string };
 
-export function myTasks(s: ProjectState, model: HermesModel, v: Viewer): MyTask[] {
+/** `now`: the time for tasks that fall due (the status report). */
+export function myTasks(s: ProjectState, model: HermesModel, v: Viewer, now: Date = new Date()): MyTask[] {
   const out: MyTask[] = [];
   const roles = rolesOf(s, v.userId);
   const phase = model.phase(s.phase);
@@ -69,7 +73,10 @@ export function myTasks(s: ProjectState, model: HermesModel, v: Viewer): MyTask[
 
   if (roles.includes("PA")) {
     for (const c of openChangeRequests(s)) out.push({ kind: "decide-cr", crId: c.id });
+    const report = reportAwaitingAcknowledgement(s);
+    if (report) out.push({ kind: "acknowledge-report", reportId: report.id });
   }
+  if (isPL && isStatusReportDue(s, model, now)) out.push({ kind: "status-report" });
 
   for (const c of Object.values(s.conditions)) {
     if (!c.doneAt && roles.includes(c.ownerRole)) out.push({ kind: "condition", conditionId: c.id });

@@ -14,7 +14,8 @@ Stand: 10. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-arc
 - **Betrieb der Pilotumgebung:** F25 bis F28
 - **Portfolio:** F29 und F30
 - **Change Requests:** F31 und F32
-- **Risiken:** F33 und F34 (neu)
+- **Risiken:** F33 und F34
+- **Statusbericht:** F35 und F36 (neu)
 
 ---
 
@@ -384,6 +385,8 @@ Heute gelten diese Signale:
 | Gate zurückgewiesen | Der letzte Gate-Entscheid der aktuellen Phase lautet «zurückgewiesen». | mittel |
 | Rollen unbesetzt | Eine Rolle, die in der aktuellen Phase entscheidet, hat im Vorhaben niemand. | mittel |
 | Hohe Risiken | Mindestens ein offenes Risiko mit Eintritt mal Auswirkung 6 oder mehr (siehe F33). | mittel |
+| Status rot | Der letzte Statusbericht meldet Rot (siehe F35). | hoch |
+| Statusbericht fällig | Seit 30 Tagen kein Statusbericht. | Hinweis |
 | Ohne Aktivität | Seit 30 Tagen kein neuer Eintrag in der Projektakte. | mittel |
 | Change Request offen | Ein Change Request wartet auf den Entscheid des Projektausschusses. | Hinweis |
 | Gate-Entscheid fällig | Alle Kriterien sind erfüllt, das Gate wartet auf den Entscheid. | Hinweis |
@@ -467,5 +470,35 @@ Das Risikoregister ist gebaut, wie im Prototyp: Jedes Mitglied des Vorhabens erf
 3. Die Texte des Registers gehen als Hintergrund an das KI-Modell, wenn ein Agent einen Entwurf schreibt (zum Beispiel den Abschnitt «Risiken» der Projektgrundlagen). Einverstanden?
 
 **Meine Empfehlung:** 1. alle Mitglieder; heikle Sicherheitsrisiken gehören ins ISDS-Konzept, das nur berechtigte Rollen sehen. 2. so lassen. 3. ja.
+
+**Antwort:**
+
+---
+
+## Teil I: Statusbericht
+
+Der Statusbericht ist gebaut, wie im Prototyp: sechs Kriterien mit Ampel (Termine, Kosten, Personalaufwand, Ergebnisse, Ziele, Risiken). Der HERMES Helfer schlägt die Farben aus den Daten des Vorhabens vor und nennt die Gründe; die Projektleitung entscheidet, der Agent entwirft die Texte, und der Projektausschuss nimmt den Bericht zur Kenntnis. Beschreibung in [`target-architecture.md`](target-architecture.md), Abschnitt 5.7.
+
+### F35 · Ampel und Rhythmus
+
+1. Stimmen die sechs Kriterien? Sie stammen aus dem Prototyp und folgen dem HERMES-Ergebnis «Projektstatusbericht». Habt ihr eine eigene Vorlage mit anderen Kriterien?
+2. Der Vorschlag folgt festen Regeln, zum Beispiel: Kosten Rot, wenn die angenommenen Change Requests die Reserve übersteigen; Risiken Rot bei einem Risiko mit Eintritt und Auswirkung hoch oder bei einem hohen Risiko ohne Massnahme. Die Regeln stehen im Architekturdokument, Abschnitt 5.7. Passen sie?
+3. Wer eine bessere Farbe wählt als vorgeschlagen, muss das begründen. Einverstanden?
+4. Heute ist alle **30 Tage** ein Bericht fällig. Gilt bei euch ein anderer Rhythmus, zum Beispiel monatlich auf ein Datum oder vor jeder Sitzung des Projektausschusses?
+5. Bei Rot ist «Eskalation an die nächsthöhere Stufe» nötig. Wer ist das: der Projektausschuss, das Portfolio-Gremium, die Geschäftsleitung? Soll die App diese Stelle benachrichtigen (siehe F15)?
+
+**Meine Empfehlung:** Kriterien und Regeln so für den Pilot; Begründung bei besserer Farbe; 30 Tage; bei Rot eine Meldung an das Portfolio-Gremium.
+
+**Antwort:**
+
+---
+
+### F36 · Zahlen und Ablage des Statusberichts
+
+1. Budget, Verbrauch, Fortschritt und Termine erfasst heute die Projektleitung von Hand. Kommen diese Zahlen bei euch aus einem anderen System, zum Beispiel aus der Portfolioplanung oder der Finanzbuchhaltung (siehe F11)?
+2. Soll der Bericht zusätzlich als Word- oder PDF-Dokument nach eurer Vorlage in der Projektablage liegen (siehe F9 und F19)?
+3. Heute nimmt ein Mitglied des Projektausschusses den Bericht für den ganzen Ausschuss zur Kenntnis. Reicht das?
+
+**Meine Empfehlung:** 1. von Hand für den Pilot; 2. ja, sobald die Vorlagen da sind; 3. ja.
 
 **Antwort:**

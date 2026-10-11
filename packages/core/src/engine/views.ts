@@ -11,6 +11,13 @@ import {
   type RecheckRole,
 } from "../model/change-requests";
 import { RISK_SCORE_HIGH, RISK_SCORE_MEDIUM, type RiskStatus } from "../model/risks";
+import {
+  AMPEL_LABELS,
+  STATUS_CRITERIA,
+  STATUS_REPORT_INTERVAL_DAYS,
+  type Ampel,
+  type StatusCriterion,
+} from "../model/status-report";
 import { PROJECT_ROLE_LABELS } from "../model/roles";
 import type {
   AgentId,
@@ -40,7 +47,7 @@ import {
   type ReserveStatus,
 } from "./change-requests";
 import { conditionDue, isConditionOverdue } from "./conditions";
-import type { Decision, DraftContent, Finding, Producer } from "./events";
+import type { Decision, DraftContent, Finding, Producer, StatusFigures } from "./events";
 import { isInvolved, participantsFor } from "./participation";
 import {
   canVerifyAudit,
@@ -56,7 +63,9 @@ import {
   checkMarkNotApplicable,
   checkReactivate,
   checkRecordParticipation,
+  checkAcknowledgeStatusReport,
   checkAssessRisk,
+  checkPublishStatusReport,
   checkRecordRisk,
   checkRelease,
   checkReviewRisks,
@@ -80,7 +89,17 @@ import {
   type ConditionState,
   type ProjectState,
   type RiskState,
+  type StatusReportState,
 } from "./state";
+import {
+  isStatusReportDue,
+  latestStatusReport,
+  reportOverall,
+  reportTitle,
+  statusReportDueAt,
+  statusReports,
+  suggestStatus,
+} from "./status-report";
 import {
   compareRisks,
   highRisks,
@@ -273,6 +292,7 @@ export interface TaskView {
   participantId?: string;
   crId?: string;
   riskId?: string;
+  reportId?: string;
 }
 
 export interface NextStepView {
@@ -316,6 +336,12 @@ export interface ProjectView {
   changeRequests: { total: number; open: number; openRechecks: number };
   /** For the tab of the risk register; the risks themselves: riskRegister. */
   risks: { total: number; open: number; high: number };
+  /** The latest status report and when the next one is due; the reports: statusReportRegister. */
+  statusReport: {
+    latest?: { id: string; number: number; overall: Ampel; publishedAt: string };
+    due: boolean;
+    dueAt: string;
+  };
   can: { manageMembers: boolean; verifyAudit: boolean };
 }
 
@@ -418,6 +444,61 @@ export interface RiskRegisterView {
   counts: { open: number; high: number; closed: number };
   /** Open risks (most serious first), then closed ones (last closed first). */
   items: RiskView[];
+}
+
+export interface StatusCriterionView {
+  id: StatusCriterion;
+  code: string;
+  label: string;
+  ampel: Ampel;
+  ampelLabel: string;
+  suggested: Ampel;
+  /** The project lead chose another colour than the engine suggested. */
+  deviates: boolean;
+  problem: string;
+  measure: string;
+}
+
+export interface StatusReportView {
+  id: string;
+  number: number;
+  /** "Statusbericht 3" */
+  title: string;
+  publishedAt: string;
+  publishedBy: ActorRef;
+  phase: PhaseId;
+  phaseLabel: string;
+  overall: Ampel;
+  overallLabel: string;
+  overallMeaning: string;
+  criteria: StatusCriterionView[];
+  overview: string;
+  outlook: string;
+  figures: StatusFigures;
+  mandatory: { done: number; total: number };
+  risks: { label: string; title: string; score: number }[];
+  producer: Producer;
+  acknowledgements: { at: string; by: ActorRef; note: string }[];
+  canAcknowledge: Check;
+}
+
+export interface StatusReportRegisterView {
+  intervalDays: number;
+  due: boolean;
+  dueAt: string;
+  canPublish: Check;
+  /** The engine's suggestion for a new report, per criterion with its reasons. */
+  suggestion: { id: StatusCriterion; code: string; label: string; ampel: Ampel; reasons: string[] }[];
+  /** What a new report would record with it. */
+  current: {
+    phaseLabel: string;
+    mandatory: { done: number; total: number };
+    risks: { label: string; title: string; score: number }[];
+  };
+  /** The figures of the last report, to start from. */
+  lastFigures: StatusFigures;
+  /** Newest first. */
+  items: StatusReportView[];
 }
 
 export interface ChecklistItemView {
@@ -763,6 +844,26 @@ function taskView(s: ProjectState, model: HermesModel, t: MyTask, now: Date): Ta
         role: t.role,
       };
     }
+    case "status-report": {
+      const last = latestStatusReport(s);
+      return {
+        kind: t.kind,
+        title: "Statusbericht erstellen",
+        detail: last
+          ? `Der letzte Statusbericht ist vom ${new Date(last.publishedAt).toLocaleDateString("de-CH")}; fällig alle ${STATUS_REPORT_INTERVAL_DAYS} Tage.`
+          : `Noch kein Statusbericht; fällig alle ${STATUS_REPORT_INTERVAL_DAYS} Tage.`,
+      };
+    }
+    case "acknowledge-report": {
+      const r = s.statusReports[t.reportId]!;
+      const overall = reportOverall(r);
+      return {
+        kind: t.kind,
+        title: `${reportTitle(r.number)} zur Kenntnis nehmen`,
+        detail: `Gesamtstatus ${AMPEL_LABELS[overall].label}: ${AMPEL_LABELS[overall].meaning}.`,
+        reportId: r.id,
+      };
+    }
     case "risk": {
       const r = s.risks[t.riskId]!;
       return {
@@ -922,7 +1023,7 @@ export function projectView(
       .sort((a, b) => a.displayName.localeCompare(b.displayName, "de")),
     conditions: Object.values(s.conditions).map((c) => conditionView(s, model, v, c, now)),
     nextStep: nextStepView(s, model, v),
-    myTasks: myTasks(s, model, v).map((t) => taskView(s, model, t, now)),
+    myTasks: myTasks(s, model, v, now).map((t) => taskView(s, model, t, now)),
     changeRequests: {
       total: Object.keys(s.changeRequests).length,
       open: openChangeRequests(s).length,
@@ -933,6 +1034,23 @@ export function projectView(
       open: openRisks(s).length,
       high: highRisks(s).length,
     },
+    statusReport: (() => {
+      const last = latestStatusReport(s);
+      return {
+        ...(last
+          ? {
+              latest: {
+                id: last.id,
+                number: last.number,
+                overall: reportOverall(last),
+                publishedAt: last.publishedAt,
+              },
+            }
+          : {}),
+        due: isStatusReportDue(s, model, now),
+        dueAt: statusReportDueAt(last?.publishedAt, s.createdAt),
+      };
+    })(),
     can: { manageMembers: checkManageMembers(s, v).ok, verifyAudit: canVerifyAudit(s, v) },
   };
 }
@@ -1072,6 +1190,80 @@ export function riskRegister(s: ProjectState, model: HermesModel, v: Viewer): Ri
     matrix: riskMatrix(s),
     counts: { open: all.length - closed.length, high: highRisks(s).length, closed: closed.length },
     items: [...openRisks(s), ...closed].map((r) => riskView(s, model, v, r)),
+  };
+}
+
+export function statusReportView(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  r: StatusReportState,
+): StatusReportView {
+  const overall = reportOverall(r);
+  return {
+    id: r.id,
+    number: r.number,
+    title: reportTitle(r.number),
+    publishedAt: r.publishedAt,
+    publishedBy: r.publishedBy,
+    phase: r.phase,
+    phaseLabel: model.phase(r.phase).label,
+    overall,
+    overallLabel: AMPEL_LABELS[overall].label,
+    overallMeaning: AMPEL_LABELS[overall].meaning,
+    criteria: STATUS_CRITERIA.map((c) => {
+      const e = r.criteria[c.id];
+      return {
+        id: c.id,
+        code: c.code,
+        label: c.label,
+        ampel: e.ampel,
+        ampelLabel: AMPEL_LABELS[e.ampel].label,
+        suggested: e.suggested,
+        deviates: e.ampel !== e.suggested,
+        problem: e.problem,
+        measure: e.measure,
+      };
+    }),
+    overview: r.overview,
+    outlook: r.outlook,
+    figures: r.figures,
+    mandatory: r.mandatory,
+    risks: r.risks,
+    producer: r.producer,
+    acknowledgements: r.acknowledgements,
+    canAcknowledge: checkAcknowledgeStatusReport(s, v, r.id),
+  };
+}
+
+/** Open risks as a report records them: the five most serious. */
+export function reportRisks(s: ProjectState): { label: string; title: string; score: number }[] {
+  return openRisks(s)
+    .slice(0, 5)
+    .map((r) => ({ label: riskLabel(r.number), title: r.title, score: riskScore(r.probability, r.impact) }));
+}
+
+export function statusReportRegister(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  now: Date = new Date(),
+): StatusReportRegisterView {
+  const suggestion = suggestStatus(s, model, now);
+  const last = latestStatusReport(s);
+  return {
+    intervalDays: STATUS_REPORT_INTERVAL_DAYS,
+    due: isStatusReportDue(s, model, now),
+    dueAt: statusReportDueAt(last?.publishedAt, s.createdAt),
+    canPublish: checkPublishStatusReport(s, model, v),
+    suggestion: STATUS_CRITERIA.map((c) => ({ id: c.id, code: c.code, label: c.label, ...suggestion[c.id] })),
+    current: {
+      phaseLabel: model.phase(s.phase).label,
+      mandatory: mandatoryProgress(s, model, s.phase),
+      risks: reportRisks(s),
+    },
+    lastFigures: last?.figures ?? {},
+    items: statusReports(s).map((r) => statusReportView(s, model, v, r)),
   };
 }
 

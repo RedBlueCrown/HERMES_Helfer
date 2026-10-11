@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { resolve, sep } from "node:path";
 import { ChangeRequestAgent } from "./agents/change-request-agent";
 import { RiskAgent } from "./agents/risk-agent";
+import { StatusReportAgent } from "./agents/status-report-agent";
 import { Orchestrator } from "./agents/orchestrator";
 import type { AiProvider } from "./agents/provider";
 import { RunService } from "./agents/runner";
@@ -71,6 +72,7 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
   const changeRequestAgent = new ChangeRequestAgent(projects, deps.provider, app.log);
   const now = deps.now ?? (() => new Date());
   const riskAgent = new RiskAgent(projects, deps.provider, app.log, now);
+  const statusReportAgent = new StatusReportAgent(projects, deps.provider, app.log, now);
 
   const production = config.NODE_ENV === "production";
   await app.register(helmet, {
@@ -171,6 +173,7 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     orchestrator,
     changeRequestAgent,
     riskAgent,
+    statusReportAgent,
     authenticator: deps.authenticator,
     provider: deps.provider.info,
     devUsers: deps.devUsers ?? [],

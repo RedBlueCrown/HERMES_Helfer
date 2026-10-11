@@ -20,6 +20,8 @@ import type {
   ProviderInfo,
   RiskReview,
   RiskReviewRequest,
+  StatusReportDraft,
+  StatusReportDraftRequest,
 } from "./provider";
 
 /** Content hints the mock Kritiker raises for some skills (todo-later P03). */
@@ -306,6 +308,34 @@ export function mockRiskReview(req: RiskReviewRequest): RiskReview {
   return { newRisks: newRisks.slice(0, req.max), reassessments: reassessments.slice(0, req.max) };
 }
 
+/**
+ * Status report texts without a model: the engine's reasons as problems, a
+ * placeholder measure, and the facts as overview. Shows the flow offline.
+ */
+export function mockStatusReport(req: StatusReportDraftRequest): StatusReportDraft {
+  const notGreen = req.criteria.filter((c) => c.ampel !== "gruen");
+  const label = (a: string) => (a === "rot" ? "Rot" : a === "gelb" ? "Gelb" : "Grün");
+  return {
+    overview: [
+      `Das Vorhaben «${req.project.name}» steht in der Phase ${req.project.phaseLabel}.`,
+      notGreen.length
+        ? `Abweichungen: ${notGreen.map((c) => `${c.label} ${label(c.ampel)}`).join(", ")}.`
+        : "Alle Kriterien sind auf Kurs.",
+      ...req.facts,
+      "Testmodus ohne KI-Modell: Text bitte prüfen und ergänzen.",
+    ].join(" "),
+    outlook:
+      "[OFFEN: Nächste Schritte und Entscheide bis zum nächsten Statusbericht, z. B. Freigaben und Gate-Termin.]",
+    criteria: notGreen.map((c) => ({
+      id: c.id,
+      problem: c.problem || c.reasons.join(" "),
+      measure:
+        c.measure ||
+        `[OFFEN: Massnahme mit verantwortlicher Person und Termin]${c.ampel === "rot" ? " Eskalation an den Projektausschuss." : ""}`,
+    })),
+  };
+}
+
 export class MockProvider implements AiProvider {
   readonly info: ProviderInfo = {
     provider: "mock",
@@ -337,5 +367,10 @@ export class MockProvider implements AiProvider {
   async reviewRisks(req: RiskReviewRequest) {
     await this.wait();
     return { review: mockRiskReview(req) };
+  }
+
+  async draftStatusReport(req: StatusReportDraftRequest) {
+    await this.wait();
+    return { draft: mockStatusReport(req) };
   }
 }

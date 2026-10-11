@@ -4,7 +4,14 @@
 // deployment (todo-later P07).
 
 import type { TokenCredential } from "@azure/identity";
-import { CR_FLAGS, PROJECT_ROLES, RISK_LEVELS, type DraftContent, type Finding } from "@hermes-helfer/core";
+import {
+  CR_FLAGS,
+  PROJECT_ROLES,
+  RISK_LEVELS,
+  STATUS_CRITERION_IDS,
+  type DraftContent,
+  type Finding,
+} from "@hermes-helfer/core";
 import { z } from "zod";
 import {
   AiProviderError,
@@ -18,6 +25,8 @@ import {
   type ProviderInfo,
   type RiskReview,
   type RiskReviewRequest,
+  type StatusReportDraft,
+  type StatusReportDraftRequest,
   type ToolSpec,
   type Usage,
 } from "./provider";
@@ -30,6 +39,8 @@ import {
   draftUserPrompt,
   riskReviewSystemPrompt,
   riskReviewUserPrompt,
+  statusReportSystemPrompt,
+  statusReportUserPrompt,
 } from "./prompts";
 
 export interface AzureOpenAiConfig {
@@ -131,6 +142,29 @@ const RISK_REVIEW_SCHEMA = {
   },
 } as const;
 
+const STATUS_REPORT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["overview", "outlook", "criteria"],
+  properties: {
+    overview: { type: "string" },
+    outlook: { type: "string" },
+    criteria: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "problem", "measure"],
+        properties: {
+          id: { type: "string", enum: [...STATUS_CRITERION_IDS] },
+          problem: { type: "string" },
+          measure: { type: "string" },
+        },
+      },
+    },
+  },
+} as const;
+
 const CRITIQUE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -189,6 +223,19 @@ const RiskReviewOut = z.object({
       }),
     )
     .max(20),
+});
+const StatusReportOut = z.object({
+  overview: z.string().max(4000),
+  outlook: z.string().max(4000),
+  criteria: z
+    .array(
+      z.object({
+        id: z.enum(STATUS_CRITERION_IDS),
+        problem: z.string().max(2000),
+        measure: z.string().max(2000),
+      }),
+    )
+    .max(12),
 });
 const CritiqueOut = z.object({
   findings: z
@@ -366,6 +413,20 @@ export class AzureOpenAiProvider implements AiProvider {
       RiskReviewOut,
     );
     return { review: value, ...(usage ? { usage } : {}) };
+  }
+
+  async draftStatusReport(
+    req: StatusReportDraftRequest,
+  ): Promise<{ draft: StatusReportDraft; usage?: Usage }> {
+    const { value, usage } = await this.structured(
+      this.cfg.draftDeployment,
+      statusReportSystemPrompt(req),
+      statusReportUserPrompt(req),
+      "statusbericht",
+      STATUS_REPORT_SCHEMA,
+      StatusReportOut,
+    );
+    return { draft: value, ...(usage ? { usage } : {}) };
   }
 
   async critique(req: CritiqueRequest): Promise<{ findings: Finding[]; usage?: Usage }> {

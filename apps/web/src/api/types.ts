@@ -2,6 +2,7 @@
 
 import type {
   AgentDef,
+  Ampel,
   CrFlag,
   DraftContent,
   Finding,
@@ -14,6 +15,7 @@ import type {
   ProjectRole,
   RiskStatus,
   RiskTrigger,
+  StatusCriterion,
 } from "@hermes-helfer/core";
 
 export type {
@@ -33,6 +35,8 @@ export type {
   RiskRegisterView,
   RiskView,
   SignalId,
+  StatusReportRegisterView,
+  StatusReportView,
   SkillView,
   TaskView,
 } from "@hermes-helfer/core";
@@ -61,6 +65,20 @@ export interface Reference {
     recheckOutcomes: string[];
   };
   risks: { levels: Level[]; statuses: RiskStatus[]; scoreHigh: number; scoreMedium: number };
+  statusReport: {
+    criteria: { id: StatusCriterion; code: string; label: string }[];
+    ampel: { id: Ampel; label: string; meaning: string }[];
+    intervalDays: number;
+  };
+}
+
+/** The texts the agent drafted for a status report (not stored until published). */
+export interface StatusReportProposal {
+  overview: string;
+  outlook: string;
+  criteria: Partial<Record<StatusCriterion, { problem: string; measure: string }>>;
+  findings: Finding[];
+  producer: Producer;
 }
 
 /** A new risk the Risiko agent proposes (not stored until the PL accepts it). */

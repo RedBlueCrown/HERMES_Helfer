@@ -11,6 +11,7 @@ import {
   projectView,
   riskRegister,
   rolesOf,
+  statusReportRegister,
   type DeliverableRowView,
   type HermesModel,
   type ProjectState,
@@ -191,6 +192,12 @@ export class Orchestrator {
         parameters: none,
       },
       {
+        name: "statusbericht",
+        description:
+          "Letzter Statusbericht (Ampel je Kriterium, Probleme und Massnahmen) und der Vorschlag des HERMES Helfers für den nächsten, mit Gründen.",
+        parameters: none,
+      },
+      {
         name: "entwurf_anstossen",
         description:
           "Stösst den Entwurf eines Schritts der aktuellen Phase an. Nur auf ausdrücklichen Wunsch der Person.",
@@ -300,6 +307,33 @@ export class Orchestrator {
               verantwortlich: x.ownerLabel,
               massnahme_als_daten: x.mitigation || "keine erfasst",
             })),
+        };
+      }
+      case "statusbericht": {
+        const s = await this.projects.requireProject(code, ctx.viewer);
+        const r = statusReportRegister(s, this.model, ctx.viewer);
+        const last = r.items[0];
+        return {
+          letzter_statusbericht: last
+            ? {
+                titel: last.title,
+                datum: last.publishedAt.slice(0, 10),
+                gesamtstatus: last.overallLabel,
+                kriterien: last.criteria.map((c) => ({
+                  kriterium: c.label,
+                  ampel: c.ampelLabel,
+                  problem_als_daten: c.problem,
+                  massnahme_als_daten: c.measure,
+                })),
+                zur_kenntnis_genommen: last.acknowledgements.length > 0,
+              }
+            : "noch keiner",
+          naechster_faellig: r.due ? "jetzt" : r.dueAt.slice(0, 10),
+          vorschlag_fuer_den_naechsten: r.suggestion.map((x) => ({
+            kriterium: x.label,
+            ampel: x.ampel,
+            gruende: x.reasons,
+          })),
         };
       }
       case "entwurf_anstossen": {
@@ -415,6 +449,7 @@ export class Orchestrator {
             "das Gate und die offenen Lieferergebnisse erklären",
             "Change Requests und ihre Auswirkungen zeigen",
             "die offenen Risiken zeigen",
+            "den Statusbericht und die Ampel erklären",
             "Entwürfe anstossen, z. B. «Starte Kick-off»",
           ]),
           "Entscheide triffst du selbst; ich bereite nur vor.",
@@ -449,6 +484,11 @@ export class Orchestrator {
     if (startVerb) {
       used.push("entwurf_anstossen");
       const skill = findSkillInText(this.model, s, message);
+      if (!skill && has(/statusbericht|status.?bericht/)) {
+        return reply(
+          "Den Statusbericht erstellt die Projektleitung im Register «Statusbericht»: «Neuer Statusbericht». Der HERMES Helfer schlägt die Ampel vor, der Agent entwirft die Texte.",
+        );
+      }
       if (!skill && has(/risik/)) {
         return reply(
           "Die Prüfung durch den Risiko-Agenten stösst die Projektleitung im Register «Risiken» an: «Risiken prüfen lassen». Dort übernimmt sie die passenden Vorschläge.",
@@ -498,6 +538,31 @@ export class Orchestrator {
               )}`
             : "Im Risikoregister sind keine offenen Risiken erfasst.",
           "Risiken erfasst ihr im Register «Risiken»; der Risiko-Agent schlägt dort neue Risiken vor (Projektleitung).",
+        ].join("\n"),
+      );
+    }
+
+    if (has(/statusbericht|status.?bericht|\bampel\b/)) {
+      used.push("statusbericht");
+      const r = statusReportRegister(s, this.model, ctx.viewer);
+      const last = r.items[0];
+      const label = (a: string) => (a === "rot" ? "Rot" : a === "gelb" ? "Gelb" : "Grün");
+      const suggestion = r.suggestion.filter((x) => x.ampel !== "gruen");
+      return reply(
+        [
+          last
+            ? `${last.title} vom ${new Date(last.publishedAt).toLocaleDateString("de-CH")}: Gesamtstatus ${last.overallLabel}.${
+                last.criteria.some((c) => c.ampel !== "gruen")
+                  ? `\n${bullets(last.criteria.filter((c) => c.ampel !== "gruen").map((c) => `${c.label} ${c.ampelLabel}: ${c.problem}`))}`
+                  : ""
+              }`
+            : "Für dieses Vorhaben gibt es noch keinen Statusbericht.",
+          r.due
+            ? "Der nächste Statusbericht ist fällig."
+            : `Der nächste ist fällig am ${new Date(r.dueAt).toLocaleDateString("de-CH")}.`,
+          suggestion.length
+            ? `Vorschlag für den nächsten:\n${bullets(suggestion.map((x) => `${x.label} ${label(x.ampel)}: ${x.reasons.join(" ")}`))}`
+            : "Vorschlag für den nächsten: alle Kriterien Grün.",
         ].join("\n"),
       );
     }

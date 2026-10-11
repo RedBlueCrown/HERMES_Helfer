@@ -341,6 +341,28 @@ export function checkReviewRisks(s: ProjectState, model: HermesModel, v: Viewer)
   return OK;
 }
 
+// ---------- Status reports ----------
+
+/** The project lead writes and publishes the status report. */
+export function checkPublishStatusReport(s: ProjectState, model: HermesModel, v: Viewer): Check {
+  if (!isPL(s, v)) return forbidden("Den Statusbericht erstellt die Projektleitung.");
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
+  return OK;
+}
+
+/** The Projektausschuss takes note of the latest report, once. */
+export function checkAcknowledgeStatusReport(s: ProjectState, v: Viewer, reportId: string): Check {
+  const r = s.statusReports[reportId];
+  if (!r) return invalid("Diesen Statusbericht gibt es nicht.");
+  if (!rolesOf(s, v.userId).includes("PA")) {
+    return forbidden(`Zur Kenntnis nimmt den Statusbericht die Rolle ${PROJECT_ROLE_LABELS.PA}.`);
+  }
+  const latest = Object.values(s.statusReports).every((x) => x.number <= r.number);
+  if (!latest) return invalid("Es gibt einen neueren Statusbericht.");
+  if (r.acknowledgements.length) return invalid("Der Statusbericht wurde bereits zur Kenntnis genommen.");
+  return OK;
+}
+
 export function canVerifyAudit(s: ProjectState, v: Viewer): boolean {
   return isPL(s, v) || hasGlobal(v, "HH.PMO");
 }

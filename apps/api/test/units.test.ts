@@ -328,6 +328,33 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     ]);
   });
 
+  it("drafts status report texts as structured output and never asks for the colours", async () => {
+    const out = {
+      overview: "Stand",
+      outlook: "Ausblick",
+      criteria: [{ id: "kosten", problem: "P", measure: "M" }],
+    };
+    const { fn, calls } = fakeFetch(200, {
+      choices: [{ finish_reason: "stop", message: { content: JSON.stringify(out) } }],
+    });
+    const p = new AzureOpenAiProvider(cfg, async () => "tok", fn);
+    const res = await p.draftStatusReport({
+      agent: MODEL.agent("A2"),
+      project: req.project,
+      criteria: [
+        { id: "kosten", label: "Kosten", ampel: "gelb", reasons: ["Mehrkosten"], problem: "", measure: "" },
+      ],
+      facts: ["Reserve 40'000 CHF."],
+    });
+    expect(res.draft).toEqual(out);
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body.response_format.json_schema).toMatchObject({ name: "statusbericht", strict: true });
+    const schema = body.response_format.json_schema.schema;
+    expect(schema.properties.criteria.items.properties).not.toHaveProperty("ampel");
+    expect(body.messages[0].content).toMatch(/du änderst sie nicht/);
+    expect(JSON.parse(body.messages[1].content).ampel[0]).toMatchObject({ id: "kosten", farbe: "gelb" });
+  });
+
   it("can use a dated api-version and a reasoning effort", async () => {
     const draft = { summary: "S", sections: [], openPoints: [] };
     const { fn, calls } = fakeFetch(200, {

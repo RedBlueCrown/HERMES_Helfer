@@ -3,12 +3,16 @@
 // change requests); part 2 is the model's content review (provider.critique).
 
 import {
+  AMPEL_LABELS,
   CR_SECTIONS,
+  STATUS_CRITERIA,
+  type Ampel,
   type CrFlags,
   type DeliverableDef,
   type DraftContent,
   type Finding,
   type SkillDef,
+  type StatusCriterion,
 } from "@hermes-helfer/core";
 import type { CritiqueRequest } from "./provider";
 
@@ -83,6 +87,79 @@ export function changeRequestCritique(
       "Widersprüche zu früheren Entscheiden des Vorhabens, zum Beispiel zum Variantenentscheid oder zum Pflichtenheft",
       "Sonderlösungen, wo eine Vereinfachung des Ablaufs genügen würde",
       "Nutzen ohne Beleg oder ohne betroffene Personengruppe",
+    ],
+    background,
+  };
+}
+
+/** The texts of a status report: overview, outlook, problem and measure per criterion. */
+export interface StatusReportTexts {
+  overview: string;
+  outlook: string;
+  criteria: Partial<Record<StatusCriterion, { problem: string; measure: string }>>;
+}
+
+/** A status report as a document for the Kritiker: one section per text. */
+export function statusReportDocument(texts: StatusReportTexts, colours: Record<StatusCriterion, Ampel>) {
+  const notGreen = STATUS_CRITERIA.filter((c) => colours[c.id] !== "gruen");
+  const sections = [
+    { heading: "Übersicht und Prognose", body: texts.overview },
+    { heading: "Ausblick", body: texts.outlook },
+    ...notGreen.map((c) => ({
+      heading: `${c.label} (${AMPEL_LABELS[colours[c.id]].label})`,
+      body: `Problem: ${texts.criteria[c.id]?.problem ?? ""}\nMassnahme: ${texts.criteria[c.id]?.measure ?? ""}`,
+    })),
+  ];
+  const draft: DraftContent = { summary: texts.overview, sections, openPoints: [] };
+  return { draft, headings: sections.map((x) => x.heading) };
+}
+
+/** Deterministic checks of a status report draft. */
+export function checkStatusReport(
+  texts: StatusReportTexts,
+  colours: Record<StatusCriterion, Ampel>,
+): Finding[] {
+  const findings: Finding[] = [];
+  for (const c of STATUS_CRITERIA) {
+    if (colours[c.id] === "gruen") continue;
+    const e = texts.criteria[c.id];
+    if (!e?.problem.trim() || !e.measure.trim()) {
+      findings.push({
+        severity: "warnung",
+        source: "checkliste",
+        text: `«${c.label}» ist ${AMPEL_LABELS[colours[c.id]].label}: Problem und Massnahme sind nötig.`,
+      });
+    }
+  }
+  const { draft } = statusReportDocument(texts, colours);
+  const open = draft.sections.filter((x) => OPEN_MARKER.test(x.body)).length;
+  if (open) {
+    findings.push({
+      severity: "hinweis",
+      source: "checkliste",
+      text: `${open === 1 ? "1 Text enthält" : `${open} Texte enthalten`} noch offene Angaben ([OFFEN]).`,
+    });
+  }
+  return findings;
+}
+
+/** What the Kritiker reviews in a status report. */
+export function statusReportCritique(
+  texts: StatusReportTexts,
+  colours: Record<StatusCriterion, Ampel>,
+  background: readonly { name: string; summary: string }[],
+): CritiqueRequest {
+  const { draft, headings } = statusReportDocument(texts, colours);
+  return {
+    key: "statusbericht",
+    document: "Statusbericht",
+    sections: headings,
+    results: [],
+    draft,
+    focus: [
+      "Widersprüche zwischen Ampel und Text, zum Beispiel ein rotes Kriterium, das im Text unproblematisch klingt",
+      "Massnahmen ohne verantwortliche Person oder ohne Termin",
+      "Aussagen, die die Fakten nicht stützen",
     ],
     background,
   };

@@ -41,6 +41,7 @@ const PAGE = 25;
 const COLUMNS: readonly ProjectColumn[] = [
   "phase",
   "gate",
+  "status",
   "mandatory",
   "decisions",
   "signals",
@@ -334,6 +335,10 @@ function tileDetail(sig: SignalFigures, data: Portfolio): string {
   switch (sig.id) {
     case "veto":
       return "Gate blockiert";
+    case "status-rot":
+      return "Eskalation nötig";
+    case "statusbericht-faellig":
+      return "Letzter Bericht älter als 30 Tage";
     case "auflagen-ueberfaellig":
       return `${data.overdueConditions} von ${data.openConditions} offenen Auflagen`;
     case "neupruefung":

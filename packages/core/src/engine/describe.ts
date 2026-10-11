@@ -6,11 +6,20 @@ import { PROJECT_ROLE_LABELS } from "../model/roles";
 import { crLabel, formatChf } from "./change-requests";
 import { findChecklist } from "./permissions";
 import { riskLabel } from "./risks";
+import { ampelLabel, nonGreenSummary, reportOverall, reportTitle } from "./status-report";
 import type { StoredEvent } from "./events";
 import type { ProjectState } from "./state";
 
 export type EventCategory =
-  "entscheid" | "entwurf" | "freigabe" | "beteiligung" | "rollen" | "vorhaben" | "aenderung" | "risiko";
+  | "entscheid"
+  | "entwurf"
+  | "freigabe"
+  | "beteiligung"
+  | "rollen"
+  | "vorhaben"
+  | "aenderung"
+  | "risiko"
+  | "status";
 
 export const EVENT_CATEGORIES: readonly EventCategory[] = [
   "entscheid",
@@ -21,6 +30,7 @@ export const EVENT_CATEGORIES: readonly EventCategory[] = [
   "vorhaben",
   "aenderung",
   "risiko",
+  "status",
 ];
 
 export function eventCategory(e: StoredEvent): EventCategory {
@@ -56,6 +66,9 @@ export function eventCategory(e: StoredEvent): EventCategory {
     case "RiskRecorded":
     case "RiskAssessed":
       return "risiko";
+    case "StatusReportPublished":
+    case "StatusReportAcknowledged":
+      return "status";
   }
 }
 
@@ -66,12 +79,14 @@ const decisionText = (d: string) =>
 export interface EventRefs {
   crNumbers?: ReadonlyMap<string, number>;
   riskNumbers?: ReadonlyMap<string, number>;
+  reportNumbers?: ReadonlyMap<string, number>;
 }
 
 export function eventRefs(s: ProjectState): EventRefs {
   return {
     crNumbers: new Map(Object.values(s.changeRequests).map((c) => [c.id, c.number])),
     riskNumbers: new Map(Object.values(s.risks).map((r) => [r.id, r.number])),
+    reportNumbers: new Map(Object.values(s.statusReports).map((r) => [r.id, r.number])),
   };
 }
 
@@ -142,6 +157,14 @@ export function describeEvent(e: StoredEvent, model: HermesModel, refs: EventRef
       return `Neuprüfung nach ${crName(e.data.crId)} durch ${PROJECT_ROLE_LABELS[e.data.role]}: ${e.data.outcome}${e.data.note ? ` (${e.data.note})` : ""}.`;
     case "ChangeReserveSet":
       return `Reserve für Change Requests: ${formatChf(e.data.amountChf)}.`;
+    case "StatusReportPublished": {
+      const others = nonGreenSummary(e.data.criteria);
+      return `${reportTitle(e.data.number)} veröffentlicht: Gesamtstatus ${ampelLabel(reportOverall(e.data))}${others ? ` (${others})` : ""}${byAgent(e.data.producer, "; Texte mit dem Agenten entworfen")}.`;
+    }
+    case "StatusReportAcknowledged": {
+      const n = refs.reportNumbers?.get(e.data.reportId);
+      return `${n ? reportTitle(n) : "Statusbericht"} vom Projektausschuss zur Kenntnis genommen${withReason(e.data.note)}`;
+    }
     case "RiskRecorded":
       return `${riskLabel(e.data.number)} «${e.data.title}» erfasst (Eintritt ${e.data.probability}, Auswirkung ${e.data.impact}, verantwortlich ${PROJECT_ROLE_LABELS[e.data.ownerRole]}${byAgent(e.data.producer, "; vom Risiko-Agenten vorgeschlagen")}).`;
     case "RiskAssessed": {

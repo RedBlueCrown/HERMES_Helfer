@@ -8,6 +8,9 @@ import {
   PROJECT_ROLES,
   canCreateProject,
   canViewProject,
+  AMPEL_LABELS,
+  STATUS_CRITERIA,
+  checkAcknowledgeStatusReport,
   checkAssessRisk,
   checkCompleteCondition,
   checkConfirmChecklistItem,
@@ -22,6 +25,7 @@ import {
   checkRecordParticipation,
   checkRecordRisk,
   checkRelease,
+  checkPublishStatusReport,
   checkReviewRisks,
   checkSetChangeReserve,
   checkStartSkill,
@@ -31,8 +35,12 @@ import {
   contentVersion as currentContentVersion,
   findChecklist,
   nextCrNumber,
+  mandatoryProgress,
   nextRiskNumber,
+  nextStatusReportNumber,
   openChecklistItems,
+  reportRisks,
+  suggestStatus,
   rolesOf,
   validateDecision,
   validateNotApplicableReason,
@@ -41,6 +49,7 @@ import {
   type ConditionSpec,
   type CrFlags,
   type DecisionInput,
+  type Ampel,
   type DraftContent,
   type Level,
   type PhaseId,
@@ -52,6 +61,9 @@ import {
   type RecheckOutcome,
   type RecheckRole,
   type RiskStatus,
+  type StatusCriterion,
+  type StatusEntry,
+  type StatusFigures,
   type Viewer,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
@@ -118,6 +130,17 @@ export interface RiskAssessmentInput {
   note: string;
   producer: Producer;
 }
+
+export interface StatusReportInput {
+  criteria: Record<StatusCriterion, { ampel: Ampel; problem: string; measure: string }>;
+  overview: string;
+  outlook: string;
+  figures: StatusFigures;
+  /** "ai" when the PL used the agent's texts. */
+  producer: Producer;
+}
+
+const AMPEL_RANK: Readonly<Record<Ampel, number>> = { gruen: 0, gelb: 1, rot: 2 };
 
 export interface CreateProjectInput {
   code: string;
@@ -545,6 +568,65 @@ export class ProjectService {
           },
         },
       ];
+    });
+  }
+
+  // ---------- Status reports ----------
+
+  /**
+   * The PL publishes a report. The engine's suggestion is recorded with it;
+   * yellow and red need a problem and a measure, and a colour better than the
+   * suggestion needs a reason.
+   */
+  publishStatusReport(code: string, ctx: RequestContext, input: StatusReportInput, now: Date) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkPublishStatusReport(s, this.model, ctx.viewer));
+      const suggestion = suggestStatus(s, this.model, now);
+      const criteria = {} as Record<StatusCriterion, StatusEntry>;
+      for (const c of STATUS_CRITERIA) {
+        const e = input.criteria[c.id];
+        const problem = e.problem.trim();
+        const measure = e.measure.trim();
+        const suggested = suggestion[c.id].ampel;
+        if (e.ampel !== "gruen" && (problem.length < 5 || measure.length < 5)) {
+          throw unprocessable(
+            `«${c.label}» ist ${AMPEL_LABELS[e.ampel].label}: Bitte Problem und Massnahme nennen.`,
+          );
+        }
+        if (AMPEL_RANK[e.ampel] < AMPEL_RANK[suggested] && problem.length < 5) {
+          throw unprocessable(
+            `«${c.label}»: Bitte begründen, warum die Lage besser ist als vorgeschlagen (Vorschlag ${AMPEL_LABELS[suggested].label}).`,
+          );
+        }
+        criteria[c.id] = { ampel: e.ampel, suggested, problem, measure };
+      }
+      if (input.overview.trim().length < 10) {
+        throw unprocessable("Bitte den Stand kurz zusammenfassen (Übersicht, mindestens 10 Zeichen).");
+      }
+      return [
+        {
+          type: "StatusReportPublished",
+          data: {
+            reportId: this.newId(),
+            number: nextStatusReportNumber(s),
+            criteria,
+            overview: input.overview.trim(),
+            outlook: input.outlook.trim(),
+            figures: input.figures,
+            phase: s.phase,
+            mandatory: mandatoryProgress(s, this.model, s.phase),
+            risks: reportRisks(s),
+            producer: input.producer,
+          },
+        },
+      ];
+    });
+  }
+
+  acknowledgeStatusReport(code: string, ctx: RequestContext, reportId: string, note: string) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkAcknowledgeStatusReport(s, ctx.viewer, reportId));
+      return [{ type: "StatusReportAcknowledged", data: { reportId, note: note.trim() } }];
     });
   }
 

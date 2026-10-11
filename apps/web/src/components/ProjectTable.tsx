@@ -15,7 +15,7 @@ import { PROJECT_ROLE_LABELS } from "@hermes-helfer/core";
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type { ProjectListItem } from "../api/types";
-import { GateBadge, SignalBadge, formatDay } from "./ui";
+import { AmpelBadge, GateBadge, SignalBadge, formatDay } from "./ui";
 
 const useStyles = makeStyles({
   card: {
@@ -43,11 +43,12 @@ const useStyles = makeStyles({
 });
 
 export type ProjectColumn =
-  "phase" | "gate" | "mandatory" | "decisions" | "signals" | "leads" | "myRoles" | "updated";
+  "phase" | "gate" | "status" | "mandatory" | "decisions" | "signals" | "leads" | "myRoles" | "updated";
 
 const HEADERS: Record<ProjectColumn, string> = {
   phase: "Phase",
   gate: "Gate",
+  status: "Status",
   mandatory: "Pflichtergebnisse",
   decisions: "Offene Entscheide",
   signals: "Handlungsbedarf",
@@ -83,6 +84,8 @@ export function ProjectTable({
         return p.phaseLabel;
       case "gate":
         return <GateBadge status={p.gateStatus} label={p.gateStatusLabel} />;
+      case "status":
+        return p.status ? <AmpelBadge ampel={p.status} /> : "–";
       case "mandatory":
         return `${p.mandatoryDone} / ${p.mandatoryTotal}`;
       case "decisions":

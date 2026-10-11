@@ -9,8 +9,13 @@ import {
   MODEL_VERSION,
   NO_FLAGS,
   RISK_LEVELS,
+  STATUS_CRITERIA,
+  mandatoryProgress,
   nextCrNumber,
   nextRiskNumber,
+  nextStatusReportNumber,
+  reportRisks,
+  suggestStatus,
   gateStatus,
   openParticipation,
   rolesOf,
@@ -24,6 +29,9 @@ import {
   type ProjectProfile,
   type ProjectRole,
   type RiskValues,
+  type Ampel,
+  type StatusCriterion,
+  type StatusEntry,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
 import { checkChangeRequest, checkDraftStructure, mergeFindings } from "../agents/kritiker";
@@ -359,6 +367,70 @@ class Seeder {
     );
   }
 
+  /**
+   * A status report by the PL. Colours not given follow the engine's suggestion;
+   * problems and measures come from `texts` or from the engine's reasons.
+   */
+  async statusReport(
+    projectId: string,
+    by: Person,
+    r: {
+      colours?: Partial<Record<StatusCriterion, Ampel>>;
+      texts?: Partial<Record<StatusCriterion, { problem: string; measure: string }>>;
+      overview: string;
+      outlook: string;
+    },
+  ): Promise<string> {
+    const model = this.repo.model;
+    const s = (await this.repo.get(projectId))!;
+    const suggestion = suggestStatus(s, model, new Date(this.clock));
+    const criteria = Object.fromEntries(
+      STATUS_CRITERIA.map((c) => {
+        const ampel = r.colours?.[c.id] ?? suggestion[c.id].ampel;
+        const text = r.texts?.[c.id];
+        const entry: StatusEntry = {
+          ampel,
+          suggested: suggestion[c.id].ampel,
+          problem: ampel === "gruen" ? "" : (text?.problem ?? suggestion[c.id].reasons.join(" ")),
+          measure:
+            ampel === "gruen" ? "" : (text?.measure ?? "Massnahme mit dem Projektausschuss abgestimmt."),
+        };
+        return [c.id, entry];
+      }),
+    ) as Record<StatusCriterion, StatusEntry>;
+    const reportId = randomUUID();
+    await this.append(
+      projectId,
+      [
+        {
+          type: "StatusReportPublished",
+          data: {
+            reportId,
+            number: nextStatusReportNumber(s),
+            criteria,
+            overview: r.overview,
+            outlook: r.outlook,
+            figures: {},
+            phase: s.phase,
+            mandatory: mandatoryProgress(s, model, s.phase),
+            risks: reportRisks(s),
+            producer: { kind: "human" },
+          },
+        },
+      ],
+      await this.actor(projectId, by),
+    );
+    return reportId;
+  }
+
+  async acknowledgeReport(projectId: string, reportId: string, by: Person, note = "") {
+    await this.append(
+      projectId,
+      [{ type: "StatusReportAcknowledged", data: { reportId, note } }],
+      await this.actor(projectId, by),
+    );
+  }
+
   async completeCondition(projectId: string, conditionId: string, by: Person, note = "") {
     const text = (await this.repo.get(projectId))!.conditions[conditionId]?.text ?? "";
     await this.append(
@@ -473,6 +545,21 @@ export async function seedDemo(repo: ProjectRepository, now = new Date()): Promi
   await seed.run(crm, "konzept.architekt", david);
   await seed.run(crm, "konzept.security-engineering", marco);
   await seed.run(crm, "konzept.isds", marco);
+  await seed.statusReport(crm, anna, {
+    texts: {
+      termine: {
+        problem: "Das ISDS-Konzept ist mit Veto blockiert; die Phasenfreigabe verschiebt sich.",
+        measure: "Restrisiken mit dem ISM bis Ende Monat klären; Eskalation an den Projektausschuss.",
+      },
+      ergebnisse: {
+        problem: "Das ISDS-Konzept ist noch nicht freigegeben (Veto der Informationssicherheit).",
+        measure: "Fehlende Massnahmen im ISDS-Konzept ergänzen und erneut vorlegen.",
+      },
+    },
+    overview:
+      "Die Konzeptphase ist weit fortgeschritten, das ISDS-Konzept aber mit Veto blockiert. Ohne Freigabe verschiebt sich die Realisierung.",
+    outlook: "ISDS-Konzept überarbeiten, Entscheid ISM, danach Antrag zur Phasenfreigabe.",
+  });
   await seed.risk(crm, anna, {
     title: "Datenmigration aus dem Alt-CRM unvollständig",
     description: "Kundenhistorie und Notizen liegen im Alt-CRM in uneinheitlichen Formaten vor.",
@@ -564,6 +651,24 @@ export async function seedDemo(repo: ProjectRepository, now = new Date()): Promi
     mitigation: "Rahmenvertrag nachverhandeln.",
   });
   await seed.assessRisk(erp, licence, jonas, { status: "geschlossen" }, "Rahmenvertrag nachverhandelt.");
+  const erpReport = await seed.statusReport(erp, jonas, {
+    // The engine suggests red for the high risk without a measure; the PL reports yellow, with the measure.
+    colours: { risiken: "gelb" },
+    texts: {
+      ziele: {
+        problem: "Der Export für die Revision (CR-02) ist noch nicht entschieden; der Umfang kann wachsen.",
+        measure: "CR-02 im nächsten Projektausschuss entscheiden lassen.",
+      },
+      risiken: {
+        problem: "Der Fachtest fällt in den Monatsabschluss; Fachtester sind knapp.",
+        measure: "Testfenster mit der Fachstelle reservieren (Fachvertretung).",
+      },
+    },
+    overview:
+      "Die Realisierung verläuft planmässig: Release-Kandidat 2.3 ist auf der Testumgebung, die Bereitschaftsprüfung läuft. Offen sind ein Change Request und zwei hohe Risiken.",
+    outlook: "Fachtest im nächsten Monat, Entscheid zu CR-02, danach Antrag zur Phasenfreigabe Einführung.",
+  });
+  await seed.acknowledgeReport(erp, erpReport, thomas, "Testfenster bitte bestätigen.");
 
   // 4. Einführung: go-live check waiting for criteria and the veto roles.
   const dap = await seed.project(
@@ -689,6 +794,7 @@ export async function seedSynthetic(repo: ProjectRepository, count: number, now 
   const chance = (p: number) => rnd() < p;
   // Risks draw from their own sequence, so the other synthetic data stays as it was.
   const riskRnd = prng(7);
+  const reportRnd = prng(11);
   const level = () => RISK_LEVELS[Math.floor(riskRnd() * RISK_LEVELS.length)]!;
   const model = repo.model;
   const seed = new Seeder(repo, now);
@@ -817,6 +923,17 @@ export async function seedSynthetic(repo: ProjectRepository, count: number, now 
           mitigation: riskRnd() < 0.7 ? mitigation : "",
         });
       }
+    }
+    // Most projects have a status report from their last activity, a few of them red.
+    if (reportRnd() < 0.6) {
+      const roll = reportRnd();
+      const colour: Ampel = roll < 0.1 ? "rot" : roll < 0.45 ? "gelb" : "gruen";
+      await seed.statusReport(projectId, pl, {
+        colours: colour === "gruen" ? {} : { termine: colour },
+        texts: { termine: { problem: "Verzug bei Lieferungen (synthetisch).", measure: "Plan angepasst." } },
+        overview: "Stand gemäss Projektleitung (synthetische Daten).",
+        outlook: "Weiter gemäss Plan.",
+      });
     }
     // Some projects wait for an ISDS or go-live veto.
     if (vetoPending) {

@@ -4,6 +4,7 @@
 
 import type { CrFlags, RecheckOutcome, RecheckRole } from "../model/change-requests";
 import type { RiskStatus } from "../model/risks";
+import type { Ampel, StatusCriterion } from "../model/status-report";
 import type { AgentId, Level, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
 
 export type Decision = "freigegeben" | "mit Auflagen" | "zurückgewiesen";
@@ -33,6 +34,26 @@ export interface Finding {
   text: string;
   /** "checkliste": deterministic check. "kritiker": content review by the Kritiker agent. */
   source: "checkliste" | "kritiker";
+}
+
+/** One criterion of a status report: the colour the project lead chose, and why. */
+export interface StatusEntry {
+  ampel: Ampel;
+  /** What the engine suggested when the report was written. */
+  suggested: Ampel;
+  /** Required for yellow and red. */
+  problem: string;
+  measure: string;
+}
+
+/** Target and actual figures of a status report; all optional (from portfolio planning later, F11). */
+export interface StatusFigures {
+  budgetChf?: number;
+  spentChf?: number;
+  progressPct?: number;
+  /** Dates (YYYY-MM-DD). */
+  plannedEnd?: string;
+  forecastEnd?: string;
 }
 
 /** Who produced a result: an AI agent (with model) or a person (manual skill). */
@@ -150,6 +171,27 @@ export type ProjectEvent =
         producer: Producer;
       };
     }
+  | {
+      type: "StatusReportPublished";
+      data: {
+        reportId: string;
+        /** Running number in the project: Statusbericht 1, 2 … */
+        number: number;
+        criteria: Record<StatusCriterion, StatusEntry>;
+        /** Übersicht und Prognose der Zielerreichung. */
+        overview: string;
+        /** Ausblick auf die nächste Periode. */
+        outlook: string;
+        figures: StatusFigures;
+        /** Facts at the time of the report, kept with it: phase, mandatory results, open risks. */
+        phase: PhaseId;
+        mandatory: { done: number; total: number };
+        risks: { label: string; title: string; score: number }[];
+        /** "ai": the texts were drafted with the agent, then reviewed and published by the PL. */
+        producer: Producer;
+      };
+    }
+  | { type: "StatusReportAcknowledged"; data: { reportId: string; note: string } }
   | {
       /** A new assessment: the current values, not a difference. Closing is status «geschlossen». */
       type: "RiskAssessed";

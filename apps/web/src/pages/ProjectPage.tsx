@@ -23,10 +23,11 @@ import { DeliverableDrawer } from "../components/DeliverableDrawer";
 import { ParticipationTab } from "../components/ParticipationTab";
 import { DeliverableList, GatePanel, PhaseTimeline } from "../components/PhaseOverview";
 import { NewRiskDrawer, RiskDrawer, RiskReviewDrawer, RisksTab } from "../components/Risks";
+import { NewStatusReportDrawer, StatusReportTab } from "../components/StatusReports";
 import { ConditionsCard, MyTasksCard, NextStepCard, type Navigate } from "../components/SidePanels";
-import { ErrorView } from "../components/ui";
+import { AmpelBadge, ErrorView, formatDay } from "../components/ui";
 
-type TabId = "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "verlauf";
+type TabId = "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "status" | "verlauf";
 
 const useStyles = makeStyles({
   page: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL },
@@ -77,6 +78,7 @@ export function ProjectPage() {
   const [risk, setRisk] = useState<string | null>(null);
   const [newRisk, setNewRisk] = useState(false);
   const [riskReview, setRiskReview] = useState(false);
+  const [newReport, setNewReport] = useState(false);
 
   if (project.isPending) return <Spinner label="Vorhaben wird geladen …" />;
   if (project.isError) return <ErrorView error={project.error} onRetry={() => void project.refetch()} />;
@@ -102,6 +104,10 @@ export function ProjectPage() {
       setTab("risiken");
       setRisk(id);
     },
+    newStatusReport: () => {
+      setTab("status");
+      setNewReport(true);
+    },
   };
   const crPending = v.changeRequests.open + v.changeRequests.openRechecks;
 
@@ -119,6 +125,12 @@ export function ProjectPage() {
             <Badge appearance="outline">{v.code}</Badge>
             <Caption1>Phase {v.phaseLabel}</Caption1>
             {v.finished ? <Badge color="success">Abgeschlossen</Badge> : null}
+            {v.statusReport.latest ? (
+              <AmpelBadge
+                ampel={v.statusReport.latest.overall}
+                prefix={`Statusbericht ${v.statusReport.latest.number} vom ${formatDay(v.statusReport.latest.publishedAt)}: `}
+              />
+            ) : null}
             {v.myRoles.map((r) => (
               <Badge key={r} appearance="tint" color="brand">
                 {PROJECT_ROLE_LABELS[r]}
@@ -173,6 +185,20 @@ export function ProjectPage() {
             </Badge>
           ) : null}
         </Tab>
+        <Tab value="status">
+          Statusbericht
+          {v.statusReport.due ? (
+            <Badge
+              appearance="filled"
+              color="informative"
+              size="small"
+              aria-label="fällig"
+              className={s.tabBadge}
+            >
+              fällig
+            </Badge>
+          ) : null}
+        </Tab>
         <Tab value="verlauf">Verlauf</Tab>
       </TabList>
 
@@ -215,6 +241,7 @@ export function ProjectPage() {
               onReview={() => setRiskReview(true)}
             />
           ) : null}
+          {tab === "status" ? <StatusReportTab code={code} onNew={() => setNewReport(true)} /> : null}
           {tab === "verlauf" ? <ActivityTab code={code} view={v} /> : null}
         </div>
         <aside className={s.column} aria-label="Hinweise">
@@ -235,6 +262,7 @@ export function ProjectPage() {
       <RiskDrawer code={code} riskId={risk} onClose={() => setRisk(null)} />
       <NewRiskDrawer code={code} open={newRisk} onClose={() => setNewRisk(false)} />
       <RiskReviewDrawer code={code} open={riskReview} onClose={() => setRiskReview(false)} />
+      <NewStatusReportDrawer code={code} open={newReport} onClose={() => setNewReport(false)} />
       <ChatPanel
         // A new project starts a new conversation.
         key={code}

@@ -21,6 +21,7 @@ const PAGE = 25;
 const COLUMNS: readonly ProjectColumn[] = [
   "phase",
   "gate",
+  "status",
   "mandatory",
   "decisions",
   "signals",

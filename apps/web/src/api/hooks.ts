@@ -15,6 +15,7 @@ import type {
   Reference,
   RiskRegisterView,
   Scope,
+  StatusReportRegisterView,
   VerifyResult,
 } from "./types";
 
@@ -132,6 +133,14 @@ export function useRisks(code: string) {
   });
 }
 
+export function useStatusReports(code: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["status-reports", code],
+    queryFn: () => api.get<StatusReportRegisterView>(`${projectPath(code)}/status-reports`),
+  });
+}
+
 export function useEvents(code: string, category: string, limit: number) {
   const api = useApi();
   const qs = new URLSearchParams({ limit: String(limit) });
@@ -156,6 +165,7 @@ export function useProjectCommand<TVars>(code: string, run: (api: Api, vars: TVa
         qc.invalidateQueries({ queryKey: ["events", code] }),
         qc.invalidateQueries({ queryKey: ["change-requests", code] }),
         qc.invalidateQueries({ queryKey: ["risks", code] }),
+        qc.invalidateQueries({ queryKey: ["status-reports", code] }),
         qc.invalidateQueries({ queryKey: ["projects"] }),
         qc.invalidateQueries({ queryKey: ["portfolio"] }),
       ]);

@@ -7,6 +7,7 @@ import {
   type ProjectListItem,
   type ProjectView,
   type RiskRegisterView,
+  type StatusReportRegisterView,
 } from "@hermes-helfer/core";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MockProvider } from "../src/agents/mock-provider";
 import { AiProviderError } from "../src/agents/provider";
 import type { RiskReviewResult } from "../src/agents/risk-agent";
+import type { StatusReportProposal } from "../src/agents/status-report-agent";
 import type { Authenticator } from "../src/auth";
 import { StoreUnavailableError } from "../src/store/event-store";
 import { testServer } from "./helpers";
@@ -442,7 +444,9 @@ describe("portfolio", () => {
     expect(await codes(server, "u-anna", "scope=all&signal=veto")).toEqual(["CRM"]);
     const [crm] = await list(server, "u-anna", "q=crm");
     expect(crm).toMatchObject({
-      signals: ["veto"],
+      // The ISDS veto, and the red status report about it.
+      signals: ["veto", "status-rot"],
+      status: "rot",
       gateName: "Phasenfreigabe Realisierung",
       myRoles: ["PL"],
     });
@@ -465,11 +469,15 @@ describe("portfolio", () => {
     expect((await decide("irgendwann")).statusCode).toBe(422);
     expect((await decide("1 Woche")).statusCode).toBe(200);
 
+    // CRM's last status report is red until the PL publishes a new one.
     const crm = async () => (await list(server!, "u-rita", "scope=all&q=crm"))[0]!;
-    expect(await crm()).toMatchObject({ openConditions: 1, overdueConditions: 0, signals: [] });
+    expect(await crm()).toMatchObject({ openConditions: 1, overdueConditions: 0, signals: ["status-rot"] });
 
     now = new Date(now.getTime() + 8 * DAY);
-    expect(await crm()).toMatchObject({ overdueConditions: 1, signals: ["auflagen-ueberfaellig"] });
+    expect(await crm()).toMatchObject({
+      overdueConditions: 1,
+      signals: ["status-rot", "auflagen-ueberfaellig"],
+    });
     expect(await overview(server, "u-rita")).toMatchObject({ openConditions: 1, overdueConditions: 1 });
     expect(await codes(server, "u-rita", "scope=all&signal=auflagen-ueberfaellig")).toEqual(["CRM"]);
     const [condition] = (await view(server, "u-marco", "CRM")).conditions;
@@ -479,7 +487,7 @@ describe("portfolio", () => {
     expect(
       (await server.as("u-marco").post(`/api/projects/CRM/conditions/${condition!.id}/complete`)).statusCode,
     ).toBe(200);
-    expect(await crm()).toMatchObject({ openConditions: 0, overdueConditions: 0, signals: [] });
+    expect(await crm()).toMatchObject({ openConditions: 0, overdueConditions: 0, signals: ["status-rot"] });
   });
 });
 
@@ -546,6 +554,7 @@ describe("change requests", () => {
           throw new AiProviderError("rate_limited", "Azure OpenAI 429");
         },
         reviewRisks: (r) => mock.reviewRisks(r),
+        draftStatusReport: (r) => mock.draftStatusReport(r),
       },
     });
     const res = await server.as("u-nina").post("/api/projects/ERP/change-requests/draft", wish);
@@ -793,11 +802,137 @@ describe("risks", () => {
         reviewRisks: async () => {
           throw new AiProviderError("timeout", "Azure OpenAI timeout");
         },
+        draftStatusReport: (r) => mock.draftStatusReport(r),
       },
     });
     const res = await review(server, "u-anna", "KPO");
     expect(res.statusCode).toBe(503);
     expect(res.json().error.message).toMatch(/Zeitüberschreitung.*ohne den Agenten erfassen/);
+  });
+});
+
+describe("status reports", () => {
+  const reports = async (s: Server, user: string, code = "ERP") =>
+    (await s.as(user).get(`/api/projects/${code}/status-reports`)).json() as StatusReportRegisterView;
+  /** The engine's suggestion as the PL's choice, with texts where a colour is not green. */
+  const fromSuggestion = (r: StatusReportRegisterView, text = "Beschrieben für den Test.") =>
+    Object.fromEntries(
+      r.suggestion.map((x) => [
+        x.id,
+        {
+          ampel: x.ampel,
+          problem: x.ampel === "gruen" ? "" : text,
+          measure: x.ampel === "gruen" ? "" : text,
+        },
+      ]),
+    );
+
+  it("suggests the traffic light, drafts the texts with the agent, and stores nothing until the PL publishes", async () => {
+    server = await testServer();
+    const reg = await reports(server, "u-jonas");
+    expect(reg.items.map((r) => `${r.title} ${r.overall}`)).toEqual(["Statusbericht 1 gelb"]);
+    expect(reg.items[0]!.acknowledgements[0]).toMatchObject({ by: { displayName: "Thomas Meier" } });
+    expect(reg.items[0]!.criteria.find((c) => c.id === "risiken")).toMatchObject({
+      ampel: "gelb",
+      suggested: "rot",
+      deviates: true,
+    });
+    const risiken = reg.suggestion.find((x) => x.id === "risiken")!;
+    expect(risiken.ampel).toBe("rot");
+    expect(risiken.reasons).toContain(
+      "R-02 «Engpass bei Fachtestern im Monatsabschluss»: hohes Risiko ohne Massnahme.",
+    );
+
+    const body = { criteria: fromSuggestion(reg, ""), figures: { budgetChf: 400_000, spentChf: 180_000 } };
+    expect((await server.as("u-nina").post("/api/projects/ERP/status-reports/draft", body)).statusCode).toBe(
+      403,
+    );
+    const res = await server.as("u-jonas").post("/api/projects/ERP/status-reports/draft", body);
+    expect(res.statusCode).toBe(200);
+    const draft = res.json() as StatusReportProposal;
+    expect(draft.producer).toMatchObject({ kind: "ai", agent: "A2" });
+    expect(draft.overview).toContain("Abweichungen:");
+    expect(draft.overview).toContain("Budget 400'000 CHF, verbraucht 180'000 CHF.");
+    expect(Object.keys(draft.criteria).sort()).toEqual(
+      reg.suggestion
+        .filter((x) => x.ampel !== "gruen")
+        .map((x) => x.id)
+        .sort(),
+    );
+    expect(draft.criteria.risiken?.problem).toContain("hohes Risiko ohne Massnahme");
+    // The offline agent leaves the measures open: the Kritiker's checklist says so.
+    expect(draft.findings.map((f) => f.text)).toContain("4 Texte enthalten noch offene Angaben ([OFFEN]).");
+    expect((await reports(server, "u-jonas")).items).toHaveLength(1);
+  });
+
+  it("is published by the PL with problems and measures, and taken note of by the Projektausschuss", async () => {
+    server = await testServer();
+    const reg = await reports(server, "u-jonas");
+    const publish = (user: string, criteria: object, extra: object = {}) =>
+      server!.as(user).post("/api/projects/ERP/status-reports", {
+        criteria,
+        overview: "Realisierung planmässig, Fachtest im nächsten Monat.",
+        outlook: "Entscheid zu CR-02.",
+        aiAssisted: true,
+        ...extra,
+      });
+    const base = fromSuggestion(reg);
+    const noMeasure = await publish("u-jonas", {
+      ...base,
+      kosten: { ampel: "gelb", problem: "", measure: "" },
+    });
+    expect(noMeasure.statusCode).toBe(422);
+    expect(noMeasure.json().error.message).toBe("«Kosten» ist Gelb: Bitte Problem und Massnahme nennen.");
+    const better = await publish("u-jonas", {
+      ...base,
+      risiken: { ampel: "gruen", problem: "", measure: "" },
+    });
+    expect(better.statusCode).toBe(422);
+    expect(better.json().error.message).toMatch(/besser ist als vorgeschlagen \(Vorschlag Rot\)/);
+    expect((await publish("u-nina", base)).statusCode).toBe(403);
+    expect((await publish("u-jonas", base)).statusCode).toBe(201);
+
+    const latest = (await reports(server, "u-thomas")).items[0]!;
+    expect(latest).toMatchObject({
+      title: "Statusbericht 2",
+      overall: "rot",
+      producer: { kind: "ai", agent: "A2" },
+    });
+    expect(latest.risks.map((r) => r.label)).toEqual(["R-01", "R-02", "R-03"]);
+    expect(latest.canAcknowledge.ok).toBe(true);
+    expect((await view(server, "u-thomas", "ERP")).myTasks.map((t) => t.title)).toContain(
+      "Statusbericht 2 zur Kenntnis nehmen",
+    );
+    const ack = (user: string) =>
+      server!.as(user).post(`/api/projects/ERP/status-reports/${latest.id}/acknowledge`, {
+        note: "Eskalation besprochen.",
+      });
+    expect((await ack("u-nina")).statusCode).toBe(403);
+    expect((await ack("u-thomas")).statusCode).toBe(200);
+    // Taken note of once; a second time is refused like other actions on a settled state.
+    expect((await ack("u-thomas")).statusCode).toBe(409);
+
+    const events = (
+      await server.as("u-jonas").get("/api/projects/ERP/events?category=status&limit=2")
+    ).json();
+    expect(events.items.map((e: { text: string }) => e.text)).toEqual([
+      "Statusbericht 2 vom Projektausschuss zur Kenntnis genommen: Eskalation besprochen.",
+      expect.stringMatching(
+        /^Statusbericht 2 veröffentlicht: Gesamtstatus Rot \(.*Risiken Rot.*\); Texte mit dem Agenten entworfen\.$/,
+      ),
+    ]);
+    const red = (await server.as("u-peter").get("/api/projects?scope=all&signal=status-rot")).json();
+    expect(red.items.map((p: { code: string }) => p.code).sort()).toEqual(["CRM", "ERP"]);
+  });
+
+  it("answers questions about the status report in the chat", async () => {
+    server = await testServer();
+    const ask = async (message: string) =>
+      (await server!.as("u-jonas").post("/api/projects/ERP/chat", { message })).json() as { text: string };
+    const answer = await ask("Wie ist der Statusbericht?");
+    expect(answer.text).toMatch(/^Statusbericht 1 vom .*: Gesamtstatus Gelb\./);
+    expect(answer.text).toContain("Vorschlag für den nächsten:");
+    expect((await ask("Erstelle den Statusbericht")).text).toContain("«Neuer Statusbericht»");
   });
 });
 

@@ -178,7 +178,11 @@ describe("project summary and signals", () => {
     const st = staffed("init");
     const p = projectSummary(st.state(), MODEL);
     expect(projectSignals(p, after(st, INACTIVE_AFTER_DAYS - 1))).toEqual([]);
-    expect(projectSignals(p, after(st, INACTIVE_AFTER_DAYS))).toEqual(["ohne-aktivitaet"]);
+    // After 30 days without a report the status report is due as well.
+    expect(projectSignals(p, after(st, INACTIVE_AFTER_DAYS))).toEqual([
+      "ohne-aktivitaet",
+      "statusbericht-faellig",
+    ]);
 
     const done = gateDecision(staffed("skal"), "skal", "freigegeben");
     const f = projectSummary(done.state(), MODEL);

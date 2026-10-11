@@ -3,6 +3,7 @@
 
 import type {
   AgentDef,
+  Ampel,
   CrFlag,
   DeliverableDef,
   DraftContent,
@@ -14,6 +15,7 @@ import type {
   RiskStatus,
   RiskTrigger,
   SkillDef,
+  StatusCriterion,
 } from "@hermes-helfer/core";
 
 export interface ProviderInfo {
@@ -133,6 +135,33 @@ export interface RiskReview {
   reassessments: ProposedReassessment[];
 }
 
+/** What the agent gets to draft the texts of a status report; the colours are the PL's. */
+export interface StatusReportDraftRequest {
+  agent: AgentDef;
+  project: ProjectContext;
+  criteria: {
+    id: StatusCriterion;
+    label: string;
+    ampel: Ampel;
+    /** The engine's reasons for its suggestion. */
+    reasons: string[];
+    /** What the PL wrote already; the agent completes it. */
+    problem: string;
+    measure: string;
+  }[];
+  /** Facts from the engine and the figures, as short German sentences. */
+  facts: string[];
+}
+
+export interface StatusReportDraft {
+  /** Übersicht und Prognose der Zielerreichung. */
+  overview: string;
+  /** Ausblick auf die nächste Periode. */
+  outlook: string;
+  /** Problem and measure for each criterion that is not green. */
+  criteria: { id: StatusCriterion; problem: string; measure: string }[];
+}
+
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
@@ -171,6 +200,8 @@ export interface AiProvider {
   draftChangeRequest(req: ChangeRequestDraftRequest): Promise<{ draft: ChangeRequestDraft; usage?: Usage }>;
   /** Agent A12: proposes new risks and reassessments of open ones. Never accepts them. */
   reviewRisks(req: RiskReviewRequest): Promise<{ review: RiskReview; usage?: Usage }>;
+  /** Agent A2: drafts the texts of a status report. Never chooses the colours. */
+  draftStatusReport(req: StatusReportDraftRequest): Promise<{ draft: StatusReportDraft; usage?: Usage }>;
   chat?(messages: ChatMessage[], tools: ToolSpec[]): Promise<ChatResponse>;
 }
 

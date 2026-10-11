@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { shot, signInAs } from "./helpers";
 
-// Runs last (files run in name order): it adds a project, which the other files count.
+// Runs after the files that count projects (files run in name order): it adds one.
 test("First steps in a new environment: the PMO creates a project and takes the roles to try it", async ({
   page,
 }) => {

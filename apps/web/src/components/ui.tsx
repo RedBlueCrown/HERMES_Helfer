@@ -27,8 +27,10 @@ import {
   Warning16Filled,
 } from "@fluentui/react-icons";
 import {
+  AMPEL_LABELS,
   PROJECT_ROLE_LABELS,
   SIGNALS,
+  type Ampel,
   type ConditionView,
   type DeliverableStatus,
   type GateStatus,
@@ -85,6 +87,24 @@ const SIGNAL_COLOR: Record<SignalLevel, BadgeProps["color"]> = {
   mittel: "warning",
   info: "informative",
 };
+
+const AMPEL_COLOR: Record<Ampel, BadgeProps["color"]> = { gruen: "success", gelb: "warning", rot: "danger" };
+
+/** A status report's traffic light; the tooltip says what the colour means. */
+export function AmpelBadge({ ampel, prefix = "" }: { ampel: Ampel; prefix?: string }) {
+  const a = AMPEL_LABELS[ampel];
+  return (
+    <Badge
+      appearance="filled"
+      color={AMPEL_COLOR[ampel]}
+      title={`${a.label}: ${a.meaning}`}
+      data-ampel={ampel}
+    >
+      {prefix}
+      {a.label}
+    </Badge>
+  );
+}
 
 /** Why a project needs attention; the tooltip names the details. */
 export function SignalBadge({ id, item }: { id: SignalId; item?: ProjectListItem }) {

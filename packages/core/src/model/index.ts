@@ -73,5 +73,6 @@ export { PHASES } from "./hermes-model";
 export * from "./change-requests";
 export * from "./participation";
 export * from "./risks";
+export * from "./status-report";
 export * from "./roles";
 export * from "./types";
