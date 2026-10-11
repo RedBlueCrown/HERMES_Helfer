@@ -34,9 +34,8 @@ import type {
 } from "../model/types";
 import {
   CR_STATUS_LABELS,
-  changeImpact,
   crCostChf,
-  impactContext,
+  requestImpact,
   crLabel,
   impactSummary,
   openChangeRequests,
@@ -355,6 +354,8 @@ export interface ChangeRequestView {
   submittedAt: string;
   submittedBy: ActorRef;
   effortDays: number;
+  /** The rate the request was submitted with. */
+  dayRateChf: number;
   costChf: number;
   flags: CrFlags;
   content: DraftContent;
@@ -429,6 +430,8 @@ export interface RiskView {
   recordedAt: string;
   recordedBy: ActorRef;
   reviewedAt: string;
+  /** Number of entries in the history; a new assessment names it (409 when it changed). */
+  version: number;
   /** Oldest first; the first entry is the recording. */
   history: RiskHistoryView[];
   canAssess: Check;
@@ -1062,7 +1065,7 @@ export function changeRequestView(
   c: ChangeRequestState,
   now: Date = new Date(),
 ): ChangeRequestView {
-  const impact = changeImpact(c, impactContext(s, c.id), model);
+  const impact = requestImpact(s, c, model);
   const decisionIds = new Set(c.decision?.conditionIds ?? []);
   return {
     id: c.id,
@@ -1073,7 +1076,8 @@ export function changeRequestView(
     submittedAt: c.submittedAt,
     submittedBy: c.submittedBy,
     effortDays: c.effortDays,
-    costChf: crCostChf(c.effortDays),
+    dayRateChf: c.dayRateChf,
+    costChf: crCostChf(c.effortDays, c.dayRateChf),
     flags: c.flags,
     content: c.content,
     findings: c.findings,
@@ -1099,13 +1103,13 @@ export function changeRequestView(
           recheck: {
             done: pendingRecheckRoles(c).length === 0,
             deliverables: CR_RECHECK_DELIVERABLES.map((id) => ({ id, name: model.deliverable(id).name })),
-            roles: CR_RECHECK_ROLES.map((role) => {
+            roles: (c.recheckRoles ?? CR_RECHECK_ROLES).map((role) => {
               const confirmed = c.recheck![role];
               return {
                 role,
                 label: roleLabel(role),
                 ...(confirmed ? { confirmed } : {}),
-                canConfirm: checkConfirmRecheck(s, v, c.id, role).ok,
+                canConfirm: checkConfirmRecheck(s, model, v, c.id, role).ok,
               };
             }),
           },
@@ -1114,8 +1118,8 @@ export function changeRequestView(
     conditions: Object.values(s.conditions)
       .filter((x) => decisionIds.has(x.id))
       .map((x) => conditionView(s, model, v, x, now)),
-    canDecide: checkDecideChangeRequest(s, v, c.id),
-    canWithdraw: checkWithdrawChangeRequest(s, v, c.id),
+    canDecide: checkDecideChangeRequest(s, model, v, c.id),
+    canWithdraw: checkWithdrawChangeRequest(s, model, v, c.id),
   };
 }
 
@@ -1160,6 +1164,7 @@ export function riskView(s: ProjectState, model: HermesModel, v: Viewer, r: Risk
     recordedAt: r.recordedAt,
     recordedBy: r.recordedBy,
     reviewedAt: riskReviewedAt(r),
+    version: r.history.length,
     history: r.history.map((h) => ({
       probability: h.probability,
       impact: h.impact,

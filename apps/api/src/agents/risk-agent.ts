@@ -49,6 +49,8 @@ export interface ReassessmentProposal extends ProposedReassessment {
     status: RiskStatus;
     ownerRole: ProjectRole;
     mitigation: string;
+    /** Version of the risk the proposal is based on; accepting it names this version. */
+    version: number;
   };
 }
 
@@ -150,6 +152,7 @@ export class RiskAgent {
             status: r.status,
             ownerRole: r.ownerRole,
             mitigation: r.mitigation,
+            version: r.history.length,
           },
         });
         if (reassessments.length === RISK_PROPOSALS_MAX) break;

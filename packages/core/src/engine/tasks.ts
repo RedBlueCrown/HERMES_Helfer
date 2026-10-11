@@ -71,7 +71,7 @@ export function myTasks(s: ProjectState, model: HermesModel, v: Viewer, now: Dat
     if (checkDecideGate(s, model, v, phase.id).ok) out.push({ kind: "decide-gate", phase: phase.id });
   }
 
-  if (roles.includes("PA")) {
+  if (roles.includes("PA") && !isFinished(s, model)) {
     for (const c of openChangeRequests(s)) out.push({ kind: "decide-cr", crId: c.id });
     const report = reportAwaitingAcknowledgement(s);
     if (report) out.push({ kind: "acknowledge-report", reportId: report.id });

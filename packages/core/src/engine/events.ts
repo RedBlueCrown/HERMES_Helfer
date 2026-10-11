@@ -36,6 +36,14 @@ export interface Finding {
   source: "checkliste" | "kritiker";
 }
 
+/** One row of a change request's impact as the decider saw it (engine/change-requests.ts). */
+export interface ImpactRecord {
+  id: string;
+  label: string;
+  text: string;
+  level: Level;
+}
+
 /** One criterion of a status report: the colour the project lead chose, and why. */
 export interface StatusEntry {
   ampel: Ampel;
@@ -130,6 +138,8 @@ export type ProjectEvent =
         requestedBy: string;
         /** Estimated effort in person-days. */
         effortDays: number;
+        /** Cost of a person-day when submitted; absent in streams from before it was recorded. */
+        dayRateChf?: number;
         flags: CrFlags;
         content: DraftContent;
         findings: Finding[];
@@ -146,6 +156,13 @@ export type ProjectEvent =
         reason: string;
         konsent: boolean;
         conditions: ConditionSpec[];
+        /** The basis of the decision, as the engine computed it at that moment. */
+        impact?: ImpactRecord[];
+        reserveRemainingChf?: number;
+        /** The Projektausschuss asks for a recheck although the request is not marked as touching personal data. */
+        recheckRequired?: boolean;
+        /** Who confirms the recheck; set when one is needed. */
+        recheckRoles?: RecheckRole[];
       };
     }
   | {

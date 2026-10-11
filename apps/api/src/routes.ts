@@ -518,7 +518,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   app.post("/api/projects/:code/change-requests/:crId/decision", async (req) => {
     const { code, crId } = params(req, z.object({ code: Code, crId: z.uuid() }));
-    const body = parse(DecisionBody, req.body);
+    const body = parse(DecisionBody.extend({ recheckRequired: z.boolean().default(false) }), req.body);
     return projects.decideChangeRequest(code, ctx(req), crId, body);
   });
 
@@ -589,10 +589,16 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.post("/api/projects/:code/risks/:riskId/assessment", async (req) => {
     const { code, riskId } = params(req, z.object({ code: Code, riskId: z.uuid() }));
     const body = parse(
-      z.object({ ...RiskValues, status: z.enum(RISK_STATUSES), note: z.string().max(2000).default("") }),
+      z.object({
+        ...RiskValues,
+        status: z.enum(RISK_STATUSES),
+        note: z.string().max(2000).default(""),
+        basedOn: z.number().int().min(1),
+      }),
       req.body,
     );
     return projects.assessRisk(code, ctx(req), riskId, {
+      basedOn: body.basedOn,
       probability: body.probability,
       impact: body.impact,
       status: body.status,

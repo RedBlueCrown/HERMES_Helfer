@@ -56,7 +56,7 @@ export function statusFacts(s: ProjectState, model: HermesModel, figures: Status
       : `Reserve für Änderungen ${formatChf(reserve.reserveChf)}, davon verbraucht ${formatChf(reserve.usedChf)}.`,
   ];
   if (open.length) {
-    const cost = open.reduce((n, c) => n + crCostChf(c.effortDays), 0);
+    const cost = open.reduce((n, c) => n + crCostChf(c.effortDays, c.dayRateChf), 0);
     facts.push(`${open.length} Change Request(s) offen, zusammen ${formatChf(cost)}.`);
   }
   if (figures.budgetChf !== undefined) {

@@ -233,39 +233,39 @@ describe("change request permissions and tasks", () => {
     });
     submit(st, "cr-a", {}, 6, "nina");
     const s = st.state();
-    expect(checkWithdrawChangeRequest(s, viewer("nina"), "cr-a").ok).toBe(true);
-    expect(checkWithdrawChangeRequest(s, viewer("anna"), "cr-a").ok).toBe(true);
-    expect(checkWithdrawChangeRequest(s, viewer("marco"), "cr-a").ok).toBe(false);
-    expect(checkDecideChangeRequest(s, viewer("anna"), "cr-a")).toMatchObject({
+    expect(checkWithdrawChangeRequest(s, MODEL, viewer("nina"), "cr-a").ok).toBe(true);
+    expect(checkWithdrawChangeRequest(s, MODEL, viewer("anna"), "cr-a").ok).toBe(true);
+    expect(checkWithdrawChangeRequest(s, MODEL, viewer("marco"), "cr-a").ok).toBe(false);
+    expect(checkDecideChangeRequest(s, MODEL, viewer("anna"), "cr-a")).toMatchObject({
       ok: false,
       code: "forbidden",
     });
-    expect(checkDecideChangeRequest(s, viewer("thomas"), "cr-a").ok).toBe(true);
+    expect(checkDecideChangeRequest(s, MODEL, viewer("thomas"), "cr-a").ok).toBe(true);
     expect(checkSetChangeReserve(s, MODEL, viewer("anna")).ok).toBe(true);
     expect(checkSetChangeReserve(s, MODEL, viewer("thomas")).ok).toBe(false);
 
     decide(st, "cr-a");
-    expect(checkDecideChangeRequest(st.state(), viewer("thomas"), "cr-a")).toMatchObject({
+    expect(checkDecideChangeRequest(st.state(), MODEL, viewer("thomas"), "cr-a")).toMatchObject({
       ok: false,
       code: "invalid_state",
     });
-    expect(checkWithdrawChangeRequest(st.state(), viewer("nina"), "cr-a").ok).toBe(false);
+    expect(checkWithdrawChangeRequest(st.state(), MODEL, viewer("nina"), "cr-a").ok).toBe(false);
   });
 
   it("asks ISM and Datenschutz only for their own part of the recheck", () => {
     const st = team("konzept");
     submit(st, "cr-d", { daten: true });
-    expect(checkConfirmRecheck(st.state(), viewer("marco"), "cr-d", "ISM").ok).toBe(false); // not accepted yet
+    expect(checkConfirmRecheck(st.state(), MODEL, viewer("marco"), "cr-d", "ISM").ok).toBe(false); // not accepted yet
     decide(st, "cr-d");
     const s = st.state();
-    expect(checkConfirmRecheck(s, viewer("marco"), "cr-d", "ISM").ok).toBe(true);
-    expect(checkConfirmRecheck(s, viewer("marco"), "cr-d", "DS")).toMatchObject({
+    expect(checkConfirmRecheck(s, MODEL, viewer("marco"), "cr-d", "ISM").ok).toBe(true);
+    expect(checkConfirmRecheck(s, MODEL, viewer("marco"), "cr-d", "DS")).toMatchObject({
       ok: false,
       code: "forbidden",
     });
     expect(myTasks(s, MODEL, viewer("sandra"))).toContainEqual({ kind: "recheck", crId: "cr-d", role: "DS" });
     recheck(st, "cr-d", "ISM");
-    expect(checkConfirmRecheck(st.state(), viewer("marco"), "cr-d", "ISM").ok).toBe(false);
+    expect(checkConfirmRecheck(st.state(), MODEL, viewer("marco"), "cr-d", "ISM").ok).toBe(false);
   });
 
   it("gives the Projektausschuss a task per open request", () => {
@@ -291,6 +291,102 @@ describe("change request permissions and tasks", () => {
     expect(validateDecision({ ...input, reason: "Im Rahmen der Reserve.", konsent: false }, ctx)).toMatch(
       /Konsent/,
     );
+  });
+});
+
+describe("the record keeps the basis of a decision", () => {
+  it("keeps the rate of a request and the impact, reserve and recheck roles of its decision", () => {
+    const st = team("konzept");
+    st.add({ type: "ChangeReserveSet", data: { amountChf: 20_000 } });
+    st.add(
+      {
+        type: "ChangeRequestSubmitted",
+        data: {
+          crId: "cr-r",
+          number: nextCrNumber(st.state()),
+          title: "Änderung mit altem Ansatz",
+          requestedBy: "Fachstelle",
+          effortDays: 6,
+          dayRateChf: 1_000,
+          flags: { ...NO_FLAGS, daten: true },
+          content: { summary: "Kurzbeschreibung", sections: [], openPoints: [] },
+          findings: [],
+          producer: { kind: "human" },
+        },
+      },
+      actor("nina", "FACH"),
+    );
+    const frozen = [
+      {
+        id: "budget",
+        label: "Budget",
+        text: "6'000 CHF; Reserve danach 14'000 CHF",
+        level: "mittel" as const,
+      },
+    ];
+    st.add(
+      {
+        type: "ChangeRequestDecided",
+        data: {
+          crId: "cr-r",
+          decision: "freigegeben",
+          reason: "ok",
+          konsent: true,
+          conditions: [],
+          impact: frozen,
+          reserveRemainingChf: 20_000,
+          recheckRoles: ["ISM"],
+        },
+      },
+      actor("thomas", "PA"),
+    );
+    const s = st.state();
+    // 6 person-days at the rate of the submission, whatever the current rate is.
+    expect(reserveStatus(s)).toEqual({ reserveChf: 20_000, usedChf: 6_000, remainingChf: 14_000 });
+    const view = changeRequestRegister(s, MODEL, viewer("anna")).items[0]!;
+    expect(view).toMatchObject({ dayRateChf: 1_000, costChf: 6_000, impact: frozen });
+    // Only the role named at the decision rechecks.
+    expect(view.recheck?.roles.map((r) => r.role)).toEqual(["ISM"]);
+    expect(missingRoles(s, MODEL, "konzept")).not.toContain("DS");
+  });
+
+  it("opens a recheck when the Projektausschuss requires one, also without personal data", () => {
+    const st = team("konzept");
+    submit(st, "cr-q", {});
+    st.add(
+      {
+        type: "ChangeRequestDecided",
+        data: {
+          crId: "cr-q",
+          decision: "freigegeben",
+          reason: "ok",
+          konsent: true,
+          conditions: [],
+          recheckRequired: true,
+        },
+      },
+      actor("thomas", "PA"),
+    );
+    expect(st.state().changeRequests["cr-q"]!.recheck).toEqual({});
+    expect(gateCriteria(st.state(), MODEL, "konzept").find((c) => c.id === "neupruefung")?.ok).toBe(false);
+  });
+
+  it("no longer offers decisions, withdrawals or rechecks once the project is finished", () => {
+    const st = new Stream("skal").member("anna", ...PROJECT_ROLES);
+    submit(st, "cr-f", { daten: true }, 2, "anna");
+    completeMandatory(st, "skal");
+    st.add({
+      type: "GateDecisionRecorded",
+      data: { phase: "skal", decision: "freigegeben", reason: "ok", konsent: true, conditions: [] },
+    });
+    const s = st.state();
+    expect(checkDecideChangeRequest(s, MODEL, viewer("anna"), "cr-f")).toMatchObject({
+      code: "invalid_state",
+    });
+    expect(checkWithdrawChangeRequest(s, MODEL, viewer("anna"), "cr-f")).toMatchObject({
+      code: "invalid_state",
+    });
+    expect(myTasks(s, MODEL, viewer("anna")).some((t) => t.kind === "decide-cr")).toBe(false);
   });
 });
 

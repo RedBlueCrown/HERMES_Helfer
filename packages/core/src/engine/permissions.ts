@@ -272,9 +272,15 @@ export function checkSubmitChangeRequest(s: ProjectState, model: HermesModel, v:
 }
 
 /** The requester or the PL withdraws an open request. */
-export function checkWithdrawChangeRequest(s: ProjectState, v: Viewer, crId: string): Check {
+export function checkWithdrawChangeRequest(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  crId: string,
+): Check {
   const cr = s.changeRequests[crId];
   if (!cr) return invalid("Diesen Change Request gibt es nicht.");
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
   if (cr.submittedBy.userId !== v.userId && !isPL(s, v)) {
     return forbidden("Zurückziehen können die erfassende Person und die Projektleitung.");
   }
@@ -283,9 +289,15 @@ export function checkWithdrawChangeRequest(s: ProjectState, v: Viewer, crId: str
 }
 
 /** The Projektausschuss decides change requests, with Konsent. */
-export function checkDecideChangeRequest(s: ProjectState, v: Viewer, crId: string): Check {
+export function checkDecideChangeRequest(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  crId: string,
+): Check {
   const cr = s.changeRequests[crId];
   if (!cr) return invalid("Diesen Change Request gibt es nicht.");
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
   if (!rolesOf(s, v.userId).includes("PA")) {
     return forbidden(`Change Requests entscheidet die Rolle ${PROJECT_ROLE_LABELS.PA}.`);
   }
@@ -294,10 +306,19 @@ export function checkDecideChangeRequest(s: ProjectState, v: Viewer, crId: strin
 }
 
 /** ISM and Datenschutz each confirm the recheck after an accepted request touching personal data. */
-export function checkConfirmRecheck(s: ProjectState, v: Viewer, crId: string, role: RecheckRole): Check {
+export function checkConfirmRecheck(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  crId: string,
+  role: RecheckRole,
+): Check {
   const cr = s.changeRequests[crId];
   if (!cr) return invalid("Diesen Change Request gibt es nicht.");
-  if (!CR_RECHECK_ROLES.includes(role)) return invalid("Die Neuprüfung bestätigen ISM und Datenschutz.");
+  if (!(cr.recheckRoles ?? CR_RECHECK_ROLES).includes(role)) {
+    return invalid("Die Neuprüfung bestätigen ISM und Datenschutz.");
+  }
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
   if (!rolesOf(s, v.userId).includes(role)) {
     return forbidden(`Diesen Teil der Neuprüfung bestätigt die Rolle ${PROJECT_ROLE_LABELS[role]}.`);
   }

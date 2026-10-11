@@ -108,6 +108,7 @@ export interface ReassessmentProposal {
     status: RiskStatus;
     ownerRole: ProjectRole;
     mitigation: string;
+    version: number;
   };
 }
 

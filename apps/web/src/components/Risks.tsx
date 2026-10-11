@@ -610,6 +610,7 @@ function RiskReviewPanel({ code, onClose }: { code: string; onClose(): void }) {
         ownerRole: p.current.ownerRole,
         mitigation: c.mitigation,
         note: `Vorschlag des Risiko-Agenten: ${p.reason}`.slice(0, 2000),
+        basedOn: p.current.version,
         aiAssisted: true,
       });
       setRe((list) => list.map((x, j) => (j === i ? { ...x, done: true } : x)));
@@ -935,6 +936,7 @@ function AssessmentForm({ code, risk, scoreHigh }: { code: string; risk: RiskVie
       ownerRole,
       mitigation,
       note,
+      basedOn: risk.version,
     }),
   );
   const closing = status === "geschlossen" && risk.status !== "geschlossen";

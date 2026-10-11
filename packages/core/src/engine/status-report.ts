@@ -89,7 +89,7 @@ export function suggestStatus(
   // Kosten
   const kosten: [Ampel, string][] = [];
   const reserve = reserveStatus(s);
-  const openCost = openChangeRequests(s).reduce((n, c) => n + crCostChf(c.effortDays), 0);
+  const openCost = openChangeRequests(s).reduce((n, c) => n + crCostChf(c.effortDays, c.dayRateChf), 0);
   if (reserve.remainingChf !== undefined && reserve.remainingChf < 0) {
     kosten.push([
       "rot",

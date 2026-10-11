@@ -663,12 +663,14 @@ function DecisionSection({ code, cr }: { code: string; cr: ChangeRequestView }) 
   const api = useApi();
   const notify = useNotify();
   const [error, setError] = useState<string>();
+  const [recheckRequired, setRecheckRequired] = useState(false);
   const decide = useProjectCommand(code, (_, v: DecisionValues) =>
     api.post(`${projectPath(code)}/change-requests/${cr.id}/decision`, {
       decision: v.decision,
       reason: v.reason,
       konsent: v.konsent,
       conditions: v.conditions,
+      recheckRequired,
     }),
   );
   const decideCheck = cr.canDecide;
@@ -682,20 +684,29 @@ function DecisionSection({ code, cr }: { code: string; cr: ChangeRequestView }) 
           {cr.decision.konsent ? " (Konsent festgestellt)" : ""}: {cr.decision.reason}
         </Body1>
       ) : decideCheck.ok ? (
-        <DecisionForm
-          gateKonsent
-          reasonRequired
-          rejectLabel="Ablehnen"
-          submitting={decide.isPending}
-          {...(error ? { error } : {})}
-          onEdit={() => setError(undefined)}
-          onSubmit={(v) =>
-            decide.mutate(v, {
-              onSuccess: () => notify("success", "Entscheid erfasst", cr.label),
-              onError: (err) => setError(errorText(err)),
-            })
-          }
-        />
+        <>
+          {!cr.flags.daten ? (
+            <Checkbox
+              checked={recheckRequired}
+              onChange={(_, d) => setRecheckRequired(!!d.checked)}
+              label="Neuprüfung durch ISM und Datenschutz verlangen (falls die Änderung doch Personendaten betrifft)"
+            />
+          ) : null}
+          <DecisionForm
+            gateKonsent
+            reasonRequired
+            rejectLabel="Ablehnen"
+            submitting={decide.isPending}
+            {...(error ? { error } : {})}
+            onEdit={() => setError(undefined)}
+            onSubmit={(v) =>
+              decide.mutate(v, {
+                onSuccess: () => notify("success", "Entscheid erfasst", cr.label),
+                onError: (err) => setError(errorText(err)),
+              })
+            }
+          />
+        </>
       ) : cr.status === "offen" ? (
         <Caption1 className={s.muted}>Wartet auf den Projektausschuss. {decideCheck.reason}</Caption1>
       ) : null}

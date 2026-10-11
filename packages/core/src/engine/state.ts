@@ -3,7 +3,13 @@
 // point of view (it builds a fresh object and never touches the events).
 
 import type { HermesModel } from "../model";
-import type { CrFlags, RecheckOutcome, RecheckRole } from "../model/change-requests";
+import {
+  CR_DAY_RATE_CHF,
+  CR_RECHECK_ROLES,
+  type CrFlags,
+  type RecheckOutcome,
+  type RecheckRole,
+} from "../model/change-requests";
 import type { RiskStatus } from "../model/risks";
 import type { StatusCriterion } from "../model/status-report";
 import type { Level, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
@@ -13,6 +19,7 @@ import type {
   Decision,
   DraftContent,
   Finding,
+  ImpactRecord,
   Producer,
   StatusEntry,
   StatusFigures,
@@ -82,6 +89,8 @@ export interface ChangeRequestState {
   title: string;
   requestedBy: string;
   effortDays: number;
+  /** Cost of a person-day when the request was submitted. */
+  dayRateChf: number;
   flags: CrFlags;
   content: DraftContent;
   findings: Finding[];
@@ -98,6 +107,9 @@ export interface ChangeRequestState {
     at: string;
     by: ActorRef;
     conditionIds: string[];
+    /** The impact and the reserve the Projektausschuss decided on. */
+    impact?: ImpactRecord[];
+    reserveRemainingChf?: number;
   };
   withdrawn?: { reason: string; at: string; by: ActorRef };
   /**
@@ -105,6 +117,8 @@ export interface ChangeRequestState {
    * again; each recheck role confirms. Absent when no recheck is needed.
    */
   recheck?: Partial<Record<RecheckRole, { outcome: RecheckOutcome; note: string; at: string; by: ActorRef }>>;
+  /** The roles that confirm the recheck, fixed when it was opened. */
+  recheckRoles?: RecheckRole[];
 }
 
 /** The values of a risk at one point in time. */
@@ -383,6 +397,7 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
         title: e.data.title,
         requestedBy: e.data.requestedBy,
         effortDays: e.data.effortDays,
+        dayRateChf: e.data.dayRateChf ?? CR_DAY_RATE_CHF,
         flags: { ...e.data.flags },
         content: e.data.content,
         findings: e.data.findings,
@@ -412,8 +427,15 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
         at: e.at,
         by: ref(e.actor),
         conditionIds: addConditions(s, e.data.conditions, s.phase, `cr:${cr.id}`, e),
+        ...(e.data.impact ? { impact: e.data.impact } : {}),
+        ...(e.data.reserveRemainingChf !== undefined
+          ? { reserveRemainingChf: e.data.reserveRemainingChf }
+          : {}),
       };
-      if (accepted && cr.flags.daten) cr.recheck = {};
+      if (accepted && (cr.flags.daten || e.data.recheckRequired)) {
+        cr.recheck = {};
+        cr.recheckRoles = e.data.recheckRoles ?? [...CR_RECHECK_ROLES];
+      }
       return;
     }
     case "ChangeRecheckConfirmed": {

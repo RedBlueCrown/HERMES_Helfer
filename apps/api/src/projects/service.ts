@@ -9,7 +9,10 @@ import {
   canCreateProject,
   canViewProject,
   AMPEL_LABELS,
+  CR_DAY_RATE_CHF,
+  CR_RECHECK_ROLES,
   STATUS_CRITERIA,
+  changeImpact,
   checkAcknowledgeStatusReport,
   checkAssessRisk,
   checkCompleteCondition,
@@ -35,11 +38,13 @@ import {
   contentVersion as currentContentVersion,
   findChecklist,
   nextCrNumber,
+  impactContext,
   mandatoryProgress,
   nextRiskNumber,
   nextStatusReportNumber,
   openChecklistItems,
   reportRisks,
+  reserveStatus,
   suggestStatus,
   rolesOf,
   validateDecision,
@@ -122,6 +127,8 @@ export interface RiskInput {
 }
 
 export interface RiskAssessmentInput {
+  /** The version (number of entries in the history) the person assessed. */
+  basedOn: number;
   probability: Level;
   impact: Level;
   status: RiskStatus;
@@ -433,6 +440,7 @@ export class ProjectService {
             title: input.title.trim(),
             requestedBy: input.requestedBy.trim(),
             effortDays: input.effortDays,
+            dayRateChf: CR_DAY_RATE_CHF,
             flags: input.flags,
             content: input.content,
             // Checked again here: the requester may have changed the agent's text.
@@ -446,17 +454,26 @@ export class ProjectService {
 
   withdrawChangeRequest(code: string, ctx: RequestContext, crId: string, reason: string) {
     return this.command(code, ctx, (s) => {
-      assertCheck(checkWithdrawChangeRequest(s, ctx.viewer, crId));
+      assertCheck(checkWithdrawChangeRequest(s, this.model, ctx.viewer, crId));
       if (reason.trim().length < 5)
         throw unprocessable("Bitte begründen, warum der Change Request zurückgezogen wird.");
       return [{ type: "ChangeRequestWithdrawn", data: { crId, reason: reason.trim() } }];
     });
   }
 
-  /** The Projektausschuss decides with Konsent and always gives a reason. */
-  decideChangeRequest(code: string, ctx: RequestContext, crId: string, input: DecisionInput) {
+  /**
+   * The Projektausschuss decides with Konsent and always gives a reason. The
+   * event keeps what the decision was based on: the impact, the reserve and
+   * who rechecks (architecture §3, principle 5).
+   */
+  decideChangeRequest(
+    code: string,
+    ctx: RequestContext,
+    crId: string,
+    input: DecisionInput & { recheckRequired?: boolean },
+  ) {
     return this.command(code, ctx, (s) => {
-      assertCheck(checkDecideChangeRequest(s, ctx.viewer, crId));
+      assertCheck(checkDecideChangeRequest(s, this.model, ctx.viewer, crId));
       const error = validateDecision(input, {
         veto: false,
         konsentRequired: true,
@@ -464,6 +481,9 @@ export class ProjectService {
         reasonRequired: true,
       });
       if (error) throw unprocessable(error);
+      const cr = s.changeRequests[crId]!;
+      const accepted = input.decision !== "zurückgewiesen";
+      const recheck = accepted && (cr.flags.daten || !!input.recheckRequired);
       return [
         {
           type: "ChangeRequestDecided",
@@ -471,8 +491,15 @@ export class ProjectService {
             crId,
             decision: input.decision,
             reason: input.reason.trim(),
-            konsent: input.decision !== "zurückgewiesen" && input.konsent,
+            konsent: accepted && input.konsent,
             conditions: this.conditions(input),
+            impact: changeImpact(cr, impactContext(s, crId), this.model),
+            ...(() => {
+              const remaining = reserveStatus(s, crId).remainingChf;
+              return remaining === undefined ? {} : { reserveRemainingChf: remaining };
+            })(),
+            ...(accepted && input.recheckRequired && !cr.flags.daten ? { recheckRequired: true } : {}),
+            ...(recheck ? { recheckRoles: [...CR_RECHECK_ROLES] } : {}),
           },
         },
       ];
@@ -488,7 +515,7 @@ export class ProjectService {
     note: string,
   ) {
     return this.command(code, ctx, (s) => {
-      assertCheck(checkConfirmRecheck(s, ctx.viewer, crId, role));
+      assertCheck(checkConfirmRecheck(s, this.model, ctx.viewer, crId, role));
       if (outcome === "Massnahme ergänzt" && note.trim().length < 5) {
         throw unprocessable("Bitte die ergänzte Massnahme nennen.");
       }
@@ -535,6 +562,21 @@ export class ProjectService {
       assertCheck(checkAssessRisk(s, this.model, ctx.viewer, riskId));
       if (input.producer.kind === "ai") assertCheck(checkReviewRisks(s, this.model, ctx.viewer));
       const r = s.risks[riskId]!;
+      // Optimistic concurrency: an assessment always names the version it was based on.
+      if (r.history.length !== input.basedOn) {
+        throw new HttpError(
+          409,
+          "stale",
+          "Das Risiko wurde inzwischen geändert. Bitte die aktuelle Fassung prüfen und neu beurteilen.",
+        );
+      }
+      if (r.status === "geschlossen" && input.status === "geschlossen") {
+        throw new HttpError(
+          409,
+          "invalid_state",
+          "Das Risiko ist geschlossen. Zum Ändern zuerst wieder öffnen.",
+        );
+      }
       const note = input.note.trim();
       const mitigation = input.mitigation.trim();
       if (input.status === "geschlossen" && r.status !== "geschlossen" && note.length < 5) {

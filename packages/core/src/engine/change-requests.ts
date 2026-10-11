@@ -17,7 +17,9 @@ export const CR_STATUS_LABELS: Readonly<Record<ChangeRequestStatus, string>> = {
 
 export const crLabel = (number: number) => `CR-${String(number).padStart(2, "0")}`;
 
-export const crCostChf = (effortDays: number) => Math.round(effortDays * CR_DAY_RATE_CHF);
+/** Cost of a request at the rate it was submitted with (new requests: the current rate). */
+export const crCostChf = (effortDays: number, dayRateChf: number = CR_DAY_RATE_CHF) =>
+  Math.round(effortDays * dayRateChf);
 
 /** Swiss format, e.g. 10'800 CHF. */
 export const formatChf = (amount: number) =>
@@ -36,7 +38,7 @@ export interface ReserveStatus {
 export function reserveStatus(s: ProjectState, exceptCrId?: string): ReserveStatus {
   const usedChf = Object.values(s.changeRequests)
     .filter((c) => c.status === "angenommen" && c.id !== exceptCrId)
-    .reduce((n, c) => n + crCostChf(c.effortDays), 0);
+    .reduce((n, c) => n + crCostChf(c.effortDays, c.dayRateChf), 0);
   return s.changeReserveChf === undefined
     ? { usedChf }
     : { reserveChf: s.changeReserveChf, usedChf, remainingChf: s.changeReserveChf - usedChf };
@@ -66,6 +68,8 @@ export interface ImpactRow {
 export interface ImpactInput {
   effortDays: number;
   flags: CrFlags;
+  /** The request's rate; new requests use the current one. */
+  dayRateChf?: number;
 }
 
 /** What the estimate needs from the project; small, so the web app can preview a new request. */
@@ -86,7 +90,7 @@ export function impactContext(s: ProjectState, exceptCrId?: string): ImpactConte
 export function changeImpact(input: ImpactInput, ctx: ImpactContext, model: HermesModel): ImpactRow[] {
   const { flags, effortDays } = input;
   const { reserve } = ctx;
-  const cost = crCostChf(effortDays);
+  const cost = crCostChf(effortDays, input.dayRateChf);
   const overReserve = reserve.remainingChf === undefined || cost > reserve.remainingChf;
   const days = Math.ceil(effortDays / 3);
   const late = model.phaseIndex(ctx.phase) >= model.phaseIndex("real");
@@ -167,7 +171,12 @@ export function impactSummary(rows: readonly ImpactRow[]): string {
 /** Recheck roles that have not confirmed yet; empty when no recheck is needed or all confirmed. */
 export function pendingRecheckRoles(cr: ChangeRequestState): RecheckRole[] {
   if (!cr.recheck) return [];
-  return CR_RECHECK_ROLES.filter((r) => !cr.recheck![r]);
+  return (cr.recheckRoles ?? CR_RECHECK_ROLES).filter((r) => !cr.recheck![r]);
+}
+
+/** The impact rows of a request: frozen at the decision, computed live while it is open. */
+export function requestImpact(s: ProjectState, cr: ChangeRequestState, model: HermesModel): ImpactRow[] {
+  return (cr.decision?.impact as ImpactRow[] | undefined) ?? changeImpact(cr, impactContext(s, cr.id), model);
 }
 
 /** Accepted requests whose recheck is not complete; they keep the current gate closed. */

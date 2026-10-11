@@ -644,6 +644,37 @@ describe("change requests", () => {
     expect(invalid.json().error.message).toMatch(/Aufwand/);
   });
 
+  it("keeps the impact the Projektausschuss decided on, and opens a recheck it requires", async () => {
+    server = await testServer();
+    await submit(server, "u-nina");
+    await submit(server, "u-nina", {
+      title: "Zusätzliche Spalte im Bericht",
+      flags: { ...NO_FLAGS, oberflaeche: true },
+    });
+    const [plain, data] = (await register(server, "u-thomas")).items;
+    const decide = (id: string, extra: object = {}) =>
+      server!.as("u-thomas").post(`/api/projects/ERP/change-requests/${id}/decision`, {
+        decision: "freigegeben",
+        reason: "Im Rahmen der Reserve.",
+        konsent: true,
+        ...extra,
+      });
+    expect((await decide(data!.id)).statusCode).toBe(200);
+    expect((await decide(plain!.id, { recheckRequired: true })).statusCode).toBe(200);
+    const budget = (id: string, r: ChangeRequestRegisterView) =>
+      r.items.find((c) => c.id === id)!.impact.find((x) => x.id === "budget")!.text;
+    const before = budget(data!.id, await register(server, "u-jonas"));
+    // A smaller reserve later does not change what the decision was based on.
+    expect(
+      (await server.as("u-jonas").put("/api/projects/ERP/change-reserve", { amountChf: 1_000 })).statusCode,
+    ).toBe(200);
+    const after = await register(server, "u-jonas");
+    expect(budget(data!.id, after)).toBe(before);
+    expect(after.items.find((c) => c.id === data!.id)).toMatchObject({ dayRateChf: 1_200, costChf: 10_800 });
+    // Without personal data, but the Projektausschuss asked for a recheck.
+    expect(after.items.find((c) => c.id === plain!.id)?.recheck).toMatchObject({ done: false });
+  });
+
   it("answers questions about change requests in the chat", async () => {
     server = await testServer();
     const reply = (
@@ -706,8 +737,29 @@ describe("risks", () => {
       risk: "R-01",
       riskId: r1!.id,
       probability: "hoch",
-      current: { probability: "mittel", impact: "hoch" },
+      current: { probability: "mittel", impact: "hoch", version: 1 },
     });
+
+    // Closed in the meantime: accepting the proposal must not reopen it.
+    const assess = (body: object) =>
+      server!.as("u-anna").post(`/api/projects/KPO/risks/${r1!.id}/assessment`, {
+        probability: "mittel",
+        impact: "hoch",
+        ownerRole: "PL",
+        mitigation: "Liefertermine vertraglich festhalten.",
+        ...body,
+      });
+    expect(
+      (await assess({ status: "geschlossen", note: "Vertrag unterzeichnet.", basedOn: 1 })).statusCode,
+    ).toBe(200);
+    const accept = await assess({
+      probability: "hoch",
+      status: "offen",
+      note: "Vorschlag des Risiko-Agenten",
+      basedOn: 1,
+    });
+    expect(accept.statusCode).toBe(409);
+    expect((await risks(server, "u-anna", "KPO")).items[0]).toMatchObject({ status: "geschlossen" });
   });
 
   it("lets the PL or the responsible role assess and close a risk, always with a reason to close", async () => {
@@ -726,13 +778,15 @@ describe("risks", () => {
       "Hohes Risiko R-02: Engpass bei Fachtestern im Monatsabschluss",
     );
 
-    const assess = (user: string, body: object) =>
+    // Every assessment names the version it was based on (the number of entries in the history).
+    const assess = (user: string, body: object, basedOn = 1) =>
       server!.as(user).post(`/api/projects/ERP/risks/${testers.id}/assessment`, {
         probability: "hoch",
         impact: "mittel",
         ownerRole: "FACH",
         status: "offen",
         mitigation: "",
+        basedOn,
         ...body,
       });
     expect((await assess("u-tim", { status: "in Bearbeitung", mitigation: "Testfenster" })).statusCode).toBe(
@@ -753,11 +807,24 @@ describe("risks", () => {
       ).statusCode,
     ).toBe(200);
     expect((await view(server, "u-nina", "ERP")).myTasks.some((t) => t.kind === "risk")).toBe(false);
-    expect((await assess("u-jonas", { status: "geschlossen", mitigation: measure })).statusCode).toBe(422);
+    // Someone who still looks at version 1 cannot overwrite the new assessment.
+    const stale = await assess("u-jonas", { status: "geschlossen", mitigation: measure, note: "Erledigt." });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe("stale");
+    expect((await assess("u-jonas", { status: "geschlossen", mitigation: measure }, 2)).statusCode).toBe(422);
     expect(
-      (await assess("u-jonas", { status: "geschlossen", mitigation: measure, note: "Tests abgeschlossen." }))
-        .statusCode,
+      (
+        await assess(
+          "u-jonas",
+          { status: "geschlossen", mitigation: measure, note: "Tests abgeschlossen." },
+          2,
+        )
+      ).statusCode,
     ).toBe(200);
+    expect(
+      (await assess("u-jonas", { status: "geschlossen", mitigation: measure, note: "Nachtrag." }, 3))
+        .statusCode,
+    ).toBe(409);
     const closed = (await risks(server, "u-jonas", "ERP")).items.find((r) => r.id === testers.id)!;
     expect(closed).toMatchObject({ status: "geschlossen", open: false });
     expect(closed.history.map((h) => h.status)).toEqual(["offen", "in Bearbeitung", "geschlossen"]);

@@ -232,7 +232,7 @@ export function projectSignals(p: ProjectSummary, now: Date): SignalId[] {
     // A pending veto on a mandatory result blocks the gate (status.ts).
     veto: !p.finished && p.gateStatus === "blocked",
     "status-rot": !p.finished && p.status?.overall === "rot",
-    "auflagen-ueberfaellig": overdueConditions(p, now) > 0,
+    "auflagen-ueberfaellig": !p.finished && overdueConditions(p, now) > 0,
     neupruefung: !p.finished && p.openRechecks > 0,
     "gate-zurueckgewiesen": !p.finished && p.gateRejected,
     "rollen-fehlen": !p.finished && p.missingRoles.length > 0,
