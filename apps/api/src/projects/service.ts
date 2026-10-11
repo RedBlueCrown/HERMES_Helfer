@@ -10,6 +10,7 @@ import {
   canViewProject,
   AMPEL_LABELS,
   CR_DAY_RATE_CHF,
+  CR_FLAGS,
   CR_RECHECK_ROLES,
   STATUS_CRITERIA,
   changeImpact,
@@ -72,7 +73,14 @@ import {
   type Viewer,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
-import { checkChangeRequest, checkDraftStructure } from "../agents/kritiker";
+import type { ChangeRequestProposalContent } from "../agents/change-request-agent";
+import {
+  checkChangeRequest,
+  checkClearedFlags,
+  checkDraftStructure,
+  mergeFindings,
+} from "../agents/kritiker";
+import { acceptedProducer, sameContent, type StoredProposal } from "../agents/proposals";
 import { HttpError, assertCheck, notFound, unprocessable } from "../errors";
 import { projectIdForCode, type ProjectRepository } from "./repository";
 
@@ -111,8 +119,8 @@ export interface ChangeRequestInput {
   effortDays: number;
   flags: CrFlags;
   content: DraftContent;
-  /** "ai" when the requester used the Change-Request agent's draft. */
-  producer: Producer;
+  /** The agent's draft the requester started from (proposals.ts); absent: written by the person. */
+  proposal?: StoredProposal<ChangeRequestProposalContent>;
 }
 
 export interface RiskInput {
@@ -431,6 +439,10 @@ export class ProjectService {
       if (input.content.summary.trim().length < 10) {
         throw unprocessable("Bitte die Änderung kurz beschreiben (mindestens 10 Zeichen).");
       }
+      const p = input.proposal;
+      const agentFlags = p
+        ? (Object.fromEntries(CR_FLAGS.map((f) => [f, p.content.flags[f].value])) as CrFlags)
+        : undefined;
       return [
         {
           type: "ChangeRequestSubmitted",
@@ -443,9 +455,26 @@ export class ProjectService {
             dayRateChf: CR_DAY_RATE_CHF,
             flags: input.flags,
             content: input.content,
-            // Checked again here: the requester may have changed the agent's text.
-            findings: checkChangeRequest(input.content, input.flags),
-            producer: input.producer,
+            // Checked again here: the requester may have changed the agent's text and areas.
+            findings: mergeFindings(
+              checkChangeRequest(input.content, input.flags),
+              p ? checkClearedFlags(p.content.flags, input.flags) : [],
+            ),
+            producer: p
+              ? acceptedProducer(
+                  p,
+                  !sameContent(p.content.content, input.content) || !sameContent(agentFlags, input.flags),
+                )
+              : { kind: "human" },
+            ...(p
+              ? {
+                  agentAssessment: {
+                    wish: p.content.wish,
+                    flags: p.content.flags,
+                    findings: p.content.findings,
+                  },
+                }
+              : {}),
           },
         },
       ];

@@ -118,6 +118,8 @@ export interface ProposedRisk {
   mitigation: string;
   /** Why: the fact from the project behind it. */
   reason: string;
+  /** The id of the trigger the proposal rests on, or "profil" / "ergebnisse". */
+  trigger: string;
 }
 
 /** A new assessment of an open risk, named by its label (R-02). */
@@ -128,6 +130,8 @@ export interface ProposedReassessment {
   /** A new or sharper measure; empty keeps the current one. */
   mitigation: string;
   reason: string;
+  /** The id of the trigger the proposal rests on, or "profil" / "ergebnisse". */
+  trigger: string;
 }
 
 export interface RiskReview {

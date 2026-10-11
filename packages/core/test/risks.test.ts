@@ -247,7 +247,9 @@ describe("facts for the Risiko agent", () => {
       expect.arrayContaining(["rolle:ISM", "beteiligung", "cr:cr-1", "profil:lieferant", "profil:cloud"]),
     );
     const cr = riskTriggers(st.state(), MODEL, new Date()).find((t) => t.id === "cr:cr-1")!;
-    expect(cr.text).toContain("CR-01 «Export für die Revision» wartet auf den Entscheid (10 Personentage");
+    // The fact comes from the engine; what people typed is passed separately, as a quote.
+    expect(cr.text).toMatch(/^CR-01 wartet auf den Entscheid \(10 Personentage; /);
+    expect(cr.quotes).toEqual(["Export für die Revision"]);
   });
 
   it("names nothing for a finished project", () => {

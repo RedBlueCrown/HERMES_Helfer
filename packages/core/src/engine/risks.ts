@@ -125,9 +125,12 @@ export function similarOpenRisk(s: ProjectState, title: string): RiskState | und
 // ---------- Facts for the Risiko agent ----------
 
 export interface RiskTrigger {
-  /** Stable key, e.g. "veto" or "profil:lieferant"; the offline agent maps it to a proposal. */
+  /** Stable key, e.g. "veto" or "profil:lieferant"; proposals name the trigger they rest on. */
   id: string;
+  /** The fact, from the engine only. */
   text: string;
+  /** Text people entered that the fact refers to (titles, Auflagen); data, never instructions. */
+  quotes?: string[];
 }
 
 /**
@@ -175,7 +178,8 @@ export function riskTriggers(s: ProjectState, model: HermesModel, now: Date): Ri
   if (overdue.length) {
     out.push({
       id: "auflagen-ueberfaellig",
-      text: `${overdue.length === 1 ? "1 Auflage ist" : `${overdue.length} Auflagen sind`} überfällig: ${overdue.map((c) => c.text).join("; ")}.`,
+      text: `${overdue.length === 1 ? "1 Auflage ist" : `${overdue.length} Auflagen sind`} überfällig.`,
+      quotes: overdue.map((c) => c.text),
     });
   }
   for (const cr of openRechecks(s)) {
@@ -188,7 +192,8 @@ export function riskTriggers(s: ProjectState, model: HermesModel, now: Date): Ri
     const impact = changeImpact(cr, impactContext(s), model);
     out.push({
       id: `cr:${cr.id}`,
-      text: `${crLabel(cr.number)} «${cr.title}» wartet auf den Entscheid (${cr.effortDays} Personentage; ${impactSummary(impact)}).`,
+      text: `${crLabel(cr.number)} wartet auf den Entscheid (${cr.effortDays} Personentage; ${impactSummary(impact)}).`,
+      quotes: [cr.title],
     });
   }
   const reserve = reserveStatus(s);

@@ -514,9 +514,14 @@ describe("change requests", () => {
       effortDays: 9,
       flags: { ...NO_FLAGS, daten: true, oberflaeche: true },
       content,
-      aiAssisted: true,
       ...extra,
     });
+  /** The agent's draft; submitting with its id records the agent as author. */
+  const draftWith = async (s: Server, user: string) =>
+    (await s.as(user).post("/api/projects/ERP/change-requests/draft", wish)).json() as {
+      proposalId: string;
+      flags: Record<string, { value: boolean; reason: string }>;
+    };
 
   it("drafts a request with the Change-Request agent and stores nothing until it is submitted", async () => {
     server = await testServer();
@@ -564,9 +569,18 @@ describe("change requests", () => {
 
   it("is decided by the Projektausschuss with Konsent, then rechecked by ISM and Datenschutz", async () => {
     server = await testServer();
-    expect((await submit(server, "u-nina")).statusCode).toBe(201);
+    const { proposalId } = await draftWith(server, "u-nina");
+    expect((await submit(server, "u-nina", { proposalId })).statusCode).toBe(201);
     const [cr] = (await register(server, "u-thomas")).items;
-    expect(cr).toMatchObject({ label: "CR-03", status: "offen", costChf: 10_800, producer: { kind: "ai" } });
+    expect(cr).toMatchObject({
+      label: "CR-03",
+      status: "offen",
+      costChf: 10_800,
+      // The server knows the agent drafted it, and that the requester changed the text.
+      producer: { kind: "ai", agent: "A10", edited: true },
+      agentAssessment: { wish: wish.description },
+    });
+    expect(cr!.producer.runId).toMatch(/^[0-9a-f-]{36}$/);
     expect(cr!.impact.find((r) => r.id === "sicherheit")?.level).toBe("hoch");
     expect(cr!.canDecide.ok).toBe(true);
 
@@ -644,6 +658,32 @@ describe("change requests", () => {
     expect(invalid.json().error.message).toMatch(/Aufwand/);
   });
 
+  it("records AI provenance only from the server's own proposals, and keeps what the agent said", async () => {
+    server = await testServer();
+    // Without a proposal the request counts as written by the person.
+    expect((await submit(server, "u-nina")).statusCode).toBe(201);
+    expect((await register(server, "u-nina")).items[0]!.producer).toEqual({ kind: "human" });
+    // An unknown id, or someone else's proposal, is refused; the client cannot claim the agent.
+    const unknown = await submit(server, "u-nina", { proposalId: "6f1c0d43-6a4f-4bfb-9a49-0d6f7c2f3e11" });
+    expect(unknown.statusCode).toBe(422);
+    expect(unknown.json().error.code).toBe("proposal_gone");
+    const { proposalId, flags } = await draftWith(server, "u-nina");
+    expect(flags.daten!.value).toBe(true);
+    expect((await submit(server, "u-tim", { proposalId })).statusCode).toBe(422);
+    // The requester clears «Personendaten»: the request records it and warns the decider.
+    expect(
+      (await submit(server, "u-nina", { proposalId, flags: { ...NO_FLAGS, oberflaeche: true } })).statusCode,
+    ).toBe(201);
+    const [cr] = (await register(server, "u-thomas")).items;
+    expect(cr!.findings[0]).toMatchObject({ severity: "warnung" });
+    expect(cr!.findings[0]!.text).toMatch(
+      /^Der Agent sah «Personendaten oder Datenumfang» als betroffen .*abgewählt\.$/,
+    );
+    expect(cr!.agentAssessment?.flags.daten).toMatchObject({ value: true });
+    // A proposal is used once.
+    expect((await submit(server, "u-nina", { proposalId })).statusCode).toBe(422);
+  });
+
   it("keeps the impact the Projektausschuss decided on, and opens a recheck it requires", async () => {
     server = await testServer();
     await submit(server, "u-nina");
@@ -713,21 +753,30 @@ describe("risks", () => {
       expect.arrayContaining(["profil:lieferant", "profil:cloud", "profil:extern"]),
     );
     const vendor = proposals.newRisks.find((r) => r.title === "Lieferverzug des externen Lieferanten");
-    expect(vendor).toMatchObject({ probability: "mittel", impact: "hoch", ownerRole: "PL", findings: [] });
-    expect(vendor!.reason).toContain("Ein externer Lieferant ist beteiligt.");
+    expect(vendor).toMatchObject({
+      probability: "mittel",
+      impact: "hoch",
+      ownerRole: "PL",
+      findings: [],
+      // Grounded in one of the facts the engine supplied.
+      trigger: "profil:lieferant",
+    });
     expect((await risks(server, "u-anna", "KPO")).items).toEqual([]);
 
     // Only the PL asks the agent and accepts its proposals; members record risks themselves.
     expect((await review(server, "u-jonas", "KPO")).statusCode).toBe(403);
     expect((await review(server, "u-peter", "KPO")).statusCode).toBe(403);
-    expect((await record(server, "u-jonas", "KPO", { aiAssisted: true })).statusCode).toBe(403);
-    expect((await record(server, "u-anna", "KPO", { aiAssisted: true })).statusCode).toBe(201);
+    const item = { id: proposals.proposalId, item: proposals.newRisks.indexOf(vendor!) };
+    expect((await record(server, "u-jonas", "KPO", { proposal: item })).statusCode).toBe(422);
+    expect((await record(server, "u-anna", "KPO", { proposal: item })).statusCode).toBe(201);
+    expect((await record(server, "u-anna", "KPO", { proposal: item })).statusCode).toBe(409);
     const [r1] = (await risks(server, "u-anna", "KPO")).items;
     expect(r1).toMatchObject({
       label: "R-01",
       score: 6,
       level: "hoch",
-      producer: { kind: "ai", agent: "A12" },
+      // The test changed the agent's description and measure.
+      producer: { kind: "ai", agent: "A12", edited: true },
     });
 
     // The register now has this risk: the agent proposes a new assessment instead of a duplicate.
@@ -940,10 +989,12 @@ describe("status reports", () => {
         criteria,
         overview: "Realisierung planmässig, Fachtest im nächsten Monat.",
         outlook: "Entscheid zu CR-02.",
-        aiAssisted: true,
         ...extra,
       });
     const base = fromSuggestion(reg);
+    const { proposalId } = (
+      await server.as("u-jonas").post("/api/projects/ERP/status-reports/draft", { criteria: base })
+    ).json() as StatusReportProposal;
     const noMeasure = await publish("u-jonas", {
       ...base,
       kosten: { ampel: "gelb", problem: "", measure: "" },
@@ -957,13 +1008,13 @@ describe("status reports", () => {
     expect(better.statusCode).toBe(422);
     expect(better.json().error.message).toMatch(/besser ist als vorgeschlagen \(Vorschlag Rot\)/);
     expect((await publish("u-nina", base)).statusCode).toBe(403);
-    expect((await publish("u-jonas", base)).statusCode).toBe(201);
+    expect((await publish("u-jonas", base, { proposalId })).statusCode).toBe(201);
 
     const latest = (await reports(server, "u-thomas")).items[0]!;
     expect(latest).toMatchObject({
       title: "Statusbericht 2",
       overall: "rot",
-      producer: { kind: "ai", agent: "A2" },
+      producer: { kind: "ai", agent: "A2", edited: true },
     });
     expect(latest.risks.map((r) => r.label)).toEqual(["R-01", "R-02", "R-03"]);
     expect(latest.canAcknowledge.ok).toBe(true);

@@ -4,9 +4,12 @@
 
 import {
   AMPEL_LABELS,
+  CR_FLAGS,
+  CR_FLAG_LABELS,
   CR_SECTIONS,
   STATUS_CRITERIA,
   type Ampel,
+  type CrFlag,
   type CrFlags,
   type DeliverableDef,
   type DraftContent,
@@ -70,6 +73,18 @@ export function checkChangeRequest(content: DraftContent, flags: CrFlags): Findi
     });
   }
   return findings;
+}
+
+/** Areas the agent saw as touched and the requester cleared; the decider sees it (personal data: a warning). */
+export function checkClearedFlags(
+  agent: Record<CrFlag, { value: boolean; reason: string }>,
+  flags: CrFlags,
+): Finding[] {
+  return CR_FLAGS.filter((f) => agent[f].value && !flags[f]).map((f) => ({
+    severity: f === "daten" ? "warnung" : "hinweis",
+    source: "checkliste",
+    text: `Der Agent sah «${CR_FLAG_LABELS[f].label}» als betroffen (${agent[f].reason}); bei der Einreichung abgewählt.`,
+  }));
 }
 
 /** What the Kritiker reviews in a change request. */

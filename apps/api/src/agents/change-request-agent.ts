@@ -24,13 +24,21 @@ import {
   type ChangeRequestIdea,
   type Usage,
 } from "./provider";
+import type { ProposalStore } from "./proposals";
 import { projectContext, recordAiRun, type Logger } from "./runner";
 
-export interface ChangeRequestProposal {
+/** What the server keeps of a draft until the requester submits it (proposals.ts). */
+export interface ChangeRequestProposalContent {
+  wish: string;
   content: DraftContent;
   flags: Record<CrFlag, { value: boolean; reason: string }>;
-  /** Deterministic checks and the Kritiker's review; advice for the requester, not stored. */
+  /** Deterministic checks and the Kritiker's review of the agent's draft. */
   findings: Finding[];
+}
+
+export interface ChangeRequestProposal extends Omit<ChangeRequestProposalContent, "wish"> {
+  /** Submitting with this id records the request as drafted by the agent. */
+  proposalId: string;
   producer: Producer;
 }
 
@@ -48,6 +56,7 @@ export class ChangeRequestAgent {
     private readonly projects: ProjectService,
     private readonly provider: AiProvider,
     private readonly log: Logger,
+    private readonly proposals: ProposalStore,
   ) {}
 
   async draft(code: string, ctx: RequestContext, idea: ChangeRequestIdea): Promise<ChangeRequestProposal> {
@@ -114,12 +123,27 @@ export class ChangeRequestAgent {
         }
       }
       const values = Object.fromEntries(CR_FLAGS.map((f) => [f, flags[f].value])) as Record<CrFlag, boolean>;
-      proposal = {
+      const producer: Producer = {
+        kind: "ai",
+        agent: agent.id,
+        provider: info.provider,
+        model: info.model,
+        runId,
+      };
+      const kept: ChangeRequestProposalContent = {
+        wish: idea.description,
         content,
         flags,
         findings: mergeFindings(checkChangeRequest(content, values), review),
-        producer: { kind: "ai", agent: agent.id, provider: info.provider, model: info.model },
       };
+      const proposalId = this.proposals.put({
+        kind: "change-request",
+        projectId: s.projectId,
+        userId: ctx.viewer.userId,
+        producer,
+        content: kept,
+      });
+      proposal = { proposalId, content, flags, findings: kept.findings, producer };
     } catch (err) {
       this.log.error({ err, runId, projectId: s.projectId }, "change request draft failed");
       record("failed", 0);

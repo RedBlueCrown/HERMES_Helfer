@@ -46,7 +46,7 @@ import {
   type ReserveStatus,
 } from "./change-requests";
 import { conditionDue, isConditionOverdue } from "./conditions";
-import type { Decision, DraftContent, Finding, Producer, StatusFigures } from "./events";
+import type { AgentAssessment, Decision, DraftContent, Finding, Producer, StatusFigures } from "./events";
 import { isInvolved, participantsFor } from "./participation";
 import {
   canVerifyAudit,
@@ -361,6 +361,8 @@ export interface ChangeRequestView {
   content: DraftContent;
   findings: Finding[];
   producer: Producer;
+  /** What the Change-Request agent said, when it drafted the request. */
+  agentAssessment?: AgentAssessment;
   status: ChangeRequestStatus;
   statusLabel: string;
   impact: ImpactRow[];
@@ -1082,6 +1084,7 @@ export function changeRequestView(
     content: c.content,
     findings: c.findings,
     producer: c.producer,
+    ...(c.agentAssessment ? { agentAssessment: c.agentAssessment } : {}),
     status: c.status,
     statusLabel: CR_STATUS_LABELS[c.status],
     impact,

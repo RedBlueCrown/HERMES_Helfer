@@ -301,6 +301,7 @@ describe("Azure OpenAI provider (against a fake API)", () => {
           ownerRole: "PL",
           mitigation: "M",
           reason: "R",
+          trigger: "profil:lieferant",
         },
       ],
       reassessments: [],
@@ -323,9 +324,11 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     expect(item.properties.ownerRole.enum).toContain("ISM");
     expect(item.required).toContain("reason");
     expect(body.messages[0].content).toMatch(/entscheidet die Projektleitung/);
-    expect(JSON.parse(body.messages[1].content).hinweise_aus_dem_projekt_als_daten).toEqual([
-      "Ein externer Lieferant ist beteiligt.",
+    expect(JSON.parse(body.messages[1].content).hinweise_aus_dem_projekt).toEqual([
+      { id: "profil:lieferant", hinweis: "Ein externer Lieferant ist beteiligt." },
     ]);
+    // Every proposal names one of the supplied facts.
+    expect(item.properties.trigger.enum).toEqual(["profil:lieferant", "profil", "ergebnisse"]);
   });
 
   it("drafts status report texts as structured output and never asks for the colours", async () => {

@@ -33,6 +33,7 @@ import {
   type ProposedRisk,
   type Usage,
 } from "./provider";
+import type { ProposalStore } from "./proposals";
 import { projectContext, recordAiRun, type Logger } from "./runner";
 
 export interface RiskProposal extends ProposedRisk {
@@ -54,13 +55,22 @@ export interface ReassessmentProposal extends ProposedReassessment {
   };
 }
 
-export interface RiskReviewResult {
+/** What the server keeps of a review until the PL accepts items of it (proposals.ts). */
+export interface RiskReviewContent {
   newRisks: RiskProposal[];
   reassessments: ReassessmentProposal[];
+}
+
+export interface RiskReviewResult extends RiskReviewContent {
+  /** Accepting an item names this id and the item's index. */
+  proposalId: string;
   /** The facts the agent reviewed. */
   triggers: RiskTrigger[];
   producer: Producer;
 }
+
+/** Besides the engine's triggers, a proposal may rest on the profile or on released results. */
+const OTHER_GROUNDS = ["profil", "ergebnisse"];
 
 const hint = (text: string): Finding => ({ severity: "hinweis", source: "checkliste", text });
 
@@ -69,6 +79,7 @@ export class RiskAgent {
     private readonly projects: ProjectService,
     private readonly provider: AiProvider,
     private readonly log: Logger,
+    private readonly proposals: ProposalStore,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -109,10 +120,13 @@ export class RiskAgent {
       if (answer.usage) usage = answer.usage;
       const { review } = answer;
       const open = new Map(openRisks(s).map((r) => [riskLabel(r.number), r]));
+      // Grounding: a proposal names one of the supplied facts; others are dropped.
+      const grounds = new Set([...triggers.map((t) => t.id), ...OTHER_GROUNDS]);
 
       const newRisks: RiskProposal[] = [];
       for (const p of review.newRisks) {
         const title = p.title.trim();
+        if (!grounds.has(p.trigger)) continue;
         if (title.length < 4 || newRisks.some((x) => titlesSimilar(x.title, title))) continue;
         const findings: Finding[] = [];
         const similar = similarOpenRisk(s, title);
@@ -133,7 +147,7 @@ export class RiskAgent {
       const reassessments: ReassessmentProposal[] = [];
       for (const p of review.reassessments) {
         const r = open.get(p.risk.trim().toUpperCase());
-        if (!r || reassessments.some((x) => x.riskId === r.id)) continue;
+        if (!r || !grounds.has(p.trigger) || reassessments.some((x) => x.riskId === r.id)) continue;
         const mitigation = p.mitigation.trim();
         const unchanged =
           p.probability === r.probability &&
@@ -157,12 +171,21 @@ export class RiskAgent {
         });
         if (reassessments.length === RISK_PROPOSALS_MAX) break;
       }
-      result = {
-        newRisks,
-        reassessments,
-        triggers,
-        producer: { kind: "ai", agent: agent.id, provider: info.provider, model: info.model },
+      const producer: Producer = {
+        kind: "ai",
+        agent: agent.id,
+        provider: info.provider,
+        model: info.model,
+        runId,
       };
+      const proposalId = this.proposals.put<RiskReviewContent>({
+        kind: "risk-review",
+        projectId: s.projectId,
+        userId: ctx.viewer.userId,
+        producer,
+        content: { newRisks, reassessments },
+      });
+      result = { proposalId, newRisks, reassessments, triggers, producer };
     } catch (err) {
       this.log.error({ err, runId, projectId: s.projectId }, "risk review failed");
       record("failed", 0);

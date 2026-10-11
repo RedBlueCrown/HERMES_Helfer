@@ -102,45 +102,60 @@ const CHANGE_REQUEST_SCHEMA = {
 
 const LEVEL_SCHEMA = { type: "string", enum: [...RISK_LEVELS] } as const;
 
-const RISK_REVIEW_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["newRisks", "reassessments"],
-  properties: {
-    newRisks: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["title", "description", "probability", "impact", "ownerRole", "mitigation", "reason"],
-        properties: {
-          title: { type: "string" },
-          description: { type: "string" },
-          probability: LEVEL_SCHEMA,
-          impact: LEVEL_SCHEMA,
-          ownerRole: { type: "string", enum: [...PROJECT_ROLES] },
-          mitigation: { type: "string" },
-          reason: { type: "string" },
+/** The trigger of each proposal must be one of the supplied ids (the agent's grounding). */
+const riskReviewSchema = (triggers: readonly string[]) => {
+  const trigger = { type: "string", enum: [...triggers, "profil", "ergebnisse"] };
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["newRisks", "reassessments"],
+    properties: {
+      newRisks: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "title",
+            "description",
+            "probability",
+            "impact",
+            "ownerRole",
+            "mitigation",
+            "reason",
+            "trigger",
+          ],
+          properties: {
+            title: { type: "string" },
+            description: { type: "string" },
+            probability: LEVEL_SCHEMA,
+            impact: LEVEL_SCHEMA,
+            ownerRole: { type: "string", enum: [...PROJECT_ROLES] },
+            mitigation: { type: "string" },
+            reason: { type: "string" },
+            trigger,
+          },
+        },
+      },
+      reassessments: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["risk", "probability", "impact", "mitigation", "reason", "trigger"],
+          properties: {
+            risk: { type: "string" },
+            probability: LEVEL_SCHEMA,
+            impact: LEVEL_SCHEMA,
+            mitigation: { type: "string" },
+            reason: { type: "string" },
+            trigger,
+          },
         },
       },
     },
-    reassessments: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["risk", "probability", "impact", "mitigation", "reason"],
-        properties: {
-          risk: { type: "string" },
-          probability: LEVEL_SCHEMA,
-          impact: LEVEL_SCHEMA,
-          mitigation: { type: "string" },
-          reason: { type: "string" },
-        },
-      },
-    },
-  },
-} as const;
+  };
+};
 
 const STATUS_REPORT_SCHEMA = {
   type: "object",
@@ -209,6 +224,7 @@ const RiskReviewOut = z.object({
         ownerRole: z.enum(PROJECT_ROLES),
         mitigation: z.string().max(1000),
         reason: z.string().max(500),
+        trigger: z.string().max(80),
       }),
     )
     .max(20),
@@ -220,6 +236,7 @@ const RiskReviewOut = z.object({
         impact: LevelOut,
         mitigation: z.string().max(1000),
         reason: z.string().max(500),
+        trigger: z.string().max(80),
       }),
     )
     .max(20),
@@ -409,7 +426,7 @@ export class AzureOpenAiProvider implements AiProvider {
       riskReviewSystemPrompt(req),
       riskReviewUserPrompt(req),
       "risikopruefung",
-      RISK_REVIEW_SCHEMA,
+      riskReviewSchema(req.triggers.map((t) => t.id)),
       RiskReviewOut,
     );
     return { review: value, ...(usage ? { usage } : {}) };

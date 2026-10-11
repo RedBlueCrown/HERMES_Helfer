@@ -72,8 +72,9 @@ export interface Reference {
   };
 }
 
-/** The texts the agent drafted for a status report (not stored until published). */
+/** The texts the agent drafted for a status report (kept on the server until published). */
 export interface StatusReportProposal {
+  proposalId: string;
   overview: string;
   outlook: string;
   criteria: Partial<Record<StatusCriterion, { problem: string; measure: string }>>;
@@ -90,6 +91,8 @@ export interface RiskProposal {
   ownerRole: ProjectRole;
   mitigation: string;
   reason: string;
+  /** The trigger the proposal rests on, or "profil" / "ergebnisse". */
+  trigger: string;
   findings: Finding[];
 }
 
@@ -102,6 +105,7 @@ export interface ReassessmentProposal {
   impact: Level;
   mitigation: string;
   reason: string;
+  trigger: string;
   current: {
     probability: Level;
     impact: Level;
@@ -113,14 +117,18 @@ export interface ReassessmentProposal {
 }
 
 export interface RiskReviewResult {
+  /** Accepting an item names this id and the item's index. */
+  proposalId: string;
   newRisks: RiskProposal[];
   reassessments: ReassessmentProposal[];
   triggers: RiskTrigger[];
   producer: Producer;
 }
 
-/** The Change-Request agent's proposal (not stored until submitted). */
+/** The Change-Request agent's proposal (kept on the server until submitted). */
 export interface ChangeRequestProposal {
+  /** Submitting with it records the request as drafted by the agent. */
+  proposalId: string;
   content: DraftContent;
   flags: Record<CrFlag, { value: boolean; reason: string }>;
   findings: Finding[];

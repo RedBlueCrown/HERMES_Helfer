@@ -540,6 +540,13 @@ export function RiskReviewDrawer({ code, open, onClose }: { code: string; open: 
   );
 }
 
+/** The fact a proposal rests on, as the engine named it. */
+function groundText(result: RiskReviewResult, trigger: string): string {
+  if (trigger === "profil") return "Vorhabensprofil";
+  if (trigger === "ergebnisse") return "Freigegebene Ergebnisse";
+  return result.triggers.find((t) => t.id === trigger)?.text ?? trigger;
+}
+
 interface NewChoice extends RiskProposal {
   selected: boolean;
   done: boolean;
@@ -596,7 +603,7 @@ function RiskReviewPanel({ code, onClose }: { code: string; onClose(): void }) {
         impact: p.impact,
         ownerRole: p.ownerRole,
         mitigation: p.mitigation,
-        aiAssisted: true,
+        proposal: { id: result.proposalId, item: i },
       });
       setNewRisks((list) => list.map((x, j) => (j === i ? { ...x, done: true } : x)));
     }
@@ -611,7 +618,7 @@ function RiskReviewPanel({ code, onClose }: { code: string; onClose(): void }) {
         mitigation: c.mitigation,
         note: `Vorschlag des Risiko-Agenten: ${p.reason}`.slice(0, 2000),
         basedOn: p.current.version,
-        aiAssisted: true,
+        proposal: { id: result.proposalId, item: i },
       });
       setRe((list) => list.map((x, j) => (j === i ? { ...x, done: true } : x)));
     }
@@ -691,7 +698,9 @@ function RiskReviewPanel({ code, onClose }: { code: string; onClose(): void }) {
                       />
                       {p.done ? <Badge color="success">Übernommen</Badge> : null}
                     </div>
-                    <Caption1 className={s.muted}>Agent: {p.reason}</Caption1>
+                    <Caption1 className={s.muted}>
+                      Anlass: {groundText(result, p.trigger)} · Agent: {p.reason}
+                    </Caption1>
                     {p.findings.map((f, k) => (
                       <MessageBar key={k} intent="warning">
                         <MessageBarBody>{f.text}</MessageBarBody>
@@ -760,7 +769,9 @@ function RiskReviewPanel({ code, onClose }: { code: string; onClose(): void }) {
                         Bisher Eintritt {p.current.probability}, Auswirkung {p.current.impact}; neu Eintritt{" "}
                         {p.probability}, Auswirkung {p.impact}.
                       </Caption1>
-                      <Caption1 className={s.muted}>Agent: {p.reason}</Caption1>
+                      <Caption1 className={s.muted}>
+                        Anlass: {groundText(result, p.trigger)} · Agent: {p.reason}
+                      </Caption1>
                       {c.selected && !c.done ? (
                         <>
                           <div className={s.pair}>

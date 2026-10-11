@@ -37,16 +37,19 @@ import {
   statusReportRegister,
   seesAllProjects,
   type GlobalRole,
+  type Producer,
   type ProjectRole,
   type Viewer,
 } from "@hermes-helfer/core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import type { ChangeRequestAgent } from "./agents/change-request-agent";
+import type { ChangeRequestAgent, ChangeRequestProposalContent } from "./agents/change-request-agent";
 import type { Orchestrator } from "./agents/orchestrator";
 import type { ProviderInfo } from "./agents/provider";
-import type { RiskAgent } from "./agents/risk-agent";
+import { acceptedProducer, sameContent, type ProposalStore } from "./agents/proposals";
+import type { RiskAgent, RiskReviewContent } from "./agents/risk-agent";
 import type { StatusReportAgent } from "./agents/status-report-agent";
+import type { StatusReportTexts } from "./agents/kritiker";
 import type { RunService } from "./agents/runner";
 import type { Authenticator, DevUser } from "./auth";
 import { HttpError, notFound, parse } from "./errors";
@@ -70,6 +73,8 @@ export interface RouteDeps {
   changeRequestAgent: ChangeRequestAgent;
   riskAgent: RiskAgent;
   statusReportAgent: StatusReportAgent;
+  /** Agent proposals until a person accepts them; the source of AI provenance. */
+  proposals: ProposalStore;
   authenticator: Authenticator;
   provider: ProviderInfo;
   devUsers: readonly DevUser[];
@@ -155,8 +160,9 @@ const RiskValues = {
   impact: Level,
   ownerRole: Role,
   mitigation: z.string().max(1000).default(""),
-  aiAssisted: z.boolean().default(false),
 };
+/** An item of a risk review by the Risiko agent that the PL accepts. */
+const ProposalItem = z.object({ id: z.uuid(), item: z.number().int().min(0) }).optional();
 
 export const MAX_CHAT_CHARS = 2000;
 const ChatBody = z.object({
@@ -492,21 +498,30 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         effortDays: z.number().positive("Bitte den Aufwand in Personentagen schätzen.").max(2000),
         flags: CrFlagsBody,
         content: Draft,
-        aiAssisted: z.boolean().default(false),
+        /** The agent's draft the request started from; the server records it as drafted by the agent. */
+        proposalId: z.uuid().optional(),
       }),
       req.body,
     );
-    const info = deps.provider;
-    const result = await projects.submitChangeRequest(code, ctx(req), {
+    const c = ctx(req);
+    const s = await projects.requireProject(code, c.viewer);
+    const proposal = body.proposalId
+      ? deps.proposals.require<ChangeRequestProposalContent>(
+          body.proposalId,
+          "change-request",
+          s.projectId,
+          c.viewer.userId,
+        )
+      : undefined;
+    const result = await projects.submitChangeRequest(code, c, {
       title: body.title,
       requestedBy: body.requestedBy,
       effortDays: body.effortDays,
       flags: body.flags,
       content: body.content,
-      producer: body.aiAssisted
-        ? { kind: "ai", agent: "A10", provider: info.provider, model: info.model }
-        : { kind: "human" },
+      ...(proposal ? { proposal } : {}),
     });
+    if (proposal) deps.proposals.delete(proposal.id);
     return reply.code(201).send(result);
   });
 
@@ -559,10 +574,32 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     },
   );
 
-  const riskProducer = (aiAssisted: boolean) =>
-    aiAssisted
-      ? ({ kind: "ai", agent: "A12", provider: deps.provider.provider, model: deps.provider.model } as const)
-      : ({ kind: "human" } as const);
+  /**
+   * Accepting an item of a risk review: the item once, by the person who asked the agent.
+   * `run` stores it; the item counts as accepted only if that succeeds.
+   */
+  const acceptRiskItem = async <T>(
+    req: FastifyRequest,
+    code: string,
+    ref: { id: string; item: number },
+    pick: (c: RiskReviewContent) => { key: string; item: T | undefined },
+    run: (item: T, producer: (edited: boolean) => ReturnType<typeof acceptedProducer>) => Promise<unknown>,
+  ) => {
+    const c = ctx(req);
+    const s = await projects.requireProject(code, c.viewer);
+    const p = deps.proposals.require<RiskReviewContent>(ref.id, "risk-review", s.projectId, c.viewer.userId);
+    const { key, item } = pick(p.content);
+    if (item === undefined) throw new HttpError(422, "proposal_gone", "Diesen Vorschlag gibt es nicht.");
+    if (p.accepted.has(key))
+      throw new HttpError(409, "invalid_state", "Dieser Vorschlag wurde bereits übernommen.");
+    p.accepted.add(key);
+    try {
+      return await run(item, (edited) => acceptedProducer(p, edited));
+    } catch (err) {
+      p.accepted.delete(key);
+      throw err;
+    }
+  };
 
   app.post("/api/projects/:code/risks", async (req, reply) => {
     const { code } = params(req, z.object({ code: Code }));
@@ -571,18 +608,43 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         title: z.string().trim().min(4, "Bitte das Risiko benennen (mindestens 4 Zeichen).").max(200),
         description: z.string().max(2000).default(""),
         ...RiskValues,
+        proposal: ProposalItem,
       }),
       req.body,
     );
-    const result = await projects.recordRisk(code, ctx(req), {
-      title: body.title,
-      description: body.description,
-      probability: body.probability,
-      impact: body.impact,
-      ownerRole: body.ownerRole,
-      mitigation: body.mitigation,
-      producer: riskProducer(body.aiAssisted),
-    });
+    const { proposal, ...values } = body;
+    const record = (producer: Producer) => projects.recordRisk(code, ctx(req), { ...values, producer });
+    const result = proposal
+      ? await acceptRiskItem(
+          req,
+          code,
+          proposal,
+          (c) => ({ key: `neu:${proposal.item}`, item: c.newRisks[proposal.item] }),
+          (item, producer) =>
+            record(
+              producer(
+                !sameContent(
+                  [
+                    item.title,
+                    item.description,
+                    item.probability,
+                    item.impact,
+                    item.ownerRole,
+                    item.mitigation,
+                  ],
+                  [
+                    values.title,
+                    values.description,
+                    values.probability,
+                    values.impact,
+                    values.ownerRole,
+                    values.mitigation,
+                  ],
+                ),
+              ),
+            ),
+        )
+      : await record({ kind: "human" });
     return reply.code(201).send(result);
   });
 
@@ -594,19 +656,32 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         status: z.enum(RISK_STATUSES),
         note: z.string().max(2000).default(""),
         basedOn: z.number().int().min(1),
+        proposal: ProposalItem,
       }),
       req.body,
     );
-    return projects.assessRisk(code, ctx(req), riskId, {
-      basedOn: body.basedOn,
-      probability: body.probability,
-      impact: body.impact,
-      status: body.status,
-      ownerRole: body.ownerRole,
-      mitigation: body.mitigation,
-      note: body.note,
-      producer: riskProducer(body.aiAssisted),
-    });
+    const { proposal, ...values } = body;
+    const assess = (producer: Producer) =>
+      projects.assessRisk(code, ctx(req), riskId, { ...values, producer });
+    if (!proposal) return assess({ kind: "human" });
+    return acceptRiskItem(
+      req,
+      code,
+      proposal,
+      (c) => {
+        const item = c.reassessments[proposal.item];
+        return { key: `neu-beurteilt:${proposal.item}`, item: item?.riskId === riskId ? item : undefined };
+      },
+      (item, producer) =>
+        assess(
+          producer(
+            !sameContent(
+              [item.probability, item.impact, item.mitigation || item.current.mitigation],
+              [values.probability, values.impact, values.mitigation],
+            ),
+          ),
+        ),
+    );
   });
 
   // ---------- Status reports ----------
@@ -636,25 +711,43 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         overview: z.string().max(4000),
         outlook: z.string().max(4000).default(""),
         figures: StatusFiguresBody,
-        aiAssisted: z.boolean().default(false),
+        /** The agent's texts the report started from; the server records them as drafted by the agent. */
+        proposalId: z.uuid().optional(),
       }),
       req.body,
     );
-    const info = deps.provider;
+    const c = ctx(req);
+    const s = await projects.requireProject(code, c.viewer);
+    const proposal = body.proposalId
+      ? deps.proposals.require<StatusReportTexts>(
+          body.proposalId,
+          "status-report",
+          s.projectId,
+          c.viewer.userId,
+        )
+      : undefined;
+    // Edited: any text differs from the agent's (texts of green criteria are not part of the proposal).
+    const edited = (texts: StatusReportTexts) =>
+      texts.overview !== body.overview ||
+      texts.outlook !== body.outlook ||
+      Object.entries(texts.criteria).some(
+        ([id, t]) =>
+          t?.problem !== body.criteria[id as keyof typeof body.criteria].problem ||
+          t?.measure !== body.criteria[id as keyof typeof body.criteria].measure,
+      );
     const result = await projects.publishStatusReport(
       code,
-      ctx(req),
+      c,
       {
         criteria: body.criteria,
         overview: body.overview,
         outlook: body.outlook,
         figures: body.figures,
-        producer: body.aiAssisted
-          ? { kind: "ai", agent: "A2", provider: info.provider, model: info.model }
-          : { kind: "human" },
+        producer: proposal ? acceptedProducer(proposal, edited(proposal.content)) : { kind: "human" },
       },
       deps.now(),
     );
+    if (proposal) deps.proposals.delete(proposal.id);
     return reply.code(201).send(result);
   });
 

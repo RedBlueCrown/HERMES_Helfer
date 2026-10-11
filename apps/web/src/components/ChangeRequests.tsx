@@ -341,7 +341,8 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
   const [reasons, setReasons] = useState<Partial<Record<CrFlag, string>>>({});
   const [findings, setFindings] = useState<Finding[]>([]);
   const [effort, setEffort] = useState("");
-  const [aiAssisted, setAiAssisted] = useState(false);
+  /** The agent's draft on the server; submitting with it records the agent as author. */
+  const [proposalId, setProposalId] = useState<string>();
   const [drafting, setDrafting] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -362,7 +363,7 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
       effortDays,
       flags,
       content: current,
-      aiAssisted,
+      ...(proposalId ? { proposalId } : {}),
     }),
   );
 
@@ -379,7 +380,7 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
       setFlags(Object.fromEntries(CR_FLAGS.map((f) => [f, p.flags[f].value])) as CrFlags);
       setReasons(Object.fromEntries(CR_FLAGS.map((f) => [f, p.flags[f].reason])));
       setFindings(p.findings);
-      setAiAssisted(true);
+      setProposalId(p.proposalId);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -449,7 +450,7 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
             {drafting ? (
               <Spinner size="tiny" label="Der Change-Request-Agent arbeitet den Wunsch aus …" />
             ) : null}
-            {aiAssisted && !drafting ? (
+            {proposalId && !drafting ? (
               <Badge appearance="tint" color="brand" icon={<Sparkle16Regular />}>
                 Vom Agenten ausgearbeitet, bitte prüfen
               </Badge>
@@ -633,6 +634,33 @@ function ChangeRequestDetail({ code, cr }: { code: string; cr: ChangeRequestView
           {touched.length ? touched.map((f) => f.label).join(", ") : "Keine besonderen Bereiche."}
         </Body1>
       </section>
+      {cr.agentAssessment ? (
+        <section className={s.section} aria-label="Einschätzung des Agenten">
+          <Subtitle2 as="h3">Einschätzung des Change-Request-Agenten</Subtitle2>
+          <Caption1 className={s.muted}>
+            Wunsch, wie erfasst: {cr.agentAssessment.wish}
+            {cr.producer.edited ? " · Der Entwurf wurde vor dem Einreichen geändert." : ""}
+          </Caption1>
+          <ul className={s.list}>
+            {flagDefs.map((f) => {
+              const a = cr.agentAssessment!.flags[f.id];
+              return (
+                <li key={f.id}>
+                  <Caption1>
+                    {f.label}: {a.value ? "betroffen" : "nicht betroffen"} ({a.reason})
+                    {a.value !== cr.flags[f.id] ? " · bei der Einreichung geändert" : ""}
+                  </Caption1>
+                </li>
+              );
+            })}
+          </ul>
+          {cr.agentAssessment.findings.length ? (
+            <Caption1 block className={s.muted}>
+              Hinweise zum Entwurf des Agenten: {cr.agentAssessment.findings.map((f) => f.text).join(" ")}
+            </Caption1>
+          ) : null}
+        </section>
+      ) : null}
       <section className={s.section} aria-label="Auswirkungen">
         <Subtitle2 as="h3">Auswirkungen</Subtitle2>
         <ImpactTable rows={cr.impact} />

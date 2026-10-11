@@ -15,6 +15,7 @@ import type { StatusCriterion } from "../model/status-report";
 import type { Level, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
 import type {
   Actor,
+  AgentAssessment,
   ConditionSpec,
   Decision,
   DraftContent,
@@ -95,6 +96,7 @@ export interface ChangeRequestState {
   content: DraftContent;
   findings: Finding[];
   producer: Producer;
+  agentAssessment?: AgentAssessment;
   /** Phase in which the request was submitted. */
   phase: PhaseId;
   submittedAt: string;
@@ -402,6 +404,7 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
         content: e.data.content,
         findings: e.data.findings,
         producer: e.data.producer,
+        ...(e.data.agentAssessment ? { agentAssessment: e.data.agentAssessment } : {}),
         phase: s.phase,
         submittedAt: e.at,
         submittedBy: ref(e.actor),

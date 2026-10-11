@@ -2,7 +2,7 @@
 // is computed from it (state.ts), and the API hash-chains it (tamper evidence).
 // Events are facts. Never change the meaning of an existing event type; add a new one.
 
-import type { CrFlags, RecheckOutcome, RecheckRole } from "../model/change-requests";
+import type { CrFlag, CrFlags, RecheckOutcome, RecheckRole } from "../model/change-requests";
 import type { RiskStatus } from "../model/risks";
 import type { Ampel, StatusCriterion } from "../model/status-report";
 import type { AgentId, Level, PhaseId, ProjectProfile, ProjectRole } from "../model/types";
@@ -70,6 +70,20 @@ export interface Producer {
   agent?: AgentId;
   provider?: string;
   model?: string;
+  /** The agent run (ai_run audit entry) that produced the proposal. Set by the server, never by the client. */
+  runId?: string;
+  /** The person changed the agent's proposal before submitting or accepting it. */
+  edited?: boolean;
+}
+
+/** What the Change-Request agent said about a request, kept with it for the record. */
+export interface AgentAssessment {
+  /** The wish as the requester typed it, before the agent worked it out. */
+  wish: string;
+  /** The agent's view of the areas, each with its reason. */
+  flags: Record<CrFlag, { value: boolean; reason: string }>;
+  /** The Kritiker's findings on the agent's draft. */
+  findings: Finding[];
 }
 
 export type ProjectEvent =
@@ -145,6 +159,8 @@ export type ProjectEvent =
         findings: Finding[];
         /** "ai": drafted with the Change-Request agent, then reviewed and submitted by a person. */
         producer: Producer;
+        /** Present when the agent drafted the request. */
+        agentAssessment?: AgentAssessment;
       };
     }
   | { type: "ChangeRequestWithdrawn"; data: { crId: string; reason: string } }

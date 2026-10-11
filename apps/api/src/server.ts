@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { resolve, sep } from "node:path";
 import { ChangeRequestAgent } from "./agents/change-request-agent";
 import { RiskAgent } from "./agents/risk-agent";
+import { ProposalStore } from "./agents/proposals";
 import { StatusReportAgent } from "./agents/status-report-agent";
 import { Orchestrator } from "./agents/orchestrator";
 import type { AiProvider } from "./agents/provider";
@@ -69,10 +70,11 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
   const projects = new ProjectService(deps.repo);
   const runs = new RunService(deps.repo, projects, deps.provider, app.log);
   const orchestrator = new Orchestrator(projects, runs, deps.provider, app.log);
-  const changeRequestAgent = new ChangeRequestAgent(projects, deps.provider, app.log);
+  const proposals = new ProposalStore();
+  const changeRequestAgent = new ChangeRequestAgent(projects, deps.provider, app.log, proposals);
   const now = deps.now ?? (() => new Date());
-  const riskAgent = new RiskAgent(projects, deps.provider, app.log, now);
-  const statusReportAgent = new StatusReportAgent(projects, deps.provider, app.log, now);
+  const riskAgent = new RiskAgent(projects, deps.provider, app.log, proposals, now);
+  const statusReportAgent = new StatusReportAgent(projects, deps.provider, app.log, proposals, now);
 
   const production = config.NODE_ENV === "production";
   await app.register(helmet, {
@@ -174,6 +176,7 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     changeRequestAgent,
     riskAgent,
     statusReportAgent,
+    proposals,
     authenticator: deps.authenticator,
     provider: deps.provider.info,
     devUsers: deps.devUsers ?? [],

@@ -133,7 +133,7 @@ export function mockChangeRequest(req: ChangeRequestDraftRequest): ChangeRequest
   };
 }
 
-type RiskTemplate = Omit<ProposedRisk, "reason">;
+type RiskTemplate = Omit<ProposedRisk, "reason" | "trigger">;
 
 const risk = (
   title: string,
@@ -289,7 +289,7 @@ export function mockRiskReview(req: RiskReviewRequest): RiskReview {
   for (const t of req.triggers) {
     const template = MOCK_RISKS[t.id] ?? MOCK_RISKS[t.id.split(":")[0]!];
     if (!template) continue;
-    const reason = `Anlass: ${t.text}`;
+    const reason = "Typisches Risiko zu diesem Hinweis aus dem Vorhaben.";
     const existing = req.project.openRisks.find((r) => titlesSimilar(r.title, template.title));
     if (existing) {
       if (existing.probability !== "hoch" && !reassessments.some((x) => x.risk === existing.label)) {
@@ -298,11 +298,12 @@ export function mockRiskReview(req: RiskReviewRequest): RiskReview {
           probability: higher(existing.probability),
           impact: existing.impact,
           mitigation: "",
-          reason: `Der Anlass besteht weiterhin. ${reason}`,
+          reason: "Der Anlass besteht weiterhin; der Eintritt ist wahrscheinlicher geworden.",
+          trigger: t.id,
         });
       }
     } else if (!newRisks.some((x) => x.title === template.title)) {
-      newRisks.push({ ...template, reason });
+      newRisks.push({ ...template, reason, trigger: t.id });
     }
   }
   return { newRisks: newRisks.slice(0, req.max), reassessments: reassessments.slice(0, req.max) };

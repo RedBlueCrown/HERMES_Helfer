@@ -27,6 +27,7 @@ import type { ProjectService, RequestContext } from "../projects/service";
 import { CRITIQUE_BUDGET_MS } from "./change-request-agent";
 import { checkStatusReport, mergeFindings, statusReportCritique, type StatusReportTexts } from "./kritiker";
 import { AiProviderError, USER_FACING_REASON, type AiProvider, type Usage } from "./provider";
+import type { ProposalStore } from "./proposals";
 import { projectContext, recordAiRun, type Logger } from "./runner";
 
 /** What the PL has entered so far: the colours and any text. */
@@ -36,6 +37,8 @@ export interface StatusReportInputSoFar {
 }
 
 export interface StatusReportProposal extends StatusReportTexts {
+  /** Publishing with this id records the texts as drafted by the agent. */
+  proposalId: string;
   /** Deterministic checks and the Kritiker's review; advice for the PL, not stored. */
   findings: Finding[];
   producer: Producer;
@@ -79,6 +82,7 @@ export class StatusReportAgent {
     private readonly projects: ProjectService,
     private readonly provider: AiProvider,
     private readonly log: Logger,
+    private readonly proposals: ProposalStore,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -174,10 +178,25 @@ export class StatusReportAgent {
           ];
         }
       }
+      const producer: Producer = {
+        kind: "ai",
+        agent: agent.id,
+        provider: info.provider,
+        model: info.model,
+        runId,
+      };
+      const proposalId = this.proposals.put<StatusReportTexts>({
+        kind: "status-report",
+        projectId: s.projectId,
+        userId: ctx.viewer.userId,
+        producer,
+        content: texts,
+      });
       proposal = {
         ...texts,
+        proposalId,
         findings: mergeFindings(checkStatusReport(texts, colours), review),
-        producer: { kind: "ai", agent: agent.id, provider: info.provider, model: info.model },
+        producer,
       };
     } catch (err) {
       this.log.error({ err, runId, projectId: s.projectId }, "status report draft failed");

@@ -420,7 +420,8 @@ function NewStatusReportForm({
   const [overview, setOverview] = useState("");
   const [outlook, setOutlook] = useState("");
   const [findings, setFindings] = useState<Finding[]>([]);
-  const [aiAssisted, setAiAssisted] = useState(false);
+  /** The agent's texts on the server; publishing with them records the agent as author. */
+  const [proposalId, setProposalId] = useState<string>();
   const [drafting, setDrafting] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -446,7 +447,7 @@ function NewStatusReportForm({
       overview,
       outlook,
       figures: figures(),
-      aiAssisted,
+      ...(proposalId ? { proposalId } : {}),
     }),
   );
 
@@ -469,7 +470,7 @@ function NewStatusReportForm({
         return next;
       });
       setFindings(p.findings);
-      setAiAssisted(true);
+      setProposalId(p.proposalId);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -616,7 +617,7 @@ function NewStatusReportForm({
               Texte mit dem Agenten entwerfen
             </Button>
             {drafting ? <Spinner size="tiny" label="Der Agent entwirft die Texte …" /> : null}
-            {aiAssisted && !drafting ? (
+            {proposalId && !drafting ? (
               <Badge appearance="tint" color="brand" icon={<Sparkle16Regular />}>
                 Vom Agenten entworfen, bitte prüfen
               </Badge>
