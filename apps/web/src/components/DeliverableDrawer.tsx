@@ -19,11 +19,17 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { CheckmarkCircle16Filled, Circle16Regular, Dismiss24Regular } from "@fluentui/react-icons";
+import {
+  ArrowDownload16Regular,
+  CheckmarkCircle16Filled,
+  Circle16Regular,
+  Dismiss24Regular,
+} from "@fluentui/react-icons";
 import type { DraftContent } from "@hermes-helfer/core";
 import { useState } from "react";
-import { commands, projectPath, useDeliverable, useProjectCommand } from "../api/hooks";
-import type { ChecklistView, DeliverableDetailView, SkillView } from "../api/types";
+import { saveFile } from "../api/client";
+import { commands, documentPath, projectPath, useApi, useDeliverable, useProjectCommand } from "../api/hooks";
+import type { ChecklistView, DeliverableDetailView, DocumentReport, SkillView } from "../api/types";
 import { DecisionForm, type DecisionValues } from "./DecisionForm";
 import { DraftEditor } from "./DraftEditor";
 import {
@@ -361,6 +367,60 @@ function SkillSection({ code, skill }: { code: string; skill: SkillView }) {
   );
 }
 
+/** The result in the organisation's Word template, for whoever may read it. */
+function DocumentSection({
+  code,
+  d,
+  report,
+}: {
+  code: string;
+  d: DeliverableDetailView;
+  report: DocumentReport;
+}) {
+  const s = useStyles();
+  const api = useApi();
+  const notify = useNotify();
+  const [busy, setBusy] = useState(false);
+  const fillable = report.fields - report.forPeople;
+  const download = async () => {
+    setBusy(true);
+    try {
+      saveFile(await api.download(documentPath(code, d.id)));
+    } catch (e) {
+      notify("error", "Download nicht möglich", errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className={s.skill} aria-label="Word-Dokument">
+      <Subtitle2 as="h3">Word-Dokument</Subtitle2>
+      <Caption1 className={s.muted}>
+        Vorlage «{report.template.fileName}», Version {report.template.version}
+      </Caption1>
+      <Body1>
+        {report.filled} von {fillable} Feldern sind gefüllt.
+        {report.forPeople
+          ? ` ${report.forPeople} Felder für Unterschrift, Freigabe und Klassifizierung füllen Menschen im Dokument aus.`
+          : ""}
+      </Body1>
+      {report.unplaced.length ? (
+        <MessageBar intent="warning" layout="multiline">
+          <MessageBarBody>
+            Diese Abschnitte des Entwurfs haben in der Vorlage kein Feld und fehlen im Dokument: «
+            {report.unplaced.join("», «")}». Der Entwurf ist wohl älter als die Vorlage.
+          </MessageBarBody>
+        </MessageBar>
+      ) : null}
+      <div>
+        <Button icon={<ArrowDownload16Regular />} disabled={busy} onClick={() => void download()}>
+          Als Word herunterladen
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function DrawerContent({ code, d }: { code: string; d: DeliverableDetailView }) {
   const s = useStyles();
   const notify = useNotify();
@@ -397,6 +457,8 @@ function DrawerContent({ code, d }: { code: string; d: DeliverableDetailView }) 
       {d.skills.map((sk) => (
         <SkillSection key={sk.id} code={code} skill={sk} />
       ))}
+
+      {d.document ? <DocumentSection code={code} d={d} report={d.document} /> : null}
 
       {d.checklist ? <ChecklistSection code={code} cl={d.checklist} /> : null}
 

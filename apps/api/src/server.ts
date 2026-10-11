@@ -15,6 +15,8 @@ import { AiQuota, QuotaProvider } from "./agents/quota";
 import { RunService } from "./agents/runner";
 import type { AuthenticatedUser, Authenticator, DevUser } from "./auth";
 import type { Config } from "./config";
+import { DocumentService } from "./documents/service";
+import { MemoryTemplateStore, type TemplateStore } from "./documents/template-store";
 import { HttpError } from "./errors";
 import type { ProjectRepository } from "./projects/repository";
 import { ProjectService } from "./projects/service";
@@ -33,6 +35,8 @@ export interface ServerDeps {
   config: Config;
   repo: ProjectRepository;
   store: EventStore;
+  /** The organisation's Word templates; in memory if not given (tests). */
+  templates?: TemplateStore;
   provider: AiProvider;
   authenticator: Authenticator;
   devUsers?: readonly DevUser[];
@@ -46,6 +50,7 @@ export interface Server {
   app: FastifyInstance;
   projects: ProjectService;
   runs: RunService;
+  documents: DocumentService;
 }
 
 const PUBLIC_PATHS = new Set(["/api/health", "/api/ready", "/api/config", "/api/dev/users"]);
@@ -84,7 +89,8 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
       now: () => now().getTime(),
     }),
   );
-  const runs = new RunService(deps.repo, projects, provider, app.log);
+  const documents = new DocumentService(deps.templates ?? new MemoryTemplateStore(), deps.repo.model);
+  const runs = new RunService(deps.repo, projects, provider, app.log, documents);
   const orchestrator = new Orchestrator(projects, runs, provider, app.log);
   const proposals = new ProposalStore();
   const changeRequestAgent = new ChangeRequestAgent(projects, provider, app.log, proposals);
@@ -202,6 +208,7 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     riskAgent,
     statusReportAgent,
     proposals,
+    documents,
     authenticator: deps.authenticator,
     provider: deps.provider.info,
     devUsers: deps.devUsers ?? [],
@@ -232,5 +239,5 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     return reply.sendFile("index.html");
   });
 
-  return { app, projects, runs };
+  return { app, projects, runs, documents };
 }

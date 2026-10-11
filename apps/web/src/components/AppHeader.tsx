@@ -98,6 +98,14 @@ export function AppHeader() {
         >
           Portfolio
         </NavLink>
+        {me.data?.can.manageTemplates ? (
+          <NavLink
+            to="/vorlagen"
+            className={({ isActive }) => mergeClasses(s.navLink, isActive && s.navActive)}
+          >
+            Vorlagen
+          </NavLink>
+        ) : null}
       </nav>
       {auth.mode === "dev" ? (
         <Badge appearance="filled" color="warning" title="Anmeldung mit fiktiven Personen, nur lokal">

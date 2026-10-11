@@ -8,7 +8,7 @@ import { ProjectRepository } from "./projects/repository";
 import { DEV_USERS } from "./seed/dev-users";
 import { seedDemo, seedSynthetic } from "./seed/seed";
 import { buildServer } from "./server";
-import { createStore } from "./store/create-store";
+import { createStores } from "./store/create-store";
 import { azureCredential } from "./util/azure-credential";
 
 const config = loadConfig();
@@ -21,7 +21,7 @@ const getCredential = () =>
     clientId: config.AZURE_CLIENT_ID,
   }));
 
-const store = await createStore(config, log, getCredential);
+const { events: store, templates } = await createStores(config, log, getCredential);
 const model = withPolicy(MODEL, { separationOfDuties: config.SEPARATION_OF_DUTIES });
 const repo = new ProjectRepository(store, model, {
   // todo-later E11: alert ISM and SOC instead of only logging.
@@ -45,6 +45,7 @@ const { app, runs } = await buildServer({
   config,
   repo,
   store,
+  templates,
   provider,
   authenticator,
   logger: log,

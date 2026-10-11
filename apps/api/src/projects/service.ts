@@ -96,6 +96,7 @@ import {
   mergeFindings,
 } from "../agents/kritiker";
 import { acceptedProducer, sameContent, type StoredProposal } from "../agents/proposals";
+import type { DraftPlan } from "../documents/service";
 import { HttpError, assertCheck, notFound, unprocessable } from "../errors";
 import { projectIdForCode, type ProjectRepository } from "./repository";
 
@@ -325,7 +326,14 @@ export class ProjectService {
   }
 
   /** Manual skills: the responsible person records the result directly. */
-  recordManualResult(code: string, ctx: RequestContext, skillId: string, draft: DraftContent) {
+  /** `plan`: the sections the result has, from the organisation's template (documents/service.ts). */
+  recordManualResult(
+    code: string,
+    ctx: RequestContext,
+    skillId: string,
+    draft: DraftContent,
+    plan?: Pick<DraftPlan, "sections" | "short" | "templates">,
+  ) {
     const skill = this.skillOrThrow(skillId);
     return this.command(code, ctx, (s) => {
       if (skill.mode !== "manual") {
@@ -341,8 +349,9 @@ export class ProjectService {
             runId,
             skillId,
             draft,
-            findings: checkDraftStructure(skill.sections, draft),
+            findings: checkDraftStructure(plan?.sections ?? skill.sections, draft, plan?.short),
             producer: { kind: "human" },
+            ...(plan?.templates.length ? { templates: plan.templates } : {}),
           },
         },
       ];

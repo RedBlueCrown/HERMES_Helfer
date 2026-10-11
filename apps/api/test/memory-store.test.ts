@@ -7,7 +7,15 @@ import { ProjectRepository } from "../src/projects/repository";
 import type { VerifyResult } from "../src/store/event-store";
 import { MemoryEventStore } from "../src/store/memory-event-store";
 import { canonicalJson } from "../src/util/canonical-json";
-import { ACTOR, created, eventStoreContract, released, sharedStoreContract } from "./store-contract";
+import { MemoryTemplateStore } from "../src/documents/template-store";
+import {
+  ACTOR,
+  created,
+  eventStoreContract,
+  released,
+  sharedStoreContract,
+  templateStoreContract,
+} from "./store-contract";
 
 describe("memory event store", () => {
   const store = new MemoryEventStore();
@@ -103,5 +111,36 @@ describe("project repository", () => {
     });
     expect((await repo.get("p-z"))?.lastSeq).toBe(2);
     expect(reads).toEqual([1]);
+  });
+});
+
+describe("memory template store", () => {
+  const store = new MemoryTemplateStore();
+  templateStoreContract(() => store);
+
+  it("keeps templates as files in the data folder for local development", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hh-templates-"));
+    const content = new TextEncoder().encode("Vorlage");
+    const by = { userId: "u-pmo", displayName: "PMO" };
+    const files = new MemoryTemplateStore({ dataDir: dir });
+    await files.add({
+      deliverableId: "auftrag",
+      fileName: "a.docx",
+      content,
+      uploadedBy: by,
+      uploadedAt: "x",
+    });
+    await files.add({
+      deliverableId: "auftrag",
+      fileName: "b.docx",
+      content,
+      uploadedBy: by,
+      uploadedAt: "y",
+    });
+    // A stray file in the folder does not stop the app from starting.
+    writeFileSync(join(dir, "templates", "notiz.txt"), "x");
+    const reloaded = new MemoryTemplateStore({ dataDir: dir });
+    expect(await reloaded.latest("auftrag")).toMatchObject({ version: 2, fileName: "b.docx" });
+    expect(readFileSync(join(dir, "templates", "auftrag", "1.docx"), "utf8")).toBe("Vorlage");
   });
 });

@@ -45,6 +45,9 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | E32 | **The PL closes the Risiko agent's proposals without accepting them** | The proposals stay on the server for a day (in memory, lost at a restart), but the web app does not offer them again; the next review calls the model again. | Show the last review of the project again, and keep the proposals of a weekly background review (H20). |
 | E33 | **A risk's title or description needs a correction** | Title and description cannot be changed; the PL or the responsible role closes the risk with a reason and records a new one. | Edit them, versioned, with the change in the risk's history. |
 | E34 | **A published status report contains an error** | It cannot be changed; the project lead publishes a new one, which becomes the latest. | A correction within a day, versioned, as long as the Projektausschuss has not taken note. |
+| E35 | **A new template version arrives while a draft exists** | The draft keeps the sections it has. The Word document fills the fields that fit (also by label, for a draft written before the template) and the drawer names the sections without a field. The agent drafts again only after a rejection by an approver. | Let the PL redraft along the new version, with a warning that edits to the draft are lost (question F41). |
+| E36 | **Another API instance takes a new template only after up to a minute** | Each instance keeps the list of templates in use for 60 seconds; the instance that took the upload uses it at once. A draft started meanwhile on another instance follows the previous version and names it. | A version number in the database that instances check before each draft. |
+| E37 | **A template has places the layout rules do not find** (content controls, text boxes, headers and footers, nested tables) | They stay as they are in the document. The PMO sees on «Vorlagen» which fields the HERMES Helfer found and who fills them. | Read content controls (w:sdt) as fields with their titles. |
 | E29 | **A gate is passed while Auflagen due at it are still open** | Allowed: the gate criterion "Auflagen erledigt" does not block. The Auflagen are then overdue in the project and in the portfolio. | As decided in F30: block the gate, or ask the decider to confirm the open Auflagen. |
 
 ## 2. Placeholders to replace
@@ -52,7 +55,7 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | ID | Placeholder | Replace with |
 |---|---|---|
 | P01 | HERMES model texts (phases, deliverables, skills) ported from prototype v22, neutralized for Firma Muster AG | Review against the PM-Handbuch and the "Szenarien-Ergebnis-Mapping" (question F17) |
-| P02 | Template sections per deliverable | The real Word templates (.dotx), question F19 |
+| P02 | Word templates: the Projektauftrag and the ISDS-Konzept are in use (uploaded by the PMO, never in the repository); every other deliverable keeps the model's sections. Which labels are facts of the app and which are left to people (`apps/api/src/documents/facts.ts`) follows these two templates | The remaining templates as they arrive; decisions F40 and F41 |
 | P03 | Kritiker findings of the mock model | Real critique prompts and checklists per deliverable |
 | P04 | Demo projects and dev users (all fictional) | Import of the real project list (question F9). Dev users only locally. |
 | P05 | Participation catalogue and rules from the prototype | Review by the PMO |

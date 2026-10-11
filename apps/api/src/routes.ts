@@ -28,6 +28,7 @@ import {
   STATUS_CRITERION_IDS,
   STATUS_REPORT_INTERVAL_DAYS,
   canCreateProject,
+  canManageTemplates,
   canVerifyAudit,
   changeRequestRegister,
   describeEvent,
@@ -49,13 +50,15 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { ChangeRequestAgent, ChangeRequestProposalContent } from "./agents/change-request-agent";
 import type { Orchestrator } from "./agents/orchestrator";
-import { SECTION_MAX } from "./agents/output";
+import { MAX_SECTIONS, SECTION_MAX } from "./agents/output";
 import type { ProviderInfo } from "./agents/provider";
 import type { ProposalStore, StoredProposal } from "./agents/proposals";
 import type { RiskAgent, RiskReviewContent } from "./agents/risk-agent";
 import type { StatusReportAgent } from "./agents/status-report-agent";
 import type { RunService } from "./agents/runner";
 import type { Authenticator, DevUser } from "./auth";
+import { registerDocumentRoutes } from "./documents/routes";
+import type { DocumentService } from "./documents/service";
 import { HttpError, notFound, parse } from "./errors";
 import type { ProjectRepository } from "./projects/repository";
 import type { ProjectService, RequestContext } from "./projects/service";
@@ -79,6 +82,8 @@ export interface RouteDeps {
   statusReportAgent: StatusReportAgent;
   /** Agent proposals until a person accepts them; the source of AI provenance. */
   proposals: ProposalStore;
+  /** The organisation's Word templates and the documents made from them. */
+  documents: DocumentService;
   authenticator: Authenticator;
   provider: ProviderInfo;
   devUsers: readonly DevUser[];
@@ -122,7 +127,7 @@ const Draft = z
     summary: z.string().max(4000),
     sections: z
       .array(z.object({ heading: z.string().trim().min(1).max(200), body: z.string().max(SECTION_MAX) }))
-      .max(40),
+      .max(MAX_SECTIONS),
     openPoints: z.array(z.string().max(500)).max(50).default([]),
   })
   .refine(
@@ -257,7 +262,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       globalRoles: user.globalRoles,
       authMode: deps.authenticator.mode,
       ai: deps.provider,
-      can: { createProject: canCreateProject(user), seeAllProjects: seesAllProjects(user) },
+      can: {
+        createProject: canCreateProject(user),
+        seeAllProjects: seesAllProjects(user),
+        manageTemplates: canManageTemplates(user),
+      },
     };
   });
 
@@ -349,7 +358,17 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const s = await projects.requireProject(code, c.viewer);
     const d = model.findDeliverable(deliverableId);
     if (!d) throw notFound("Dieses Ergebnis gibt es nicht.");
-    return deliverableDetailView(s, model, c.viewer, d, deps.now());
+    const now = deps.now();
+    const view = deliverableDetailView(s, model, c.viewer, d, now);
+    // With the organisation's template, a skill's sections are its fields (manual results too).
+    const skills = await Promise.all(
+      view.skills.map(async (sk) => {
+        const plan = await deps.documents.plan(model.skill(sk.id));
+        return plan.templates.length ? { ...sk, sections: plan.sections } : sk;
+      }),
+    );
+    const document = view.contentVisible ? await deps.documents.preview(s, d, c.viewer, now) : undefined;
+    return { ...view, skills, ...(document ? { document } : {}) };
   });
 
   app.post(
@@ -365,7 +384,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
   app.post("/api/projects/:code/skills/:skillId/result", async (req) => {
     const { code, skillId } = params(req, z.object({ code: Code, skillId: Id }));
     const body = parse(z.object({ draft: Draft }), req.body);
-    return projects.recordManualResult(code, ctx(req), skillId, body.draft);
+    const skill = model.findSkill(skillId);
+    const plan = skill ? await deps.documents.plan(skill) : undefined;
+    return projects.recordManualResult(code, ctx(req), skillId, body.draft, plan);
   });
 
   app.put("/api/projects/:code/skills/:skillId/draft", async (req) => {
@@ -775,4 +796,6 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       return orchestrator.respond(code, { ...ctx(req), channel: "chat" }, body.message, body.history);
     },
   );
+
+  registerDocumentRoutes(app, { model, projects, documents: deps.documents, now: deps.now, ctx });
 }

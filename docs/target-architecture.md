@@ -212,7 +212,7 @@ Each deliverable becomes a configuration-defined skill. The configuration lives 
 }
 ```
 
-The deliverable lists the template sections the draft must contain. These are placeholders until the templates arrive. The Kritiker first checks the sections deterministically (present, not empty, no open placeholders), then checks the content.
+The skill lists the sections the draft must contain. Where the PMO has uploaded the organisation's Word template for a deliverable, the template's fields take their place (§5.9); elsewhere they are placeholders until the templates arrive. The Kritiker first checks the sections deterministically (present, not empty, no open placeholders), then checks the content.
 
 ### 5.2 Tools and permissions
 
@@ -295,6 +295,16 @@ A model answers differently from one version to the next, and a changed prompt c
 - **Critical checks** must hold every time: personal data is recognised; an instruction hidden in the data is not followed; the agent never estimates effort or cost (a figure passes only if it was in what the agent got); the status report never states another overall colour; every risk proposal rests on a supplied fact.
 - **Quality checks** are counted as a rate: the template's sections are written, the areas of a change request are recognised and explained, a red criterion names an escalation, the Kritiker finds a contradiction to the variant decision.
 - **Runs.** In CI against the offline model, which keeps the cases and checks working, and a test proves that the checks catch a model that follows hidden instructions. On demand against Azure OpenAI, several times per case because the answers vary: `npm run eval -w @hermes-helfer/api -- --provider azure --repeat 3`, or in the test environment in the app's container, since the model is reachable only from the app's network ([staging.md](staging.md)). A run passes when no call failed, no critical check failed and at least 80 % of the quality checks pass.
+
+### 5.9 Word templates and documents
+
+The organisation's Word templates give the drafts their structure, and a result leaves the app as a Word document in the organisation's layout (`apps/api/src/documents`, todo-later P02, questions F40 and F41). The first two are the Projektauftrag and the ISDS-Konzept.
+
+1. **Upload.** The PMO uploads one template per deliverable on the page «Vorlagen» (.docx or .dotx, at most 5 MB). The file is checked before anything is parsed: size and number of parts unpacked (against zip bombs), no macros, no document type definitions in the XML. Every version stays: in Azure SQL in an append-only ledger table (`hh.templates`, migration 2), locally in files. The templates never go into the repository.
+2. **Fields.** The template needs no markup; the fields come from its layout. A chapter is a paragraph in «Überschrift 1». A text field is a bold label (or a lower heading) followed by an empty paragraph; a chapter followed directly by an empty paragraph is a field of its own. A cell field is a table row of two cells, a label and an empty cell. Fields before the first chapter belong to the cover («Deckblatt»). The Projektauftrag has 43 fields, the ISDS-Konzept 79.
+3. **Who fills a field.** The engine fills in facts it keeps: the project's name and code, the version, status and date of the content, and the people in the project's roles («Projektleitung», «Fachvertretung», «Weitere Rollen und Zuständigkeiten» …). People fill in approvals, signatures and the classification on the document: the chapter «Freigabe», «Unterschrift», «Ort und Datum», «Schutz- bzw. Vertraulichkeitsklasse». The agent drafts everything else: 25 fields of the Projektauftrag, 65 of the ISDS-Konzept. An agent never writes a fact or a signature field. The rules match the labels of these two templates (`documents/facts.ts`); a label they do not know is the agent's, and the PMO sees on «Vorlagen» who fills which field.
+4. **Drafting.** The skill that writes the deliverable (its output has the deliverable's name, otherwise the last one) drafts the template's agent fields as its sections, «Kapitel › Feld», in the template's order; table cells get a short value. A skill that writes several deliverables with templates drafts the fields of all of them. The draft records the template versions it follows (`SkillRunCompleted.templates`), and the Kritiker checks the template's sections. Manual results get the same sections.
+5. **Document.** Whoever may read the result (need-to-know as for the content, §6) downloads it as a Word document from the result's drawer. The template is filled: facts, the sections of the draft the person may read, and empty fields for people; the layout, styles, headers and footers stay as they are, bullets use the template's list style, and the document properties name the status, the content version and the template version. A draft written before the template fills the fields whose labels match its headings, and the drawer names the sections that have no field. Each download leaves a `document_export` entry in the audit log (who, which result, template and content version, never the content), each upload a `template_uploaded` entry.
 
 ## 6. Identity and authorization
 
@@ -433,7 +443,7 @@ The page «Portfolio» answers two questions for the PMO and the Portfolio-Gremi
 | Stream | Contents | Store |
 |---|---|---|
 | **1. Projektakte** | All project events: runs, drafts, edits, releases, approvals with reasons, gate decisions with Konsent and Auflagen, "nicht zutreffend", participation, checklist confirmations, membership changes | Event store with a hash chain (pilot). Later Azure SQL ledger table, daily export to WORM storage, decision PDFs as records. |
-| **2. AI run audit** | Per run: who, which skill and version, model deployment, sizes, tokens, duration, outcome, Kritiker findings | Structured `ai_run` log entries, and `chat` entries with tools and tokens (to Log Analytics), and the metrics `hh.ai_run.duration` and `hh.ai_run.tokens` in Application Insights via OpenTelemetry, without people or projects. Prompt content later in a separate store (§9.6). |
+| **2. AI run audit** | Per run: who, which skill and version, model deployment, sizes, tokens, duration, outcome, Kritiker findings. Also who uploaded a Word template and who downloaded a result as a document (§5.9) | Structured `ai_run`, `template_uploaded` and `document_export` log entries, and `chat` entries with tools and tokens (to Log Analytics), and the metrics `hh.ai_run.duration` and `hh.ai_run.tokens` in Application Insights via OpenTelemetry, without people or projects. Prompt content later in a separate store (§9.6). |
 | **3. Security and platform telemetry** | Entra sign-in and audit logs, Microsoft 365 audit log, Azure activity, APIM, WAF, Key Vault, PIM, Defender | Microsoft Sentinel |
 
 The **Verlauf** page shows stream 1 in plain German, and the integrity check verifies the hash chain on request.

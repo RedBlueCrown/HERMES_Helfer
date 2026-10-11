@@ -75,6 +75,13 @@ export interface RiskRef {
   score: number;
 }
 
+/** An organisation's Word template a draft follows: the deliverable it is for, its version and file hash. */
+export interface TemplateRef {
+  deliverableId: string;
+  version: number;
+  sha256: string;
+}
+
 /** Who produced a result: an AI agent (with model) or a person (manual skill). */
 export interface Producer {
   kind: "ai" | "human";
@@ -124,7 +131,15 @@ export type ProjectEvent =
   | { type: "SkillRunRequested"; data: { runId: string; skillId: string } }
   | {
       type: "SkillRunCompleted";
-      data: { runId: string; skillId: string; draft: DraftContent; findings: Finding[]; producer: Producer };
+      data: {
+        runId: string;
+        skillId: string;
+        draft: DraftContent;
+        findings: Finding[];
+        producer: Producer;
+        /** The templates whose fields the draft's sections are; absent: the model's sections. */
+        templates?: TemplateRef[];
+      };
     }
   | { type: "SkillRunFailed"; data: { runId: string; skillId: string; reason: string } }
   | { type: "DraftEdited"; data: { skillId: string; draft: DraftContent } }

@@ -31,7 +31,7 @@ import {
   type ToolSpec,
   type Usage,
 } from "./provider";
-import { SECTION_MAX, clampedList, clampedText } from "./output";
+import { MAX_SECTIONS, SECTION_MAX, clampedList, clampedText } from "./output";
 import {
   changeRequestSystemPrompt,
   changeRequestUserPrompt,
@@ -204,7 +204,10 @@ const CRITIQUE_SCHEMA = {
 // the agent proposes can be submitted as it is.
 const DraftOut = z.object({
   summary: clampedText(4000),
-  sections: clampedList(z.object({ heading: clampedText(200), body: clampedText(SECTION_MAX) }), 40),
+  sections: clampedList(
+    z.object({ heading: clampedText(200), body: clampedText(SECTION_MAX) }),
+    MAX_SECTIONS,
+  ),
   openPoints: clampedList(clampedText(500), 50),
 });
 const FlagOut = z.object({ value: z.boolean(), reason: clampedText(500) });

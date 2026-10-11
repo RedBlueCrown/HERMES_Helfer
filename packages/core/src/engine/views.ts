@@ -57,6 +57,7 @@ import type {
   Producer,
   RiskRef,
   StatusFigures,
+  TemplateRef,
 } from "./events";
 import { isInvolved, participantsFor } from "./participation";
 import {
@@ -571,6 +572,8 @@ export interface SkillOutputView {
   producer: Producer;
   editedAt?: string;
   editedBy?: ActorRef;
+  /** The organisation's templates whose fields the draft's sections are. */
+  templates?: TemplateRef[];
   findings: Finding[];
   /** null when the content is restricted for the viewer. */
   draft: DraftContent | null;
@@ -628,7 +631,8 @@ export interface DeliverableDetailView {
 
 const roleLabel = (r: ProjectRole) => PROJECT_ROLE_LABELS[r];
 
-function hasAiDraft(s: ProjectState, d: DeliverableDef): boolean {
+/** An agent wrote the latest content of one of the deliverable's skills. */
+export function hasAiDraft(s: ProjectState, d: DeliverableDef): boolean {
   return d.skills.some((id) => s.skills[id]?.output?.producer.kind === "ai");
 }
 
@@ -1408,6 +1412,7 @@ function skillView(s: ProjectState, model: HermesModel, v: Viewer, sk: SkillDef)
             producer: st.output.producer,
             ...(st.output.editedAt ? { editedAt: st.output.editedAt } : {}),
             ...(st.output.editedBy ? { editedBy: st.output.editedBy } : {}),
+            ...(st.output.templates ? { templates: st.output.templates } : {}),
             findings: visible ? st.output.findings : [],
             draft: visible ? st.output.draft : null,
           },

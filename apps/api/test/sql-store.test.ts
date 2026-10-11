@@ -16,7 +16,15 @@ import {
 } from "../src/store/sql/migrations";
 import { sql, type Mssql } from "../src/store/sql/mssql";
 import { SqlEventStore, isTransientSqlError } from "../src/store/sql/sql-event-store";
-import { ACTOR, created, eventStoreContract, released, sharedStoreContract } from "./store-contract";
+import { SqlTemplateStore } from "../src/store/sql/sql-template-store";
+import {
+  ACTOR,
+  created,
+  eventStoreContract,
+  released,
+  sharedStoreContract,
+  templateStoreContract,
+} from "./store-contract";
 
 const server = process.env.TEST_SQL_SERVER;
 const noop = () => undefined;
@@ -83,6 +91,7 @@ describe.skipIf(!server)("SQL event store on SQL Server", () => {
   describe("as the app's database user (role hh_app)", () => {
     eventStoreContract(() => store);
     sharedStoreContract(() => store);
+    templateStoreContract(() => new SqlTemplateStore(app));
 
     it("reads the schema version and answers the readiness probe", async () => {
       expect(await assertSchema(app)).toBe(SCHEMA_VERSION);
@@ -99,6 +108,8 @@ describe.skipIf(!server)("SQL event store on SQL Server", () => {
         ["CREATE TABLE hh.x (id int)", /permission/i],
         ["DROP TABLE hh.events", /permission/i],
         ["INSERT INTO hh.schema_migrations (version, name, checksum) VALUES (99, 'x', 'x')", /permission/i],
+        ["UPDATE hh.templates SET file_name = N'x'", /ledger|permission/i],
+        ["DELETE FROM hh.templates", /ledger|permission/i],
       ];
       for (const [statement, message] of refused) {
         await expect(app.request().query(statement), statement).rejects.toThrow(message);

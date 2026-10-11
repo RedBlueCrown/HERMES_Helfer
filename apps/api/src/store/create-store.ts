@@ -1,11 +1,13 @@
 import type { TokenCredential } from "@azure/identity";
 import type { Config } from "../config";
+import { MemoryTemplateStore, type TemplateStore } from "../documents/template-store";
 import type { Logger } from "../logger";
 import type { EventStore } from "./event-store";
 import { MemoryEventStore } from "./memory-event-store";
 import { connectSql, type SqlSettings } from "./sql/connection";
 import { assertSchema, migrate } from "./sql/migrations";
 import { SqlEventStore } from "./sql/sql-event-store";
+import { SqlTemplateStore } from "./sql/sql-template-store";
 
 export type SqlConfig = Pick<
   Config,
@@ -34,14 +36,21 @@ export async function sqlSettings(
   };
 }
 
-/** The event store from the configuration. Checks the database schema before use. */
-export async function createStore(
+export interface Stores {
+  events: EventStore;
+  /** The organisation's Word templates (documents/template-store.ts). */
+  templates: TemplateStore;
+}
+
+/** The stores from the configuration. Checks the database schema before use. */
+export async function createStores(
   config: Config,
   log: Logger,
   credential: () => Promise<TokenCredential>,
-): Promise<EventStore> {
+): Promise<Stores> {
   if (config.STORE === "memory") {
-    return new MemoryEventStore(config.DATA_DIR ? { dataDir: config.DATA_DIR } : {});
+    const files = config.DATA_DIR ? { dataDir: config.DATA_DIR } : {};
+    return { events: new MemoryEventStore(files), templates: new MemoryTemplateStore(files) };
   }
   const pool = await connectSql(await sqlSettings(config, credential), (err) =>
     log.error({ err }, "sql connection error"),
@@ -52,5 +61,5 @@ export async function createStore(
   }
   const version = await assertSchema(pool);
   log.info({ store: "sql", schemaVersion: version }, "event store ready");
-  return new SqlEventStore(pool);
+  return { events: new SqlEventStore(pool), templates: new SqlTemplateStore(pool) };
 }

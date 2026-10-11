@@ -68,12 +68,13 @@ Example: `MODEL_CAPACITY=10 REASONING_EFFORT=low scripts/deploy-azure.sh`. To sw
 2. **Create a project.** Vorhaben → «Neues Vorhaben», project lead «Ich selbst».
 3. **Take the other roles.** In the project: «Beteiligte und Rollen» → «Mich selbst», then for example «Auftraggeber / Projektausschuss», «Informationssicherheit (ISM)» and «Datenschutz». Now you can try every decision on your own. This works only because the test environment turns separation of duties off (`separationOfDuties = false` in `infra/test.bicepparam`; the page says so). In the pilot, the project lead never holds these control roles, the PMO assigns them, and nobody decides their own change request (architecture §6.1, question F37).
 4. **Let an agent draft.** Lieferergebnisse → «Kick-off-Roundtable» → «Entwurf erstellen». After 10 to 60 seconds the draft appears as «Entwurf (KI)»; the drawer names the model and shows the Kritiker's hints. Edit it if you like, then «Freigeben».
-5. **Ask the assistant.** «Assistent fragen». Its header shows «KI-Modell … (Sweden Central (regional))»: it understands free text, for example «Was fehlt noch bis zum Gate?» or «Starte Projektgrundlagen».
-6. **Change request.** «Change Requests» → «Neuer Change Request». Describe a wish in two sentences, click «Mit dem Agenten ausarbeiten», check the text and the areas, estimate the effort, «Einreichen». Then decide it as Projektausschuss (with Konsent) and, if it touches personal data, confirm the recheck as ISM and Datenschutz. Until then the gate stays closed.
-7. **Risks.** «Risiken» → «Risiken prüfen lassen»: the agent names the facts it looked at and proposes risks. Select the ones that fit, adjust them, «Ausgewählte übernehmen». A high risk gives the responsible role a task; open a risk to assess it again or close it.
-8. **Status report.** «Statusbericht» → «Neuer Statusbericht»: the app suggests a colour per criterion and says why. Decide the colours, let the agent draft the texts, «Veröffentlichen». As Projektausschuss, take note of it.
-9. **Portfolio.** «Portfolio» shows your projects with their signals and status, for example the open change request, a high risk or a red status report.
-10. **Invite colleagues.** Entra admin center → Enterprise applications → «HERMES Helfer API (test)» → Users and groups → add people or groups with the role *HH.User* (or *HH.PMO*, *HH.Portfolio*). To give them a role in a project, you need their Entra object ID (Entra admin center → Users → the person → Object ID); a people picker follows later (todo-later E26).
+5. **Word templates.** «Vorlagen» (only for the PMO) → «Projektauftrag» → «Vorlage hochladen» with the .docx. The drawer lists the fields found and who fills each one: «Agent», «HERMES Helfer» (facts of the project) or «Person» (approval, signature, classification). Do this before the first draft of the result: a draft follows the template only if it was written after the upload. In a project in Initialisierung: «Projektauftrag» → «Entwurf erstellen»; the draft has the template's fields as sections. Check and edit it, then «Als Word herunterladen». The ISDS-Konzept works the same in the phase Konzept, with the role «Informationssicherheit (ISM)». An ISDS draft from before the upload follows the template once the ISM sends it back («Zurückweisen») and the agent drafts it again.
+6. **Ask the assistant.** «Assistent fragen». Its header shows «KI-Modell … (Sweden Central (regional))»: it understands free text, for example «Was fehlt noch bis zum Gate?» or «Starte Projektgrundlagen».
+7. **Change request.** «Change Requests» → «Neuer Change Request». Describe a wish in two sentences, click «Mit dem Agenten ausarbeiten», check the text and the areas, estimate the effort, «Einreichen». Then decide it as Projektausschuss (with Konsent) and, if it touches personal data, confirm the recheck as ISM and Datenschutz. Until then the gate stays closed.
+8. **Risks.** «Risiken» → «Risiken prüfen lassen»: the agent names the facts it looked at and proposes risks. Select the ones that fit, adjust them, «Ausgewählte übernehmen». A high risk gives the responsible role a task; open a risk to assess it again or close it.
+9. **Status report.** «Statusbericht» → «Neuer Statusbericht»: the app suggests a colour per criterion and says why. Decide the colours, let the agent draft the texts, «Veröffentlichen». As Projektausschuss, take note of it.
+10. **Portfolio.** «Portfolio» shows your projects with their signals and status, for example the open change request, a high risk or a red status report.
+11. **Invite colleagues.** Entra admin center → Enterprise applications → «HERMES Helfer API (test)» → Users and groups → add people or groups with the role *HH.User* (or *HH.PMO*, *HH.Portfolio*). To give them a role in a project, you need their Entra object ID (Entra admin center → Users → the person → Object ID); a people picker follows later (todo-later E26).
 
 ## Check that the agents use Azure OpenAI
 
@@ -87,6 +88,8 @@ Example: `MODEL_CAPACITY=10 REASONING_EFFORT=low scripts/deploy-azure.sh`. To sw
   | project TimeGenerated, Log
   | order by TimeGenerated desc
   ```
+
+  Uploads of templates and downloads of documents leave entries of the types `template_uploaded` and `document_export` in the same log.
 
 ## Check the agents with the evaluation set
 
@@ -106,10 +109,13 @@ Nine cases, three times each: about 30 model calls. The report lists every case,
 | The script stops: «Not enough quota» | Too little quota for the model | `MODEL_CAPACITY=10`, or request more in the Foundry portal |
 | The deployment fails with *InsufficientQuota* or a note on registration | The model needs approval or more quota | Request it, or pick another model |
 | `az acr build` fails | Some subscription types (free trial, student) cannot use ACR Tasks | The script prints the `docker build` and `docker push` commands; then run it with `SKIP_BUILD=1 TAG=…` |
-| Sign-in shows *AADSTS50105* | Your account has no app role | Assign a role (step 10); the script gives it to the person who runs it |
+| Sign-in shows *AADSTS50105* | Your account has no app role | Assign a role (step 11); the script gives it to the person who runs it |
 | Drafts fail with «Das KI-Modell ist gerade nicht erreichbar» right after the first deployment | The app's permission on the model takes a few minutes to become effective | Wait 10 minutes and try again; the logs show the status code (401/403) |
 | Drafts fail with «… keinen gültigen Entwurf geliefert» | The answer was cut off at the token limit | `REASONING_EFFORT=low`, or raise `AZURE_OPENAI_MAX_COMPLETION_TOKENS` on the container app |
 | The assistant answers «aus den festen Regeln» | The chat model call failed | As above; the logs show «chat model failed» |
+| «Vorlagen» refuses a file: «keine Felder zu erkennen» | The chapters are not in the style «Überschrift 1», or the labels above the empty paragraphs are not bold | Fix the template in Word and upload it again; every upload is a new version |
+| No «Als Word herunterladen» in a result's drawer | No template for this result yet, or the result is confidential for your roles | Upload the template under «Vorlagen»; take a role that may read the result |
+| The Word document has empty fields the agent should have filled | The draft was written before the template; the drawer names its sections without a field | Let the agent draft again (for the ISDS-Konzept after «Zurückweisen»), or copy the text in Word |
 | The app does not become ready | Database or migration | `az containerapp logs show -g rg-hermes-helfer-test -n ca-hh-test-api --tail 50` |
 
 ## Costs and removing it

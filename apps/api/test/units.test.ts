@@ -12,7 +12,7 @@ import { exportJWK, generateKeyPair, SignJWT, createLocalJWKSet } from "jose";
 import { describe, expect, it } from "vitest";
 import { AzureOpenAiProvider } from "../src/agents/azure-openai-provider";
 import { checkDraftStructure } from "../src/agents/kritiker";
-import { SECTION_MAX, cut, fitSections } from "../src/agents/output";
+import { MAX_SECTIONS, SECTION_MAX, cut, fitSections } from "../src/agents/output";
 import { AiQuota, type QuotaOptions } from "../src/agents/quota";
 import { CONFIDENTIAL_SUMMARY, agentFailure, projectContext } from "../src/agents/runner";
 import { AiProviderError } from "../src/agents/provider";
@@ -305,6 +305,33 @@ describe("agent output that does not fit (review F7)", () => {
     expect(findings.map((f) => f.text)).toEqual([
       "Der Abschnitt «Gewünschte Änderung» war zu lang und wurde gekürzt; bitte das Ende prüfen.",
     ]);
+  });
+
+  it("fits a draft into a Word template's fields when the model leaves out the chapter", () => {
+    const fields = [
+      "Deckblatt › System / Anwendung",
+      "3. Schutzbedarf › Vertraulichkeit",
+      "4. System › Vertraulichkeit",
+    ];
+    const { draft, findings } = fitSections(
+      {
+        summary: "S",
+        sections: [
+          { heading: "System / Anwendung", body: "Kundenportal" },
+          { heading: "Vertraulichkeit", body: "Hoch." },
+          { heading: "4. System › Vertraulichkeit", body: "Nur intern." },
+        ],
+        openPoints: [],
+      },
+      fields,
+    );
+    // The first field of a label that is still free; the exact heading wins.
+    expect(draft.sections).toEqual([
+      { heading: fields[0], body: "Kundenportal" },
+      { heading: fields[1], body: "Hoch." },
+      { heading: fields[2], body: "Nur intern." },
+    ]);
+    expect(findings).toEqual([]);
   });
 
   it("names empty headings and merges repeated ones when there is no template", () => {
@@ -867,7 +894,7 @@ describe("Azure OpenAI provider (against a fake API)", () => {
   it("cuts over-long text and surplus items instead of wasting the call", async () => {
     const long = {
       summary: "x".repeat(5000),
-      sections: Array.from({ length: 45 }, (_, i) => ({ heading: `Teil ${i}`, body: "B" })),
+      sections: Array.from({ length: MAX_SECTIONS + 5 }, (_, i) => ({ heading: `Teil ${i}`, body: "B" })),
       openPoints: ["y".repeat(600)],
     };
     const { fn } = fakeFetch(200, {
@@ -876,7 +903,7 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     const { draft } = await new AzureOpenAiProvider(cfg, async () => "tok", fn).draft(req);
     expect(draft.summary).toHaveLength(4000);
     expect(draft.summary.endsWith("…")).toBe(true);
-    expect(draft.sections).toHaveLength(40);
+    expect(draft.sections).toHaveLength(MAX_SECTIONS);
     expect(draft.openPoints[0]).toHaveLength(500);
   });
 

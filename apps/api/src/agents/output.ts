@@ -8,6 +8,9 @@ import { z } from "zod";
 /** The longest section body the API accepts in a draft (routes.ts) and asks of the model. */
 export const SECTION_MAX = 30_000;
 
+/** The most sections a draft has: a Word template can have many fields (documents/). */
+export const MAX_SECTIONS = 150;
+
 /** `s` cut to `max` characters, marked with an ellipsis; never splits a character. */
 export function cut(s: string, max: number): string {
   if (s.length <= max) return s;
@@ -24,11 +27,14 @@ export const clampedList = <T extends z.ZodType>(item: T, max: number) =>
   z.array(item).transform((items) => items.slice(0, max));
 
 const norm = (heading: string) => heading.trim().replace(/\s+/g, " ").toLowerCase();
+/** The field of a Word template's heading «Kapitel › Feld» (documents/template.ts). */
+const fieldOf = (heading: string) => norm(heading.split(" › ").pop() ?? heading);
 
 /**
  * The draft in the template's sections and order, whatever headings the model
  * used: the same heading (ignoring case and spaces) first, then one that starts
- * like a template heading («Begründung» for «Begründung und Nutzen»). Text under
+ * like a template heading («Begründung» for «Begründung und Nutzen»), then the
+ * field of a Word template's «Kapitel › Feld» without its chapter. Text under
  * any other heading moves to the section before it, under its own heading, and
  * a hint says so: nothing the model wrote is lost, and every section is one
  * field with a heading. Without a template, sections keep their order; empty
@@ -60,6 +66,7 @@ export function fitSections(
         (t, j) => !used.has(j) && (norm(t).startsWith(heading) || heading.startsWith(norm(t))),
       );
     }
+    if (i < 0) i = headings.findIndex((t, j) => !used.has(j) && t.includes(" › ") && fieldOf(t) === heading);
     if (i >= 0) {
       if (body) bodies[i]!.push(body);
       used.add(i);

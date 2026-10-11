@@ -28,6 +28,7 @@ import type {
   StatusEntry,
   StatusFigures,
   StoredEvent,
+  TemplateRef,
 } from "./events";
 
 export interface ActorRef {
@@ -48,6 +49,8 @@ export interface SkillOutput {
   draft: DraftContent;
   findings: Finding[];
   producer: Producer;
+  /** The templates whose fields the draft's sections are (SkillRunCompleted). */
+  templates?: TemplateRef[];
   createdAt: string;
   requestedBy: ActorRef;
   /** Increases with every new run result or edit. */
@@ -296,6 +299,7 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
         draft: e.data.draft,
         findings: e.data.findings,
         producer: e.data.producer,
+        ...(e.data.templates ? { templates: e.data.templates } : {}),
         createdAt: e.at,
         requestedBy: run?.requestedBy ?? ref(e.actor),
         version: (sk.output?.version ?? 0) + 1,

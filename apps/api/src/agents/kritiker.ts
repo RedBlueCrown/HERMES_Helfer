@@ -22,7 +22,12 @@ import type { CritiqueRequest } from "./provider";
 
 const OPEN_MARKER = /\[OFFEN/;
 
-export function checkDraftStructure(sections: readonly string[], draft: DraftContent): Finding[] {
+/** `short`: sections whose answer is a short value by nature (table cells of a template). */
+export function checkDraftStructure(
+  sections: readonly string[],
+  draft: DraftContent,
+  short: readonly string[] = [],
+): Finding[] {
   const findings: Finding[] = [];
   const byHeading = new Map(draft.sections.map((s) => [s.heading.trim().toLowerCase(), s]));
   for (const heading of sections) {
@@ -30,7 +35,7 @@ export function checkDraftStructure(sections: readonly string[], draft: DraftCon
     // An empty section counts as missing (output.ts fits drafts into all sections).
     if (!section?.body.trim()) {
       findings.push({ severity: "warnung", source: "checkliste", text: `Abschnitt «${heading}» fehlt.` });
-    } else if (section.body.trim().length < 40) {
+    } else if (section.body.trim().length < 40 && !short.includes(heading)) {
       findings.push({
         severity: "hinweis",
         source: "checkliste",

@@ -61,9 +61,16 @@ export interface RiskBrief {
 
 export interface DraftRequest {
   agent: AgentDef;
+  /** With a template, its sections are the template's fields (documents/service.ts). */
   skill: SkillDef;
   deliverables: readonly DeliverableDef[];
   project: ProjectContext;
+  /** The organisation's Word templates the draft follows. */
+  template?: {
+    titles: readonly string[];
+    /** Sections that are table cells: a short value, no running text. */
+    short: readonly string[];
+  };
 }
 
 /** A document the Kritiker reviews: the draft of a skill or a change request. */

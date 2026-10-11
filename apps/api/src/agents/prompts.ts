@@ -39,6 +39,13 @@ export function draftSystemPrompt(req: DraftRequest): string {
     "- Verwende genau die vorgegebenen Abschnitte in dieser Reihenfolge, mit diesen Überschriften.",
     "- Nenne fehlende Angaben zusätzlich unter openPoints.",
     "- Gibt es einen Abschnitt zu Risiken, stütze ihn auf das Risikoregister des Vorhabens.",
+    ...(req.template
+      ? [
+          "- Die Abschnitte sind die Felder der Word-Vorlage der Organisation: «Kapitel › Feld». Schreibe in jedes Feld nur, was dorthin gehört.",
+          "- Felder unter «kurze_felder» sind Tabellenzellen: nur ein kurzer Wert oder wenige Stichworte, kein Fliesstext.",
+          "- Bei vielen Feldern: knapp bleiben, wenige Sätze oder Aufzählungspunkte («- ») je Feld.",
+        ]
+      : []),
     "Antworte ausschliesslich im vorgegebenen JSON-Format.",
   ].join("\n");
 }
@@ -53,6 +60,7 @@ export function draftUserPrompt(req: DraftRequest): string {
       pflicht: d.requirement === "pflicht",
     })),
     abschnitte: req.skill.sections,
+    ...(req.template ? { vorlage: req.template.titles, kurze_felder: req.template.short } : {}),
     vorhaben: {
       kuerzel: req.project.code,
       name: req.project.name,

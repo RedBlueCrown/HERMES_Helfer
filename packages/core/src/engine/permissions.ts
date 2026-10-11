@@ -541,6 +541,11 @@ export function canCreateProject(v: Viewer): boolean {
   return hasGlobal(v, "HH.PMO");
 }
 
+/** The organisation's Word templates are the PMO's. */
+export function canManageTemplates(v: Viewer): boolean {
+  return hasGlobal(v, "HH.PMO");
+}
+
 /** Sees every project (PMO, Portfolio-Gremium). */
 export function seesAllProjects(v: Viewer): boolean {
   return hasGlobal(v, "HH.PMO", "HH.Portfolio");

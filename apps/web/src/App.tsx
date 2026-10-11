@@ -18,6 +18,7 @@ import { ErrorView, NotifyProvider } from "./components/ui";
 import { PortfolioPage } from "./pages/PortfolioPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { TemplatesPage } from "./pages/TemplatesPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: true, staleTime: 5_000 } },
@@ -51,6 +52,7 @@ function Shell() {
           <Route path="/" element={<ProjectsPage />} />
           <Route path="/portfolio" element={<PortfolioPage />} />
           <Route path="/vorhaben/:code" element={<ProjectPage />} />
+          <Route path="/vorlagen" element={<TemplatesPage />} />
           <Route
             path="*"
             element={

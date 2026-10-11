@@ -35,7 +35,7 @@ Everything is in one resource group in one EU region (default: the resource grou
 | Container Apps environment | Runs the app in its own virtual network | Logs to Log Analytics, encrypted traffic between apps |
 | Container app `ca-hh-<env>-api` | API and web app in one container, one instance | Managed identity, HTTPS only, optional IP allowlist, probes on `/api/health` and `/api/ready` |
 | Container Apps job `caj-hh-<env>-migrate` | Database migrations, started by hand | Own managed identity, the only database admin |
-| Azure SQL Database | Projektakte (events in an append-only ledger table) | Entra ID only, no public access (private endpoint), auditing without statement texts, Defender for SQL, delete lock |
+| Azure SQL Database | Projektakte (events in an append-only ledger table), the Word templates of the PMO (every version, append-only ledger table) | Entra ID only, no public access (private endpoint), auditing without statement texts, Defender for SQL, delete lock |
 | Storage account | Ledger digests of the database | Immutable container, no shared keys, only the SQL server and private endpoints get in, delete lock |
 | Microsoft Foundry (AI Services) | Azure OpenAI model deployments | Entra ID only, no public access, no outbound calls, pinned model versions, default content filter with Prompt Shields |
 | Container registry | Images | No admin user, pull with managed identities |

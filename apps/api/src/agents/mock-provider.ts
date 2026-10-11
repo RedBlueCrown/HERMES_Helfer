@@ -44,6 +44,7 @@ const MOCK_FINDINGS: Readonly<Record<string, string>> = {
 
 export function mockDraft(req: DraftRequest): DraftContent {
   const p = req.project;
+  const short = new Set(req.template?.short ?? []);
   const facts = [
     `Schutzbedarf ${p.profile.schutzbedarf}`,
     p.profile.personendaten ? "Personendaten" : null,
@@ -62,11 +63,17 @@ export function mockDraft(req: DraftRequest): DraftContent {
     summary: `Testentwurf «${req.skill.outputDoc}» für das Vorhaben «${p.name}» (${p.code}). Erstellt im Testmodus ohne KI-Modell; alle Inhalte sind Platzhalter.`,
     sections: req.skill.sections.map((heading) => ({
       heading,
-      body: /risik/i.test(heading)
-        ? `${heading} für «${p.name}»: ${risks}`
-        : `${heading} für «${p.name}»: Hier fasst der Agent «${req.agent.name}» die Angaben aus den Projektunterlagen zusammen. Im Testmodus steht an dieser Stelle ein Platzhalter. Phase ${p.phaseLabel}; Profil: ${facts}.`,
+      body: short.has(heading)
+        ? "Platzhalter (Testmodus)"
+        : /risik/i.test(heading)
+          ? `${heading} für «${p.name}»: ${risks}`
+          : `${heading} für «${p.name}»: Hier fasst der Agent «${req.agent.name}» die Angaben aus den Projektunterlagen zusammen. Im Testmodus steht an dieser Stelle ein Platzhalter. Phase ${p.phaseLabel}; Profil: ${facts}.`,
     })),
-    openPoints: ["Platzhalter: Die Vorlage der Firma Muster AG fehlt noch (todo-later P02)."],
+    openPoints: [
+      req.template
+        ? `Platzhalter: Im Testmodus füllt kein KI-Modell die Felder der Vorlage «${req.template.titles.join("», «")}».`
+        : "Platzhalter: Die Vorlage der Firma Muster AG fehlt noch (todo-later P02).",
+    ],
   };
 }
 

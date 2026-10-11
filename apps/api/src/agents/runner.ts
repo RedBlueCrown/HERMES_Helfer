@@ -24,6 +24,7 @@ import {
 } from "@hermes-helfer/core";
 import { metrics } from "@opentelemetry/api";
 import { randomUUID } from "node:crypto";
+import type { DocumentService } from "../documents/service";
 import { HttpError, assertCheck, notFound } from "../errors";
 import type { ProjectRepository } from "../projects/repository";
 import { PROJECT_NOT_FOUND, actorFor, type ProjectService, type RequestContext } from "../projects/service";
@@ -218,6 +219,8 @@ export class RunService {
     private readonly projects: ProjectService,
     private readonly provider: AiProvider,
     private readonly log: Logger,
+    /** The organisation's templates: a skill that writes a templated result drafts its fields. */
+    private readonly documents: DocumentService,
   ) {}
 
   private get model() {
@@ -267,23 +270,30 @@ export class RunService {
     let event: ProjectEvent;
     let usage = { inputTokens: 0, outputTokens: 0 };
     try {
+      // With a template, the sections are its fields for the agent (documents/service.ts).
+      const plan = await this.documents.plan(skill);
+      const drafting: SkillDef = { ...skill, sections: plan.sections };
       // The draft runs in the background: it continues when the person leaves the page.
       const call = callFor(ctx, { background: true });
       const drafted = await this.provider.draft(
         // The draft is read by who may read the skill's results: the context follows them.
         {
           agent,
-          skill,
+          skill: drafting,
           deliverables,
           project: projectContext(s, this.model, ctx.viewer, skillReaders(this.model, skill)),
+          ...(plan.templates.length ? { template: { titles: plan.titles, short: plan.short } } : {}),
         },
         call,
       );
       if (drafted.usage) usage = drafted.usage;
-      const fitted = fitSections(drafted.draft, skill.sections);
+      const fitted = fitSections(drafted.draft, plan.sections);
       let content: Finding[];
       try {
-        const critique = await this.provider.critique(skillCritique(skill, deliverables, fitted.draft), call);
+        const critique = await this.provider.critique(
+          skillCritique(drafting, deliverables, fitted.draft),
+          call,
+        );
         content = critique.findings;
         usage = addUsage(usage, critique.usage);
       } catch (err) {
@@ -304,10 +314,11 @@ export class RunService {
           skillId: skill.id,
           draft: fitted.draft,
           findings: mergeFindings(
-            [...checkDraftStructure(skill.sections, fitted.draft), ...fitted.findings],
+            [...checkDraftStructure(plan.sections, fitted.draft, plan.short), ...fitted.findings],
             content,
           ),
           producer: { kind: "ai", agent: agent.id, provider: info.provider, model: info.model },
+          ...(plan.templates.length ? { templates: plan.templates } : {}),
         },
       };
     } catch (err) {

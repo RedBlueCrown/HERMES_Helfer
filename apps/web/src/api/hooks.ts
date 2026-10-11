@@ -16,6 +16,8 @@ import type {
   RiskRegisterView,
   Scope,
   StatusReportRegisterView,
+  TemplateInfo,
+  TemplateOverview,
   VerifyResult,
 } from "./types";
 
@@ -131,6 +133,35 @@ export function useDeliverable(code: string, deliverableId: string | null) {
     refetchInterval: (q) => (q.state.data?.status === "running" ? 1500 : false),
   });
 }
+
+export function useTemplates(enabled: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["templates"],
+    queryFn: () => api.get<{ items: TemplateOverview[] }>("/api/templates"),
+    enabled,
+  });
+}
+
+/** The PMO keeps a new template version; drafts and documents use it from then on. */
+export function useUploadTemplate() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { deliverableId: string; file: File }) =>
+      api.upload<TemplateInfo>(`/api/templates/${enc(v.deliverableId)}`, v.file),
+    onSettled: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["templates"] }),
+        qc.invalidateQueries({ queryKey: ["deliverable"] }),
+      ]);
+    },
+  });
+}
+
+export const templateFilePath = (deliverableId: string) => `/api/templates/${enc(deliverableId)}/file`;
+export const documentPath = (code: string, deliverableId: string) =>
+  `${projectPath(code)}/deliverables/${enc(deliverableId)}/document`;
 
 export function useChangeRequests(code: string) {
   const api = useApi();

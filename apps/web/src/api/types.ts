@@ -4,6 +4,7 @@ import type {
   AgentDef,
   Ampel,
   CrFlag,
+  DeliverableDetailView as CoreDeliverableDetailView,
   GlobalRole,
   Level,
   PhaseId,
@@ -28,7 +29,6 @@ export type {
   ChangeRequestView,
   ChecklistView,
   ConditionView,
-  DeliverableDetailView,
   DeliverableRowView,
   GateView,
   MemberView,
@@ -53,7 +53,7 @@ export interface Me {
   globalRoles: GlobalRole[];
   authMode: "dev" | "entra";
   ai: { provider: string; model: string; region: string; supportsChat: boolean };
-  can: { createProject: boolean; seeAllProjects: boolean };
+  can: { createProject: boolean; seeAllProjects: boolean; manageTemplates: boolean };
 }
 
 export interface Reference {
@@ -135,3 +135,51 @@ export interface ChatReply {
 export interface CommandResult {
   lastSeq: number;
 }
+
+// ---------- Word templates (apps/api/src/documents) ----------
+
+/** "engine": the app fills it in; "agent": the agent drafts it; "person": people fill it in on the document. */
+export type FieldSource = "engine" | "agent" | "person";
+
+export interface TemplateField {
+  id: string;
+  chapter: string;
+  label: string;
+  kind: "text" | "cell";
+  source: FieldSource;
+  /** Engine fields: what the app fills in. */
+  fact?: string;
+}
+
+export interface TemplateInfo {
+  deliverableId: string;
+  version: number;
+  fileName: string;
+  sha256: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploadedBy: { userId: string; displayName: string };
+  title: string;
+  fields: TemplateField[];
+}
+
+export interface TemplateOverview {
+  deliverableId: string;
+  name: string;
+  phase: string;
+  restricted: boolean;
+  skill?: { id: string; name: string };
+  template?: TemplateInfo;
+}
+
+/** What the Word document of a result contains (only for who may read the result). */
+export interface DocumentReport {
+  template: { version: number; fileName: string; title: string; uploadedAt: string };
+  fields: number;
+  filled: number;
+  forPeople: number;
+  /** Sections of the draft without a field in the template. */
+  unplaced: string[];
+}
+
+export type DeliverableDetailView = CoreDeliverableDetailView & { document?: DocumentReport };

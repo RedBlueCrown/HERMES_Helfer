@@ -48,7 +48,7 @@ const schema = z.object({
   /** "v1" (versionless API, default) or a dated api-version for the older deployments path. */
   AZURE_OPENAI_API_VERSION: z.string().default("v1"),
   /** Upper bound per model call, reasoning included. */
-  AZURE_OPENAI_MAX_COMPLETION_TOKENS: z.coerce.number().int().min(256).max(200_000).default(16_000),
+  AZURE_OPENAI_MAX_COMPLETION_TOKENS: z.coerce.number().int().min(256).max(200_000).default(32_000),
   /** Only for reasoning models (GPT-5 series; "none" from GPT-5.1, "minimal" for GPT-5); unset sends nothing. */
   AZURE_OPENAI_REASONING_EFFORT: z.enum(["none", "minimal", "low", "medium", "high"]).optional(),
   AZURE_OPENAI_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(180_000),

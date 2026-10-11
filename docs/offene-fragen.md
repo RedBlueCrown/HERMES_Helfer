@@ -17,7 +17,8 @@ Stand: 11. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-arc
 - **Risiken:** F33 und F34
 - **Statusbericht:** F35 und F36
 - **Funktionentrennung und Sichtbarkeit:** F37 und F38
-- **Prüfung der Agenten:** F39 (neu)
+- **Prüfung der Agenten:** F39
+- **Word-Vorlagen:** F40 und F41 (neu)
 
 ---
 
@@ -259,7 +260,7 @@ Die Unterlagen gibt es bereits (bis dahin arbeite ich mit Platzhaltern).
 2. Wer pflegt sie, und wer gibt neue Versionen frei?
 3. Wo liegt der Katalog der Architektur-Patterns?
 
-**Antwort:** 1. Word-Vorlagen (10. Oktober 2026). Offen sind noch 2 und 3.
+**Antwort:** 1. Word-Vorlagen (10. Oktober 2026). Die ersten zwei, Projektauftrag und ISDS-Konzept, lassen sich seit dem 11. Oktober 2026 im HERMES Helfer nutzen (Teil L). Offen sind noch 2 und 3.
 
 ---
 
@@ -552,5 +553,33 @@ Bevor ein neues KI-Modell oder geänderte Anweisungen an die Agenten in Betrieb 
 3. Die Fälle sind erfunden. Sollen Fachleute weitere Fälle beisteuern, zum Beispiel typische Change Requests oder Statusberichte, anonymisiert und ohne vertrauliche Angaben?
 
 **Meine Empfehlung:** 1. ja, für den Pilot; 2. der Product Owner, mit dem Ergebnis der Evaluation im Change; 3. ja, je Agent fünf bis zehn Fälle bis zum Pilotstart.
+
+**Antwort:**
+
+---
+
+## Teil L: Word-Vorlagen
+
+Das PMO lädt die Word-Vorlagen der Organisation im HERMES Helfer hoch, eine je Ergebnis (Seite «Vorlagen»; Beschreibung in [`target-architecture.md`](target-architecture.md), Abschnitt 5.9). Der HERMES Helfer erkennt die Felder am Aufbau der Vorlage. Der Agent entwirft die Felder mit Inhalt, der HERMES Helfer setzt Fakten des Vorhabens ein (Name, Kürzel, Status, Datum, Personen in Rollen), und Unterschriften, Freigaben und die Klassifizierung bleiben leer für die Menschen. Wer das Ergebnis lesen darf, lädt es als Word-Dokument herunter. Die Vorlagen liegen in der Datenbank der Organisation, nie im Repository. Jede Version bleibt gespeichert.
+
+### F40 · Wer füllt welche Felder?
+
+1. «Verantwortliche Person für ISDS» im ISDS-Konzept: Heute setzt der HERMES Helfer die Person mit der Rolle «Informationssicherheit (ISM)» ein. Stimmt das, oder ist es eine eigene Rolle im Projekt?
+2. «Systemverantwortliche Person»: Heute die Person mit der Rolle «Applikationsmanagement». Stimmt das?
+3. «Auftraggeberin / Auftraggeber» und «Lenkungsausschuss / Steuerungsgremium» im Projektauftrag: Heute beide aus der Rolle «Auftraggeber / Projektausschuss». Braucht es zwei Rollen?
+4. «Schutz- bzw. Vertraulichkeitsklasse»: Heute füllen Menschen sie im Dokument aus. Welche Klassen gibt es? Soll der HERMES Helfer eine Klasse aus dem Schutzbedarf des Vorhabens vorschlagen, die eine Person bestätigt?
+5. Freigabe und Unterschrift: Heute bleiben diese Felder leer, auch wenn das Ergebnis im HERMES Helfer freigegeben ist. Genügt die Freigabe im HERMES Helfer (sie steht nachvollziehbar im Verlauf), oder braucht es die Unterschrift im Dokument weiterhin? Soll der HERMES Helfer den Entscheid mit Name und Datum ins Dokument schreiben?
+
+**Meine Empfehlung:** 1. bis 3. wie heute für den Pilot; 4. Klassen nennen, Vorschlag aus dem Schutzbedarf, eine Person bestätigt; 5. Freigabe im HERMES Helfer mit Name und Datum im Dokument, ohne Unterschrift.
+
+**Antwort:**
+
+### F41 · Neue Versionen und weitere Vorlagen
+
+1. Ein Entwurf, der vor einer Vorlage oder einer neuen Version entstand, behält seine Gliederung. Das Word-Dokument übernimmt, was passt, und nennt die übrigen Abschnitte. Soll die Projektleitung den Entwurf entlang der neuen Vorlage neu entwerfen lassen können? Heute geht das nur, wenn eine entscheidende Rolle ihn zurückweist.
+2. Soll eine neue Version erst nach einer zweiten Person gelten (Vier-Augen-Prinzip), oder genügt das PMO allein (heute so, siehe auch F19)?
+3. Welche Vorlagen folgen als nächste?
+
+**Meine Empfehlung:** 1. ja, mit einem Hinweis, dass Änderungen am Entwurf verloren gehen; 2. für den Pilot das PMO allein, jede Version bleibt gespeichert; 3. Projektmanagementplan, Studie, Testkonzept.
 
 **Antwort:**

@@ -65,6 +65,29 @@ export const MIGRATIONS: readonly Migration[] = [
       GRANT SELECT ON hh.schema_migrations TO hh_app;`,
     ],
   },
+  {
+    version: 2,
+    name: "templates",
+    batches: [
+      // The organisation's Word templates, one row per version (documents/template-store.ts).
+      // Append-only ledger table: no version can be changed or removed, so a
+      // document can always be traced to the template it was made from.
+      `CREATE TABLE hh.templates (
+        deliverable_id   varchar(64)    NOT NULL,
+        version          int            NOT NULL,
+        file_name        nvarchar(200)  NOT NULL,
+        sha256           char(64)       NOT NULL,
+        size_bytes       int            NOT NULL,
+        uploaded_at      datetime2(3)   NOT NULL,
+        uploaded_by      nvarchar(128)  NOT NULL,
+        uploaded_by_name nvarchar(200)  NOT NULL,
+        content          varbinary(max) NOT NULL,
+        CONSTRAINT pk_templates PRIMARY KEY CLUSTERED (deliverable_id, version)
+      )
+      WITH (LEDGER = ON (APPEND_ONLY = ON));`,
+      `GRANT SELECT, INSERT ON hh.templates TO hh_app;`,
+    ],
+  },
 ];
 
 /** The schema version this build of the app needs. */

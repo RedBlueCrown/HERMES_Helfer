@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { expect, it } from "vitest";
 import { HttpError } from "../src/errors";
 import { ProjectRepository } from "../src/projects/repository";
+import { sha256, type TemplateStore } from "../src/documents/template-store";
 import { ConcurrencyError, verifyChain, type EventStore } from "../src/store/event-store";
 
 export const ACTOR: Actor = { userId: "u-test", displayName: "Test", roles: ["PL"], channel: "web" };
@@ -206,5 +207,51 @@ export function sharedStoreContract(store: () => EventStore): void {
     await expect(stale).rejects.toBeInstanceOf(HttpError);
     await expect(stale).rejects.toMatchObject({ status: 409, code: "conflict" });
     expect((await b.get(projectId))?.lastSeq).toBe(2);
+  });
+}
+
+/** Behaviour every template store must have (documents/template-store.ts). */
+export function templateStoreContract(store: () => TemplateStore): void {
+  /** A fresh deliverable id per test, so tests can share one database. */
+  const deliverable = () => `t-${randomUUID().slice(0, 8)}`;
+  const template = (deliverableId: string, text: string, fileName = "Vorlage.docx") => ({
+    deliverableId,
+    fileName,
+    content: new TextEncoder().encode(text),
+    uploadedBy: { userId: "u-pmo", displayName: "PMO Ümlaut" },
+    uploadedAt: "2026-10-11T08:00:00.000Z",
+  });
+
+  it("keeps every version and serves the latest one", async () => {
+    const id = deliverable();
+    expect(await store().latest(id)).toBeUndefined();
+    const first = await store().add(template(id, "erste"));
+    expect(first).toEqual({
+      deliverableId: id,
+      version: 1,
+      fileName: "Vorlage.docx",
+      sha256: sha256(new TextEncoder().encode("erste")),
+      sizeBytes: 5,
+      uploadedAt: "2026-10-11T08:00:00.000Z",
+      uploadedBy: { userId: "u-pmo", displayName: "PMO Ümlaut" },
+    });
+    await store().add(template(id, "zweite Fassung", "Vorlage v2.docx"));
+    const latest = await store().latest(id);
+    expect(latest).toMatchObject({ version: 2, fileName: "Vorlage v2.docx", sizeBytes: 14 });
+    expect(new TextDecoder().decode(latest!.content)).toBe("zweite Fassung");
+    const listed = (await store().list()).filter((t) => t.deliverableId === id);
+    expect(listed).toEqual([expect.objectContaining({ version: 2 })]);
+    expect(listed[0]).not.toHaveProperty("content");
+  });
+
+  it("numbers parallel uploads without gaps or duplicates", async () => {
+    const id = deliverable();
+    const added = await Promise.all([1, 2, 3, 4].map((n) => store().add(template(id, `Fassung ${n}`))));
+    expect(added.map((t) => t.version).sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+    expect((await store().latest(id))?.version).toBe(4);
+  });
+
+  it("refuses deliverable ids that are not safe as names", async () => {
+    await expect(store().add(template("../etc", "x"))).rejects.toThrow(/Invalid deliverable id/);
   });
 }
