@@ -2,6 +2,7 @@ import {
   AGENTS,
   AMPEL_LABELS,
   AMPEL_VALUES,
+  CONTROL_ROLES,
   CR_FLAGS,
   CR_FLAG_LABELS,
   CR_RECHECK_ROLES,
@@ -11,6 +12,7 @@ import {
   EVENT_CATEGORIES,
   RECHECK_OUTCOMES,
   GLOBAL_ROLE_LABELS,
+  INCOMPATIBLE_ROLES,
   INVOLVEMENT_OPTIONS,
   PHASE_IDS,
   PROJECT_ROLES,
@@ -256,6 +258,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     },
     involvementOptions: INVOLVEMENT_OPTIONS,
     agents: AGENTS,
+    policy: {
+      separationOfDuties: model.policy.separationOfDuties,
+      controlRoles: CONTROL_ROLES,
+      incompatibleRoles: INCOMPATIBLE_ROLES,
+    },
   }));
 
   app.get("/api/projects", async (req) => {

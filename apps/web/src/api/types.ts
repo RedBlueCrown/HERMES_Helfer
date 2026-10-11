@@ -70,6 +70,12 @@ export interface Reference {
     ampel: { id: Ampel; label: string; meaning: string }[];
     intervalDays: number;
   };
+  /** Separation of duties; off only in a test environment. */
+  policy: {
+    separationOfDuties: boolean;
+    controlRoles: ProjectRole[];
+    incompatibleRoles: [ProjectRole, ProjectRole][];
+  };
 }
 
 /** The texts the agent drafted for a status report (kept on the server until published). */

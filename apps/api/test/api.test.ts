@@ -491,6 +491,57 @@ describe("portfolio", () => {
   });
 });
 
+describe("roles and separation of duties", () => {
+  const assign = (s: Server, user: string, userId: string, displayName: string, role: string) =>
+    s.as(user).post("/api/projects/KPO/members", { userId, displayName, role });
+
+  it("lets the PMO assign the control roles, never to the project lead, and the PL the other roles", async () => {
+    server = await testServer();
+    const byLead = await assign(server, "u-anna", "u-david", "David Weber", "PA");
+    expect(byLead.statusCode).toBe(403);
+    expect(byLead.json().error.message).toBe(
+      "Die Rolle Auftraggeber / Projektausschuss vergibt und entzieht das PMO (Funktionentrennung).",
+    );
+    expect((await assign(server, "u-peter", "u-david", "David Weber", "PA")).statusCode).toBe(200);
+    expect((await assign(server, "u-anna", "u-david", "David Weber", "TEST")).statusCode).toBe(200);
+    // Nobody makes the project lead their own control, not even the PMO.
+    const lead = await assign(server, "u-peter", "u-anna", "Anna Keller", "ISM");
+    expect(lead.statusCode).toBe(409);
+    expect(lead.json().error.message).toBe(
+      "Die Person hat bereits die Rolle Projektleitung. Die Rolle Informationssicherheit (ISM) nimmt eine andere Person wahr (Funktionentrennung).",
+    );
+    expect((await server.as("u-anna").del("/api/projects/KPO/members/u-thomas/roles/PA")).statusCode).toBe(
+      403,
+    );
+    expect((await server.as("u-peter").del("/api/projects/KPO/members/u-david/roles/PA")).statusCode).toBe(
+      200,
+    );
+
+    expect((await view(server, "u-anna", "KPO")).can.assignRoles).toEqual(
+      expect.not.arrayContaining(["PA", "ISM", "DS"]),
+    );
+    expect((await view(server, "u-peter", "KPO")).can.assignRoles).toContain("PA");
+    expect((await server.as("u-anna").get("/api/reference")).json().policy).toEqual({
+      separationOfDuties: true,
+      controlRoles: ["PA", "ISM", "DS"],
+      incompatibleRoles: [
+        ["PL", "PA"],
+        ["PL", "ISM"],
+        ["PL", "DS"],
+      ],
+    });
+  });
+
+  it("can be relaxed for a test environment, where one person tries every role", async () => {
+    server = await testServer({ env: { SEPARATION_OF_DUTIES: "false" } });
+    expect((await assign(server, "u-anna", "u-anna", "Anna Keller", "PA")).statusCode).toBe(200);
+    expect((await view(server, "u-anna", "KPO")).can.assignRoles).toContain("DS");
+    expect((await server.as("u-anna").get("/api/reference")).json().policy).toMatchObject({
+      separationOfDuties: false,
+    });
+  });
+});
+
 describe("change requests", () => {
   const register = async (s: Server, user: string) =>
     (await s.as(user).get("/api/projects/ERP/change-requests")).json() as ChangeRequestRegisterView;
@@ -628,6 +679,48 @@ describe("change requests", () => {
       "Neuprüfung nach CR-03 durch Datenschutz: Massnahme ergänzt (Export pseudonymisiert.).",
     );
     expect(events.items.every((e: { category: string }) => e.category === "aenderung")).toBe(true);
+  });
+
+  it("is decided and rechecked by others than the requester (four-eyes principle)", async () => {
+    server = await testServer();
+    expect((await submit(server, "u-thomas")).statusCode).toBe(201);
+    const [cr] = (await register(server, "u-thomas")).items;
+    expect(cr!.canDecide).toMatchObject({ ok: false, reason: expect.stringMatching(/Vier-Augen-Prinzip/) });
+    const decide = (user: string) =>
+      server!.as(user).post(`/api/projects/ERP/change-requests/${cr!.id}/decision`, {
+        decision: "freigegeben",
+        reason: "Im Rahmen der Reserve.",
+        konsent: true,
+      });
+    expect((await decide("u-thomas")).statusCode).toBe(403);
+    // The PMO adds a second member of the Projektausschuss, who decides.
+    const deputy = await server
+      .as("u-peter")
+      .post("/api/projects/ERP/members", { userId: "u-rita", displayName: "Rita Vogel", role: "PA" });
+    expect(deputy.statusCode).toBe(200);
+    expect((await view(server, "u-rita", "ERP")).myTasks).toContainEqual(
+      expect.objectContaining({ kind: "decide-cr", crId: cr!.id }),
+    );
+    expect((await decide("u-rita")).statusCode).toBe(200);
+
+    // ISM records a request touching personal data: Datenschutz rechecks, ISM needs a second person.
+    expect((await submit(server, "u-marco")).statusCode).toBe(201);
+    const own = (await register(server, "u-marco")).items[0]!;
+    await server.as("u-thomas").post(`/api/projects/ERP/change-requests/${own.id}/decision`, {
+      decision: "freigegeben",
+      reason: "Im Rahmen der Reserve.",
+      konsent: true,
+    });
+    const roles = (await register(server, "u-marco")).items[0]!.recheck!.roles;
+    expect(roles.find((r) => r.role === "ISM")).toMatchObject({
+      canConfirm: false,
+      blocked: expect.stringMatching(/Vier-Augen-Prinzip/),
+    });
+    const recheck = await server.as("u-marco").post(`/api/projects/ERP/change-requests/${own.id}/recheck`, {
+      role: "ISM",
+      outcome: "keine Anpassung",
+    });
+    expect(recheck.statusCode).toBe(403);
   });
 
   it("lets the requester withdraw a request and the PL record the reserve", async () => {

@@ -1,4 +1,4 @@
-import { MODEL } from "@hermes-helfer/core";
+import { MODEL, withPolicy } from "@hermes-helfer/core";
 import { MockProvider } from "../src/agents/mock-provider";
 import type { AiProvider } from "../src/agents/provider";
 import { createDevAuthenticator, type Authenticator } from "../src/auth";
@@ -20,7 +20,10 @@ export async function testServer(
 ) {
   const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", AUTH_MODE: "dev", ...opts.env });
   const store = new MemoryEventStore();
-  const repo = new ProjectRepository(store, MODEL);
+  const repo = new ProjectRepository(
+    store,
+    withPolicy(MODEL, { separationOfDuties: config.SEPARATION_OF_DUTIES }),
+  );
   if (opts.seed !== false) await seedDemo(repo);
   const server = await buildServer({
     config,
@@ -38,6 +41,7 @@ export async function testServer(
       server.app.inject({ method: "POST", url, payload, headers: { "x-dev-user": user } }),
     put: (url: string, payload: object = {}) =>
       server.app.inject({ method: "PUT", url, payload, headers: { "x-dev-user": user } }),
+    del: (url: string) => server.app.inject({ method: "DELETE", url, headers: { "x-dev-user": user } }),
   });
   return { ...server, store, repo, as };
 }

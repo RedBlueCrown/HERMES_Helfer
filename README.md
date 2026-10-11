@@ -46,6 +46,7 @@ Then start the API with `STORE=sql SQL_SERVER=localhost SQL_DATABASE=hermes SQL_
 8. Open **Change Requests** in a project (for example ERP as Nina Huber): describe a wish, let the agent work it out, see the impact in eight areas; decide it as Thomas Meier (Projektausschuss), recheck it as Marco Bianchi (ISM) and Sandra Roth (Datenschutz).
 9. Open **Risiken** in a project: record a risk and see it in the matrix, or, as project lead (Anna Keller in the Kundenportal), let the Risiko agent review the project and accept the proposals that fit. The responsible role (for example Nina Huber in ERP) gets a task for a high risk.
 10. Open **Statusbericht** in a project as project lead (Jonas Wyss in ERP): the app suggests a traffic light per criterion with its reasons; decide the colours, let the agent draft the texts, publish. Thomas Meier takes note as Projektausschuss; red reports show in the portfolio.
+11. Open **Beteiligte und Rollen** as project lead: you assign the team roles; Projektausschuss, ISM and Datenschutz are assigned by the PMO (Peter Graf) and never to the project lead, and nobody decides their own change request ([separation of duties](docs/target-architecture.md#61-separation-of-duties-funktionentrennung)). Locally with `SEPARATION_OF_DUTIES=false`, as in the Azure test environment, one person can try every role.
 
 ## Repository layout
 

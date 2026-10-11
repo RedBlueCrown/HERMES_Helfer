@@ -186,7 +186,7 @@ describe("status report lifecycle", () => {
       deviates: true,
     });
     expect(reg.items[0]!.canAcknowledge.ok).toBe(true);
-    expect(checkAcknowledgeStatusReport(st.state(), viewer("anna"), "s1")).toMatchObject({
+    expect(checkAcknowledgeStatusReport(st.state(), MODEL, viewer("anna"), "s1")).toMatchObject({
       code: "forbidden",
     });
 
@@ -194,7 +194,7 @@ describe("status report lifecycle", () => {
     expect(
       myTasks(st.state(), MODEL, viewer("thomas"), now).some((t) => t.kind === "acknowledge-report"),
     ).toBe(false);
-    expect(checkAcknowledgeStatusReport(st.state(), viewer("thomas"), "s1")).toMatchObject({
+    expect(checkAcknowledgeStatusReport(st.state(), MODEL, viewer("thomas"), "s1")).toMatchObject({
       code: "invalid_state",
     });
     expect(projectView(st.state(), MODEL, pl, now).statusReport).toMatchObject({
@@ -203,7 +203,7 @@ describe("status report lifecycle", () => {
     });
     // Only the latest report can be taken note of.
     publish(st, "s2");
-    expect(checkAcknowledgeStatusReport(st.state(), viewer("thomas"), "s1")).toMatchObject({
+    expect(checkAcknowledgeStatusReport(st.state(), MODEL, viewer("thomas"), "s1")).toMatchObject({
       reason: "Es gibt einen neueren Statusbericht.",
     });
   });

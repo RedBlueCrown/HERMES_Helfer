@@ -16,6 +16,7 @@ import {
   changeImpact,
   checkAcknowledgeStatusReport,
   checkAssessRisk,
+  checkAssignRole,
   checkCompleteCondition,
   checkConfirmChecklistItem,
   checkConfirmRecheck,
@@ -23,12 +24,12 @@ import {
   checkDecideGate,
   checkDecideSkill,
   checkEditOutput,
-  checkManageMembers,
   checkMarkNotApplicable,
   checkReactivate,
   checkRecordParticipation,
   checkRecordRisk,
   checkRelease,
+  checkRemoveRole,
   checkPublishStatusReport,
   checkReviewRisks,
   checkSetChangeReserve,
@@ -249,26 +250,18 @@ export class ProjectService {
   }
 
   assignRole(code: string, ctx: RequestContext, userId: string, displayName: string, role: ProjectRole) {
+    if (!PROJECT_ROLES.includes(role)) throw unprocessable("Unbekannte Rolle.");
     return this.command(code, ctx, (s) => {
-      assertCheck(checkManageMembers(s, ctx.viewer));
-      if (!PROJECT_ROLES.includes(role)) throw unprocessable("Unbekannte Rolle.");
-      if (rolesOf(s, userId).includes(role))
-        throw new HttpError(409, "invalid_state", "Die Person hat diese Rolle bereits.");
+      assertCheck(checkAssignRole(s, this.model, ctx.viewer, userId, role));
       return [{ type: "MemberRoleAssigned", data: { userId, displayName: displayName.trim(), role } }];
     });
   }
 
   removeRole(code: string, ctx: RequestContext, userId: string, role: ProjectRole) {
     return this.command(code, ctx, (s) => {
-      assertCheck(checkManageMembers(s, ctx.viewer));
-      const member = s.members[userId];
-      if (!member?.roles.includes(role))
-        throw new HttpError(409, "invalid_state", "Die Person hat diese Rolle nicht.");
-      const leads = Object.values(s.members).filter((m) => m.roles.includes("PL")).length;
-      if (role === "PL" && leads <= 1) {
-        throw new HttpError(409, "invalid_state", "Mindestens eine Projektleitung muss im Vorhaben bleiben.");
-      }
-      return [{ type: "MemberRoleRemoved", data: { userId, displayName: member.displayName, role } }];
+      assertCheck(checkRemoveRole(s, this.model, ctx.viewer, userId, role));
+      const { displayName } = s.members[userId]!;
+      return [{ type: "MemberRoleRemoved", data: { userId, displayName, role } }];
     });
   }
 
@@ -696,7 +689,7 @@ export class ProjectService {
 
   acknowledgeStatusReport(code: string, ctx: RequestContext, reportId: string, note: string) {
     return this.command(code, ctx, (s) => {
-      assertCheck(checkAcknowledgeStatusReport(s, ctx.viewer, reportId));
+      assertCheck(checkAcknowledgeStatusReport(s, this.model, ctx.viewer, reportId));
       return [{ type: "StatusReportAcknowledged", data: { reportId, note: note.trim() } }];
     });
   }

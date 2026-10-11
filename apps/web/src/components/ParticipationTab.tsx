@@ -23,15 +23,15 @@ import {
 } from "@fluentui/react-components";
 import { CheckmarkCircle16Filled, Delete16Regular } from "@fluentui/react-icons";
 import {
+  CONTROL_ROLES,
   INVOLVEMENT_OPTIONS,
-  PROJECT_ROLES,
   PROJECT_ROLE_LABELS,
   type Level,
   type ProjectProfile,
   type ProjectRole,
 } from "@hermes-helfer/core";
 import { useState } from "react";
-import { useApi, projectPath, useMe, useProjectCommand } from "../api/hooks";
+import { useApi, projectPath, useMe, useProjectCommand, useReference } from "../api/hooks";
 import type { ParticipantView, PhaseView, ProjectView } from "../api/types";
 import { errorText, formatDate, useNotify } from "./ui";
 
@@ -207,16 +207,30 @@ function MembersCard({ code, view }: { code: string; view: ProjectView }) {
   const remove = useProjectCommand(code, (a, v: { userId: string; role: ProjectRole }) =>
     a.del(`${projectPath(code)}/members/${encodeURIComponent(v.userId)}/roles/${v.role}`),
   );
-  const manage = view.can.manageMembers;
+  const assignable = view.can.assignRoles;
+  const manage = view.can.manageMembers && assignable.length > 0;
   const me = useMe();
+  // «Mich selbst» only in a test environment without separation of duties (todo-later E26).
+  const relaxed = useReference().data?.policy.separationOfDuties === false;
+  const controlLabels = CONTROL_ROLES.map((r) => PROJECT_ROLE_LABELS[r]).join(", ");
   return (
     <section className={s.card} aria-label="Rollen im Vorhaben">
       <div>
         <Subtitle1 as="h2">Rollen im Vorhaben</Subtitle1>
         <Caption1 block className={s.muted}>
-          Rollen vergibt die Projektleitung oder das PMO. Jede Änderung steht im Verlauf.
+          {relaxed
+            ? "Rollen vergibt die Projektleitung oder das PMO. Jede Änderung steht im Verlauf."
+            : `Rollen vergibt die Projektleitung; ${controlLabels} vergibt das PMO, und nie an die Projektleitung (Funktionentrennung). Jede Änderung steht im Verlauf.`}
         </Caption1>
       </div>
+      {relaxed ? (
+        <MessageBar intent="warning">
+          <MessageBarBody>
+            Testumgebung: Die Funktionentrennung ist ausgeschaltet. Eine Person kann alle Rollen übernehmen,
+            um das Vorgehen auszuprobieren.
+          </MessageBarBody>
+        </MessageBar>
+      ) : null}
       <Table size="small" aria-label="Mitglieder">
         <TableHeader>
           <TableRow>
@@ -233,7 +247,7 @@ function MembersCard({ code, view }: { code: string; view: ProjectView }) {
                   {m.roles.map((r) => (
                     <Badge key={r} appearance="tint" color="brand">
                       {PROJECT_ROLE_LABELS[r]}
-                      {manage ? (
+                      {assignable.includes(r) ? (
                         <Button
                           size="small"
                           appearance="transparent"
@@ -281,17 +295,26 @@ function MembersCard({ code, view }: { code: string; view: ProjectView }) {
             }}
           >
             <Field label="Kennung (Entra ID)">
-              <Input value={userId} onChange={(_, d) => setUserId(d.value)} />
+              <Input
+                value={userId}
+                onChange={(_, d) => setUserId(d.value)}
+                contentAfter={
+                  relaxed ? (
+                    <Button
+                      size="small"
+                      appearance="transparent"
+                      disabled={!me.data}
+                      onClick={() => {
+                        setUserId(me.data!.userId);
+                        setName(me.data!.displayName);
+                      }}
+                    >
+                      Mich selbst
+                    </Button>
+                  ) : undefined
+                }
+              />
             </Field>
-            <Button
-              disabled={!me.data}
-              onClick={() => {
-                setUserId(me.data!.userId);
-                setName(me.data!.displayName);
-              }}
-            >
-              Mich selbst
-            </Button>
             <Field label="Name">
               <Input value={name} onChange={(_, d) => setName(d.value)} />
             </Field>
@@ -301,7 +324,7 @@ function MembersCard({ code, view }: { code: string; view: ProjectView }) {
                 selectedOptions={[role]}
                 onOptionSelect={(_, d) => setRole((d.optionValue as ProjectRole) ?? role)}
               >
-                {PROJECT_ROLES.map((r) => (
+                {assignable.map((r) => (
                   <Option key={r} value={r}>
                     {PROJECT_ROLE_LABELS[r]}
                   </Option>

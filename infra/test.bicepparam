@@ -41,3 +41,7 @@ param chatModel = {
   capacity: 50
 }
 param aiRegionLabel = 'Sweden Central (regional)'
+
+// One person tries every role in the test environment (docs/staging.md). The pilot
+// keeps separation of duties on.
+param separationOfDuties = false

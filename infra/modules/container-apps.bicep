@@ -57,6 +57,9 @@ param apiSize {
   memory: string
 }
 
+@description('Separation of duties; off only in a test environment.')
+param separationOfDuties bool
+
 var deployApp = !empty(image)
 var appName = 'ca-${name}-api'
 
@@ -152,6 +155,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (deployApp) {
               { name: 'AZURE_OPENAI_REGION_LABEL', value: ai.regionLabel }
               { name: 'AZURE_OPENAI_REASONING_EFFORT', value: ai.reasoningEffort }
               { name: 'TRUSTED_PROXIES', value: appsPrefix }
+              { name: 'SEPARATION_OF_DUTIES', value: separationOfDuties ? 'true' : 'false' }
             ]),
             e => !empty(e.value)
           )

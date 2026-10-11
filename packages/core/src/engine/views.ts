@@ -49,6 +49,7 @@ import { conditionDue, isConditionOverdue } from "./conditions";
 import type { AgentAssessment, Decision, DraftContent, Finding, Producer, StatusFigures } from "./events";
 import { isInvolved, participantsFor } from "./participation";
 import {
+  assignableRoles,
   canVerifyAudit,
   canViewDeliverableContent,
   canViewSkillContent,
@@ -341,7 +342,12 @@ export interface ProjectView {
     due: boolean;
     dueAt: string;
   };
-  can: { manageMembers: boolean; verifyAudit: boolean };
+  can: {
+    manageMembers: boolean;
+    /** The roles the viewer may assign and remove (separation of duties: the PMO assigns the control roles). */
+    assignRoles: ProjectRole[];
+    verifyAudit: boolean;
+  };
 }
 
 export interface ChangeRequestView {
@@ -378,6 +384,8 @@ export interface ChangeRequestView {
       label: string;
       confirmed?: { outcome: RecheckOutcome; note: string; at: string; by: ActorRef };
       canConfirm: boolean;
+      /** Why the viewer, who holds the role, may not confirm (four-eyes principle). */
+      blocked?: string;
     }[];
   };
   conditions: ConditionView[];
@@ -660,7 +668,8 @@ function rowAction(
         .map((id) => model.skill(id))
         .find(
           (sk) =>
-            ["approval", "veto"].includes(skillStatus(s, model, sk)) && decisionRolesFor(s, v, sk).length,
+            ["approval", "veto"].includes(skillStatus(s, model, sk)) &&
+            decisionRolesFor(s, model, v, sk).length,
         );
       return mine ? { kind: "decide", label: "Prüfen & entscheiden", skillId: mine.id, enabled: true } : null;
     }
@@ -910,7 +919,7 @@ function nextStepView(s: ProjectState, model: HermesModel, v: Viewer): NextStepV
       };
     case "decisions": {
       const skills = n.skillIds.map((id) => model.skill(id));
-      const mine = skills.find((sk) => decisionRolesFor(s, v, sk).length);
+      const mine = skills.find((sk) => decisionRolesFor(s, model, v, sk).length);
       const waiting = [...new Set(skills.flatMap((sk) => pendingApprovers(s, sk).map((a) => a.label)))];
       const first = mine ?? skills[0]!;
       const d = model.deliverablesOfSkill(first.id)[0];
@@ -1056,7 +1065,11 @@ export function projectView(
         dueAt: statusReportDueAt(last?.publishedAt, s.createdAt),
       };
     })(),
-    can: { manageMembers: checkManageMembers(s, v).ok, verifyAudit: canVerifyAudit(s, v) },
+    can: {
+      manageMembers: checkManageMembers(s, v).ok,
+      assignRoles: assignableRoles(s, model, v),
+      verifyAudit: canVerifyAudit(s, v),
+    },
   };
 }
 
@@ -1108,11 +1121,16 @@ export function changeRequestView(
             deliverables: CR_RECHECK_DELIVERABLES.map((id) => ({ id, name: model.deliverable(id).name })),
             roles: (c.recheckRoles ?? CR_RECHECK_ROLES).map((role) => {
               const confirmed = c.recheck![role];
+              const check = checkConfirmRecheck(s, model, v, c.id, role);
+              const holds = rolesOf(s, v.userId).includes(role);
               return {
                 role,
                 label: roleLabel(role),
                 ...(confirmed ? { confirmed } : {}),
-                canConfirm: checkConfirmRecheck(s, model, v, c.id, role).ok,
+                canConfirm: check.ok,
+                ...(!check.ok && !confirmed && holds && check.code === "forbidden"
+                  ? { blocked: check.reason }
+                  : {}),
               };
             }),
           },
@@ -1240,7 +1258,7 @@ export function statusReportView(
     risks: r.risks,
     producer: r.producer,
     acknowledgements: r.acknowledgements,
-    canAcknowledge: checkAcknowledgeStatusReport(s, v, r.id),
+    canAcknowledge: checkAcknowledgeStatusReport(s, model, v, r.id),
   };
 }
 
@@ -1321,7 +1339,7 @@ function skillView(s: ProjectState, model: HermesModel, v: Viewer, sk: SkillDef)
       const decision = st?.approvals[a.role];
       return decision ? { ...a, decision } : { ...a };
     }),
-    myDecisionRoles: ["approval", "veto"].includes(status) ? decisionRolesFor(s, v, sk) : [],
+    myDecisionRoles: ["approval", "veto"].includes(status) ? decisionRolesFor(s, model, v, sk) : [],
     ...(st?.output
       ? {
           output: {

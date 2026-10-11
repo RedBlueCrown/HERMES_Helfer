@@ -1,5 +1,6 @@
 import { AGENTS } from "./agents";
 import { PHASES } from "./hermes-model";
+import { DEFAULT_POLICY, type GovernancePolicy } from "./policy";
 import type { AgentDef, AgentId, DeliverableDef, PhaseDef, PhaseId, SkillDef } from "./types";
 
 /** Model version stored on every project, so later model changes don't silently alter running projects. */
@@ -9,6 +10,8 @@ export interface HermesModel {
   readonly version: string;
   readonly phases: readonly PhaseDef[];
   readonly agents: readonly AgentDef[];
+  /** Rules of the organisation that the checks apply (separation of duties). */
+  readonly policy: GovernancePolicy;
   phase(id: PhaseId): PhaseDef;
   phaseIndex(id: PhaseId): number;
   nextPhase(id: PhaseId): PhaseDef | undefined;
@@ -25,6 +28,7 @@ export function buildModel(
   phases: readonly PhaseDef[],
   agents: readonly AgentDef[],
   version: string,
+  policy: GovernancePolicy = DEFAULT_POLICY,
 ): HermesModel {
   const phaseById = new Map(phases.map((p) => [p.id, p]));
   const skills = new Map<string, SkillDef>();
@@ -54,6 +58,7 @@ export function buildModel(
     version,
     phases,
     agents,
+    policy,
     phase: (id) => must(phaseById.get(id), `phase ${id}`),
     phaseIndex: (id) => phases.findIndex((p) => p.id === id),
     nextPhase: (id) => phases[phases.findIndex((p) => p.id === id) + 1],
@@ -68,10 +73,17 @@ export function buildModel(
 
 export const MODEL: HermesModel = buildModel(PHASES, AGENTS, MODEL_VERSION);
 
+/** The same model under another policy (the API's SEPARATION_OF_DUTIES setting). */
+export const withPolicy = (model: HermesModel, policy: GovernancePolicy): HermesModel => ({
+  ...model,
+  policy,
+});
+
 export { AGENTS } from "./agents";
 export { PHASES } from "./hermes-model";
 export * from "./change-requests";
 export * from "./participation";
+export * from "./policy";
 export * from "./risks";
 export * from "./status-report";
 export * from "./roles";

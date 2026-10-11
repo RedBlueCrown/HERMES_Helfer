@@ -80,6 +80,9 @@ param aiRegionLabel string
 @allowed(['', 'none', 'minimal', 'low', 'medium', 'high'])
 param aiReasoningEffort string = ''
 
+@description('Separation of duties (architecture §6.1). Off only in a test environment, so that one person can try every role.')
+param separationOfDuties bool = true
+
 var name = 'hh-${environmentName}'
 
 module identities 'modules/identities.bicep' = {
@@ -212,6 +215,7 @@ module apps 'modules/container-apps.bicep' = {
     }
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     apiSize: apiSize
+    separationOfDuties: separationOfDuties
   }
 }
 

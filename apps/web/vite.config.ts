@@ -8,7 +8,8 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 5173,
     strictPort: true,
-    proxy: { "/api": "http://127.0.0.1:3001" },
+    // The end-to-end tests run a second API for the test environment (playwright.config.ts).
+    proxy: { "/api": process.env.API_PROXY_TARGET ?? "http://127.0.0.1:3001" },
   },
   build: {
     // Generated for error analysis but not referenced from the bundle.

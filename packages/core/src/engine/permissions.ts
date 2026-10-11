@@ -4,19 +4,21 @@
 
 import type { HermesModel } from "../model";
 import { CR_RECHECK_ROLES, type RecheckRole } from "../model/change-requests";
+import { CONTROL_ROLES, roleConflict } from "../model/policy";
 import { PROJECT_ROLE_LABELS, RESTRICTED_READERS } from "../model/roles";
-import type {
-  ApproverDef,
-  ChecklistDef,
-  DeliverableDef,
-  GlobalRole,
-  PhaseId,
-  ProjectRole,
-  SkillDef,
+import {
+  PROJECT_ROLES,
+  type ApproverDef,
+  type ChecklistDef,
+  type DeliverableDef,
+  type GlobalRole,
+  type PhaseId,
+  type ProjectRole,
+  type SkillDef,
 } from "../model/types";
 import { pendingRecheckRoles } from "./change-requests";
 import { isInvolved, participantsFor } from "./participation";
-import { checklistKey, type ProjectState } from "./state";
+import { checklistKey, type ChangeRequestState, type ProjectState } from "./state";
 import {
   checklistAvailable,
   deliverableStatus,
@@ -48,6 +50,25 @@ export function rolesOf(s: ProjectState, userId: string): ProjectRole[] {
 const hasGlobal = (v: Viewer, ...roles: GlobalRole[]) => roles.some((r) => v.globalRoles.includes(r));
 const isPL = (s: ProjectState, v: Viewer) => rolesOf(s, v.userId).includes("PL");
 const labels = (roles: readonly ProjectRole[]) => roles.map((r) => PROJECT_ROLE_LABELS[r]).join(", ");
+const sod = (model: HermesModel) => model.policy.separationOfDuties;
+
+/**
+ * Separation of duties when a control role acts: the role does not count while
+ * the same person also holds a role it must be kept apart from. Assigning such
+ * a combination is refused (checkAssignRole); this covers roles given before
+ * the policy applied, for example in a test environment.
+ */
+function separated(s: ProjectState, model: HermesModel, v: Viewer, role: ProjectRole): Check {
+  const clash = sod(model) ? roleConflict(rolesOf(s, v.userId), role) : undefined;
+  if (!clash) return OK;
+  return forbidden(
+    `Du hast in diesem Vorhaben auch die Rolle ${PROJECT_ROLE_LABELS[clash]}. Als ${PROJECT_ROLE_LABELS[role]} handelt hier eine andere Person (Funktionentrennung); das PMO passt die Rollen an.`,
+  );
+}
+
+/** Four-eyes principle: nobody decides or rechecks a change request they submitted. */
+const ownRequest = (model: HermesModel, v: Viewer, cr: ChangeRequestState) =>
+  sod(model) && cr.submittedBy.userId === v.userId;
 
 export function canViewProject(s: ProjectState, v: Viewer): boolean {
   return rolesOf(s, v.userId).length > 0 || hasGlobal(v, "HH.PMO", "HH.Portfolio");
@@ -124,10 +145,17 @@ export function checkRelease(s: ProjectState, model: HermesModel, v: Viewer, d: 
   return OK;
 }
 
-/** Approver roles of `skill` that are still pending and held by the viewer. */
-export function decisionRolesFor(s: ProjectState, v: Viewer, skill: SkillDef): ApproverDef[] {
+/** Approver roles of `skill` that are still pending and in which the viewer may decide. */
+export function decisionRolesFor(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  skill: SkillDef,
+): ApproverDef[] {
   const roles = rolesOf(s, v.userId);
-  return pendingApprovers(s, skill).filter((a) => roles.includes(a.role));
+  return pendingApprovers(s, skill).filter(
+    (a) => roles.includes(a.role) && separated(s, model, v, a.role).ok,
+  );
 }
 
 export function checkDecideSkill(
@@ -140,6 +168,8 @@ export function checkDecideSkill(
   if (!rolesOf(s, v.userId).includes(role)) {
     return forbidden(`Du hast in diesem Vorhaben nicht die Rolle ${PROJECT_ROLE_LABELS[role]}.`);
   }
+  const separate = separated(s, model, v, role);
+  if (!separate.ok) return separate;
   if (!isPhaseCurrent(s, skill.phase)) return invalid("Der Schritt gehört nicht zur aktuellen Phase.");
   const st = skillStatus(s, model, skill);
   if (st !== "approval" && st !== "veto") return invalid(`Für «${skill.name}» ist kein Entscheid offen.`);
@@ -230,6 +260,11 @@ export function checkDecideGate(s: ProjectState, model: HermesModel, v: Viewer, 
   const allowed =
     gate.deciders.some((r) => roles.includes(r)) || gate.globalDeciders.some((r) => hasGlobal(v, r));
   if (!allowed) return forbidden(`Das Gate «${gate.name}» entscheidet: ${gate.deciderLabel}.`);
+  if (sod(model) && isPL(s, v)) {
+    return forbidden(
+      "Die Projektleitung entscheidet nicht über das Gate des eigenen Vorhabens (Funktionentrennung).",
+    );
+  }
   if (!isPhaseCurrent(s, phase)) return invalid("Das Gate gehört nicht zur aktuellen Phase.");
   if (gateStatus(s, model, phase) !== "ready")
     return invalid("Das Gate ist noch nicht bereit für den Entscheid.");
@@ -251,6 +286,56 @@ export function checkCompleteCondition(s: ProjectState, v: Viewer, conditionId: 
 export function checkManageMembers(s: ProjectState, v: Viewer): Check {
   if (!isPL(s, v) && !hasGlobal(v, "HH.PMO"))
     return forbidden("Nur Projektleitung und PMO verwalten Rollen.");
+  return OK;
+}
+
+/** Under separation of duties the PMO assigns and removes the control roles; the project lead the others. */
+function checkManageRole(s: ProjectState, model: HermesModel, v: Viewer, role: ProjectRole): Check {
+  if (sod(model) && CONTROL_ROLES.includes(role) && !hasGlobal(v, "HH.PMO")) {
+    return forbidden(
+      `Die Rolle ${PROJECT_ROLE_LABELS[role]} vergibt und entzieht das PMO (Funktionentrennung).`,
+    );
+  }
+  return checkManageMembers(s, v);
+}
+
+/** The roles the viewer may assign and remove in the project. */
+export function assignableRoles(s: ProjectState, model: HermesModel, v: Viewer): ProjectRole[] {
+  return PROJECT_ROLES.filter((r) => checkManageRole(s, model, v, r).ok);
+}
+
+export function checkAssignRole(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  userId: string,
+  role: ProjectRole,
+): Check {
+  const manage = checkManageRole(s, model, v, role);
+  if (!manage.ok) return manage;
+  const held = rolesOf(s, userId);
+  if (held.includes(role)) return invalid("Die Person hat diese Rolle bereits.");
+  const clash = sod(model) ? roleConflict(held, role) : undefined;
+  if (clash) {
+    return invalid(
+      `Die Person hat bereits die Rolle ${PROJECT_ROLE_LABELS[clash]}. Die Rolle ${PROJECT_ROLE_LABELS[role]} nimmt eine andere Person wahr (Funktionentrennung).`,
+    );
+  }
+  return OK;
+}
+
+export function checkRemoveRole(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  userId: string,
+  role: ProjectRole,
+): Check {
+  const manage = checkManageRole(s, model, v, role);
+  if (!manage.ok) return manage;
+  if (!rolesOf(s, userId).includes(role)) return invalid("Die Person hat diese Rolle nicht.");
+  const leads = Object.values(s.members).filter((m) => m.roles.includes("PL")).length;
+  if (role === "PL" && leads <= 1) return invalid("Mindestens eine Projektleitung muss im Vorhaben bleiben.");
   return OK;
 }
 
@@ -302,7 +387,12 @@ export function checkDecideChangeRequest(
     return forbidden(`Change Requests entscheidet die Rolle ${PROJECT_ROLE_LABELS.PA}.`);
   }
   if (cr.status !== "offen") return invalid("Der Change Request ist bereits entschieden oder zurückgezogen.");
-  return OK;
+  if (ownRequest(model, v, cr)) {
+    return forbidden(
+      "Über einen eigenen Change Request entscheidet ein anderes Mitglied des Projektausschusses (Vier-Augen-Prinzip).",
+    );
+  }
+  return separated(s, model, v, "PA");
 }
 
 /** ISM and Datenschutz each confirm the recheck after an accepted request touching personal data. */
@@ -323,7 +413,12 @@ export function checkConfirmRecheck(
     return forbidden(`Diesen Teil der Neuprüfung bestätigt die Rolle ${PROJECT_ROLE_LABELS[role]}.`);
   }
   if (!pendingRecheckRoles(cr).includes(role)) return invalid("Für diese Rolle ist keine Neuprüfung offen.");
-  return OK;
+  if (ownRequest(model, v, cr)) {
+    return forbidden(
+      `Die Neuprüfung eines eigenen Change Requests bestätigt eine andere Person mit der Rolle ${PROJECT_ROLE_LABELS[role]} (Vier-Augen-Prinzip).`,
+    );
+  }
+  return separated(s, model, v, role);
 }
 
 /** The PL records the reserve for changes from the project order. */
@@ -372,12 +467,19 @@ export function checkPublishStatusReport(s: ProjectState, model: HermesModel, v:
 }
 
 /** The Projektausschuss takes note of the latest report, once. */
-export function checkAcknowledgeStatusReport(s: ProjectState, v: Viewer, reportId: string): Check {
+export function checkAcknowledgeStatusReport(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  reportId: string,
+): Check {
   const r = s.statusReports[reportId];
   if (!r) return invalid("Diesen Statusbericht gibt es nicht.");
   if (!rolesOf(s, v.userId).includes("PA")) {
     return forbidden(`Zur Kenntnis nimmt den Statusbericht die Rolle ${PROJECT_ROLE_LABELS.PA}.`);
   }
+  const separate = separated(s, model, v, "PA");
+  if (!separate.ok) return separate;
   const latest = Object.values(s.statusReports).every((x) => x.number <= r.number);
   if (!latest) return invalid("Es gibt einen neueren Statusbericht.");
   if (r.acknowledgements.length) return invalid("Der Statusbericht wurde bereits zur Kenntnis genommen.");

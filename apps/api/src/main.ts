@@ -1,5 +1,5 @@
 import type { TokenCredential } from "@azure/identity";
-import { MODEL } from "@hermes-helfer/core";
+import { MODEL, withPolicy } from "@hermes-helfer/core";
 import { AzureOpenAiProvider, entraTokenSource } from "./agents/azure-openai-provider";
 import { MockProvider } from "./agents/mock-provider";
 import type { AiProvider } from "./agents/provider";
@@ -24,7 +24,8 @@ const getCredential = () =>
   }));
 
 const store = await createStore(config, log, getCredential);
-const repo = new ProjectRepository(store, MODEL, {
+const model = withPolicy(MODEL, { separationOfDuties: config.SEPARATION_OF_DUTIES });
+const repo = new ProjectRepository(store, model, {
   // todo-later E11: alert ISM and SOC instead of only logging.
   onCorruptProject: (projectId, result) =>
     log.error({ projectId, result }, "project failed integrity check and is not served"),
@@ -71,6 +72,8 @@ const { app, runs } = await buildServer({
 
 if (config.AUTH_MODE === "dev")
   log.warn("AUTH_MODE=dev: sign-in with fictional dev users. Never use in production.");
+if (!config.SEPARATION_OF_DUTIES)
+  log.warn("SEPARATION_OF_DUTIES=false: one person may hold every role. Only for a test environment.");
 
 if (config.SEED_DEMO && (await repo.all()).length === 0) {
   await seedDemo(repo);

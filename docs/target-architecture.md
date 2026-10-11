@@ -291,7 +291,7 @@ The HERMES result «Projektstatusbericht» for the Projektausschuss, as in the p
 
 - **Sign-in:** Entra ID with Conditional Access and MFA. Internal users only (D6).
 - **Global roles as Entra app roles:** `HH.User` (may use the app), `HH.PMO` (sees all projects, creates projects, manages memberships), `HH.Portfolio` (Projektportfolio-Gremium: sees all projects, decides Projektfreigabe), `HH.Admin` (technical administration, no implicit project access). These roles are assigned to a few groups and appear in the token's `roles` claim, which avoids the 200-group token limit.
-- **Project roles in the app** (decision pending, question F5): `PL`, `BC`, `PA`, `FACH`, `TEST`, `ISM`, `DS`, `ARCH`, `APM`, `INFRA`. The PL (or PMO) assigns them, and every change is an event in the Projektakte. ISM and Datenschutz are separate roles because they decide separately (question F6). A nightly sync with Entra flags members whose account is disabled.
+- **Project roles in the app** (decision pending, question F5): `PL`, `BC`, `PA`, `FACH`, `TEST`, `ISM`, `DS`, `ARCH`, `APM`, `INFRA`. The PL assigns them, except the control roles `PA`, `ISM` and `DS`, which the PMO assigns (§6.1). Every change is an event in the Projektakte. ISM and Datenschutz are separate roles because they decide separately (question F6). A nightly sync with Entra flags members whose account is disabled.
 - **Restricted deliverables (need-to-know):** Datenklassifizierung, SchuBAn, Datenschutz-Vorabklärung, ISDS-Konzept, DSFA and the security proofs can only be read by PL, PA, ISM, DS and ARCH, plus the roles that contribute to them (for example the Fachstelle, which fills in the SchuBAn). Everyone else sees only their status.
 - **Administrators:** PIM elevation with a justification, alerts on elevation, break-glass accounts. The prototype's "als andere Person anmelden" does not exist in production. Local development uses dev users, and the API refuses to start in production with dev sign-in enabled.
 - **Agent identities:** a managed identity for the API. SharePoint access with `Sites.Selected`, granted per project site, never tenant-wide.
@@ -305,14 +305,30 @@ The HERMES result «Projektstatusbericht» for the Projektausschuss, as in the p
 | Start a skill | PL, or a role in the skill's `mayStart` |
 | Edit a draft | PL, or a role that may start one of the deliverable's skills |
 | Release a Dokument | PL |
-| Approve an "Entscheid X" | Members holding the pending approver role |
-| Decide a gate | PA, plus the Portfolio role for Projektfreigabe and Skalierung |
+| Approve an "Entscheid X" | Members holding the pending approver role (not the PL, §6.1) |
+| Decide a gate | PA, plus the Portfolio role for Projektfreigabe and Skalierung; never the PL of the project (§6.1) |
 | Mark a situational deliverable "nicht zutreffend", reactivate it | PL |
 | Record participation, confirm checklist items | PL, or the item's owner role |
 | Complete an Auflage | PL, or the Auflage's owner role |
-| Manage members | PL, PMO |
+| Submit a change request, record a risk | Any member |
+| Decide a change request | PA, not the person who submitted it (§6.1) |
+| Confirm the recheck after a change request | ISM and DS, each their part, not the person who submitted the request (§6.1) |
+| Assess and close a risk | PL, or the risk's owner role |
+| Publish a status report; take note of it | PL; PA |
+| Assign and remove roles | PL for the team roles, PMO for all roles (§6.1) |
 | Verify the audit chain | PL, PMO |
 | Create a project | PMO |
+
+### 6.1 Separation of duties (Funktionentrennung)
+
+The roles that decide, approve or recheck (PA, ISM and DS, the **control roles**) only work as controls when someone other than the person controlled holds them. Without a rule, a project lead could give themselves PA, ISM and Datenschutz, approve their own change request and confirm both rechecks: the Projektakte would show four roles, but one person. The engine therefore applies a policy (`packages/core/src/model/policy.ts`), and the checks in `permissions.ts` enforce it for every command, whatever the client sends:
+
+- **Incompatible roles:** one person never holds PL together with PA, ISM or DS in the same project (open question F37 for further pairs). Assigning such a combination is refused, also to the PMO.
+- **Who assigns:** the PMO assigns and removes the control roles; the PL assigns and removes the team roles.
+- **Four-eyes principle:** nobody decides or rechecks a change request they submitted. If the only member of the Projektausschuss submits one, the PMO adds a second member who decides.
+- **At the moment of the decision:** a control role does not count while the same person also leads the project, even if the combination was assigned before the policy applied. The PL does not decide the gate of their own project, also not through the global role `HH.Portfolio`. Tasks and views follow the same checks, so nobody gets a task they may not do.
+
+The API setting `SEPARATION_OF_DUTIES` switches the policy; it is on by default and in the pilot. Only the test environment turns it off (`infra/test.bicepparam`), so that one person can try every role; the app then says so on the roles page, and only there offers «Mich selbst».
 
 ---
 

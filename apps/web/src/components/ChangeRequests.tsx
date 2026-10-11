@@ -42,6 +42,7 @@ import {
   type Finding,
   type ImpactLevel,
   type ImpactRow,
+  type RecheckRole,
 } from "@hermes-helfer/core";
 import { useMemo, useState } from "react";
 import { projectPath, useApi, useChangeRequests, useProjectCommand, useReference } from "../api/hooks";
@@ -752,17 +753,18 @@ function RecheckSection({ code, cr }: { code: string; cr: ChangeRequestView }) {
   const s = useStyles();
   const api = useApi();
   const notify = useNotify();
-  const [note, setNote] = useState("");
-  const confirm = useProjectCommand(code, (_, v: { role: string; outcome: string }) =>
-    api.post(`${projectPath(code)}/change-requests/${cr.id}/recheck`, { ...v, note }),
+  // One note per role: in a small project one person may confirm for ISM and Datenschutz.
+  const [notes, setNotes] = useState<Partial<Record<RecheckRole, string>>>({});
+  const confirm = useProjectCommand(code, (_, v: { role: RecheckRole; outcome: string }) =>
+    api.post(`${projectPath(code)}/change-requests/${cr.id}/recheck`, { ...v, note: notes[v.role] ?? "" }),
   );
   const rc = cr.recheck!;
-  const send = (role: string, outcome: string) =>
+  const send = (role: RecheckRole, outcome: string) =>
     confirm.mutate(
       { role, outcome },
       {
         onSuccess: () => {
-          setNote("");
+          setNotes((n) => ({ ...n, [role]: "" }));
           notify("success", "Neuprüfung bestätigt", cr.label);
         },
         onError: (err) => notify("error", "Nicht möglich", errorText(err)),
@@ -772,8 +774,11 @@ function RecheckSection({ code, cr }: { code: string; cr: ChangeRequestView }) {
     <section className={s.section} aria-label="Neuprüfung">
       <Subtitle2 as="h3">Neuprüfung {rc.done ? "abgeschlossen" : "offen"}</Subtitle2>
       <Caption1 className={s.muted}>
-        Die Änderung betrifft Personendaten. Diese Ergebnisse werden neu beurteilt; bis dahin bleibt das Gate
-        zu: {rc.deliverables.map((d) => d.name).join(", ")}.
+        {cr.flags.daten
+          ? "Die Änderung betrifft Personendaten."
+          : "Der Projektausschuss hat die Neuprüfung verlangt."}{" "}
+        Diese Ergebnisse werden neu beurteilt; bis dahin bleibt das Gate zu:{" "}
+        {rc.deliverables.map((d) => d.name).join(", ")}.
       </Caption1>
       {rc.roles.map((r) => (
         <div key={r.role} className={s.section}>
@@ -783,10 +788,14 @@ function RecheckSection({ code, cr }: { code: string; cr: ChangeRequestView }) {
               ? `${r.confirmed.outcome}${r.confirmed.note ? ` (${r.confirmed.note})` : ""}, ${r.confirmed.by.displayName}, ${formatDate(r.confirmed.at)}`
               : "ausstehend"}
           </Body1>
+          {r.blocked ? <Caption1 className={s.muted}>{r.blocked}</Caption1> : null}
           {r.canConfirm ? (
             <div className={s.row}>
-              <Field label="Massnahme oder Notiz" className={s.grow}>
-                <Input value={note} onChange={(_, d) => setNote(d.value)} />
+              <Field label={`Massnahme oder Notiz (${r.label})`} className={s.grow}>
+                <Input
+                  value={notes[r.role] ?? ""}
+                  onChange={(_, d) => setNotes((n) => ({ ...n, [r.role]: d.value }))}
+                />
               </Field>
               <Button disabled={confirm.isPending} onClick={() => send(r.role, "keine Anpassung")}>
                 Keine Anpassung nötig

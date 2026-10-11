@@ -1,7 +1,36 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // End-to-end smoke test: starts the API (dev sign-in, mock model, demo data,
-// in memory) and the Vite dev server, then drives the app in Chromium.
+// in memory) and the Vite dev server, then drives the app in Chromium. A second
+// pair runs as the test environment does (infra/test.bicepparam): no demo data,
+// separation of duties off, so one person can try every role.
+const api = (port: number, env: Record<string, string>) => ({
+  command: "npx tsx src/main.ts",
+  cwd: "../api",
+  url: `http://127.0.0.1:${port}/api/health`,
+  env: {
+    NODE_ENV: "development",
+    AUTH_MODE: "dev",
+    AI_PROVIDER: "mock",
+    MOCK_AI_LATENCY_MS: "400",
+    LOG_LEVEL: "warn",
+    PORT: String(port),
+    ...env,
+  },
+  stdout: "pipe" as const,
+  reuseExistingServer: false,
+  timeout: 60_000,
+});
+const web = (port: number, apiPort: number) => ({
+  command: `npx vite --host 127.0.0.1 --port ${port} --strictPort`,
+  url: `http://127.0.0.1:${port}`,
+  env: { API_PROXY_TARGET: `http://127.0.0.1:${apiPort}` },
+  stdout: "pipe" as const,
+  reuseExistingServer: false,
+  timeout: 60_000,
+});
+const chrome = { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } };
+
 export default defineConfig({
   testDir: "e2e",
   timeout: 60_000,
@@ -16,33 +45,17 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } } },
+    { name: "chromium", testIgnore: /staging\.spec\.ts/, use: chrome },
+    {
+      name: "testumgebung",
+      testMatch: /staging\.spec\.ts/,
+      use: { ...chrome, baseURL: "http://127.0.0.1:5174" },
+    },
   ],
   webServer: [
-    {
-      command: "npx tsx src/main.ts",
-      cwd: "../api",
-      url: "http://127.0.0.1:3001/api/health",
-      env: {
-        NODE_ENV: "development",
-        AUTH_MODE: "dev",
-        AI_PROVIDER: "mock",
-        MOCK_AI_LATENCY_MS: "400",
-        SEED_DEMO: "true",
-        SEED_SYNTHETIC_PROJECTS: "40",
-        LOG_LEVEL: "warn",
-        PORT: "3001",
-      },
-      stdout: "pipe",
-      reuseExistingServer: false,
-      timeout: 60_000,
-    },
-    {
-      command: "npx vite --host 127.0.0.1 --port 5173 --strictPort",
-      url: "http://127.0.0.1:5173",
-      stdout: "pipe",
-      reuseExistingServer: false,
-      timeout: 60_000,
-    },
+    api(3001, { SEED_DEMO: "true", SEED_SYNTHETIC_PROJECTS: "40" }),
+    web(5173, 3001),
+    api(3002, { SEPARATION_OF_DUTIES: "false" }),
+    web(5174, 3002),
   ],
 });

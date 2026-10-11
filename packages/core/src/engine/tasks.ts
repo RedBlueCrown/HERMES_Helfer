@@ -6,8 +6,11 @@ import type { PhaseId, ProjectRole } from "../model/types";
 import { openChangeRequests, openRechecks, pendingRecheckRoles } from "./change-requests";
 import { openParticipation } from "./participation";
 import {
-  checkDecideGate,
+  checkAcknowledgeStatusReport,
   checkConfirmChecklistItem,
+  checkConfirmRecheck,
+  checkDecideChangeRequest,
+  checkDecideGate,
   decisionRolesFor,
   rolesOf,
   type Viewer,
@@ -53,7 +56,7 @@ export function myTasks(s: ProjectState, model: HermesModel, v: Viewer, now: Dat
     for (const skill of phase.skills) {
       const st = skillStatus(s, model, skill);
       if (st !== "approval" && st !== "veto") continue;
-      for (const a of decisionRolesFor(s, v, skill)) {
+      for (const a of decisionRolesFor(s, model, v, skill)) {
         decisions.push({ kind: "decide-skill", skillId: skill.id, role: a.role, veto: st === "veto" });
       }
     }
@@ -65,16 +68,20 @@ export function myTasks(s: ProjectState, model: HermesModel, v: Viewer, now: Dat
     // Rechecks after a change request hold the gate, so they come before it.
     for (const c of openRechecks(s)) {
       for (const role of pendingRecheckRoles(c)) {
-        if (roles.includes(role)) out.push({ kind: "recheck", crId: c.id, role });
+        if (checkConfirmRecheck(s, model, v, c.id, role).ok) out.push({ kind: "recheck", crId: c.id, role });
       }
     }
     if (checkDecideGate(s, model, v, phase.id).ok) out.push({ kind: "decide-gate", phase: phase.id });
   }
 
-  if (roles.includes("PA") && !isFinished(s, model)) {
-    for (const c of openChangeRequests(s)) out.push({ kind: "decide-cr", crId: c.id });
+  if (roles.includes("PA")) {
+    for (const c of openChangeRequests(s)) {
+      if (checkDecideChangeRequest(s, model, v, c.id).ok) out.push({ kind: "decide-cr", crId: c.id });
+    }
     const report = reportAwaitingAcknowledgement(s);
-    if (report) out.push({ kind: "acknowledge-report", reportId: report.id });
+    if (report && !isFinished(s, model) && checkAcknowledgeStatusReport(s, model, v, report.id).ok) {
+      out.push({ kind: "acknowledge-report", reportId: report.id });
+    }
   }
   if (isPL && isStatusReportDue(s, model, now)) out.push({ kind: "status-report" });
 

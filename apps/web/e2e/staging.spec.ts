@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { shot, signInAs } from "./helpers";
 
-// Runs after the files that count projects (files run in name order): it adds one.
+// Runs against the API of the test environment (playwright.config.ts): empty, and
+// without separation of duties, so one person can try every role.
 test("First steps in a new environment: the PMO creates a project and takes the roles to try it", async ({
   page,
 }) => {
@@ -19,6 +20,7 @@ test("First steps in a new environment: the PMO creates a project and takes the 
 
   await page.getByRole("tab", { name: "Beteiligte und Rollen" }).click();
   const roles = page.getByRole("region", { name: "Rollen im Vorhaben" });
+  await expect(roles).toContainText("Die Funktionentrennung ist ausgeschaltet.");
   await roles.getByRole("button", { name: "Mich selbst" }).click();
   await roles.getByRole("combobox").click();
   await page.getByRole("option", { name: "Auftraggeber / Projektausschuss" }).click();

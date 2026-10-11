@@ -1,6 +1,6 @@
 # Offene Fragen
 
-Stand: 10. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-architecture.md`](target-architecture.md), Abschnitt 1.1.
+Stand: 11. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-architecture.md`](target-architecture.md), Abschnitt 1.1.
 
 **So beantwortest du die Fragen:** Schreib deine Antwort direkt unter «Antwort:» oder antworte im Chat mit der Nummer (z. B. «F3: regional»). Wo ich eine Empfehlung habe, steht sie dabei. Wenn du mit ihr einverstanden bist, genügt «ok».
 
@@ -15,7 +15,8 @@ Stand: 10. Oktober 2026. Die bereits beantworteten Fragen stehen in [`target-arc
 - **Portfolio:** F29 und F30
 - **Change Requests:** F31 und F32
 - **Risiken:** F33 und F34
-- **Statusbericht:** F35 und F36 (neu)
+- **Statusbericht:** F35 und F36
+- **Funktionentrennung und Sichtbarkeit:** F37 und F38 (neu)
 
 ---
 
@@ -500,5 +501,35 @@ Der Statusbericht ist gebaut, wie im Prototyp: sechs Kriterien mit Ampel (Termin
 3. Heute nimmt ein Mitglied des Projektausschusses den Bericht für den ganzen Ausschuss zur Kenntnis. Reicht das?
 
 **Meine Empfehlung:** 1. von Hand für den Pilot; 2. ja, sobald die Vorlagen da sind; 3. ja.
+
+**Antwort:**
+
+---
+
+## Teil J: Funktionentrennung und Sichtbarkeit
+
+Eine unabhängige Prüfung des Codes hat gezeigt: Eine Projektleiterin konnte sich selbst die Rollen Projektausschuss, ISM und Datenschutz geben, ihren eigenen Change Request freigeben und beide Neuprüfungen bestätigen. Im Verlauf standen dann vier Rollen, aber nur eine Person. Das ist jetzt gesperrt (Beschreibung in [`target-architecture.md`](target-architecture.md), Abschnitt 6.1). Die Regeln sind ein Vorschlag; bitte bestätigen oder anpassen.
+
+### F37 · Funktionentrennung
+
+1. Heute darf eine Person im selben Vorhaben **nicht** zugleich Projektleitung und eine der Kontrollrollen haben: Auftraggeber/Projektausschuss, ISM oder Datenschutz. Gibt es weitere Paare, zum Beispiel Projektleitung und Architektur (das Architektur-Board gibt Ergebnisse frei)?
+2. Die Kontrollrollen vergibt und entzieht nur das **PMO**, die übrigen Rollen die Projektleitung. Passt das, oder vergibt bei euch jemand anderes diese Rollen, zum Beispiel die Linie oder die Informationssicherheit selbst?
+3. **Vier-Augen-Prinzip:** Wer einen Change Request erfasst, entscheidet ihn nicht und bestätigt auch die Neuprüfung nicht. Erfasst das einzige Mitglied des Projektausschusses einen Change Request, muss das PMO ein zweites Mitglied ergänzen. Ist das so gewollt, oder darf der Auftraggeber eigene Änderungswünsche selbst freigeben?
+4. In der Testumgebung ist die Funktionentrennung ausgeschaltet, damit eine Person alle Rollen ausprobieren kann. Die App zeigt das auf der Seite «Beteiligte und Rollen» an. Einverstanden?
+
+**Meine Empfehlung:** 1. so lassen, Architektur nicht dazunehmen (kleine Vorhaben haben oft keine eigene Architektin); 2. PMO; 3. so lassen, ein Stellvertreter im Projektausschuss ist ohnehin sinnvoll; 4. ja.
+
+**Antwort:**
+
+---
+
+### F38 · Wer sieht Change Requests?
+
+Heute sehen alle Mitglieder eines Vorhabens sowie PMO und Portfolio-Gremium alle Change Requests. Ein Change Request, der Personendaten betrifft, beschreibt aber genau diese Verarbeitung, zum Beispiel «Export der Adressen säumiger Kunden an ein Inkassobüro». Das ISDS-Konzept und die DSFA, die er ändert, sehen nur berechtigte Rollen (Projektleitung, Projektausschuss, ISM, Datenschutz, Architektur).
+
+1. Sollen Change Requests mit Personendaten nur diese Rollen und die erfassende Person sehen? Die anderen sähen dann nur Nummer, Titel und Status.
+2. Gilt dasselbe für den Agenten: Soll er den Text solcher Change Requests nur in Entwürfen für berechtigte Rollen verwenden?
+
+**Meine Empfehlung:** 1. ja; 2. ja.
 
 **Antwort:**

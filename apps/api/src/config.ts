@@ -33,6 +33,11 @@ const schema = z.object({
   SQL_TRUST_SERVER_CERTIFICATE: flag(false),
   /** Apply pending migrations at startup. In Azure a separate job migrates with its own identity. */
   SQL_MIGRATE_ON_START: flag(false),
+  /**
+   * Separation of duties (Funktionentrennung, architecture §6.1). Off only in a
+   * test environment, so that one person can try every role.
+   */
+  SEPARATION_OF_DUTIES: flag(true),
   SEED_DEMO: flag(false),
   SEED_SYNTHETIC_PROJECTS: z.coerce.number().int().min(0).max(5000).default(0),
   AI_PROVIDER: z.enum(["mock", "azure-openai"]).default("mock"),
