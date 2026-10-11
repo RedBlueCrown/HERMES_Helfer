@@ -8,6 +8,7 @@ import {
   CR_FLAG_LABELS,
   CR_SECTIONS,
   checkSubmitChangeRequest,
+  type ChangeRequestProposal,
   type CrFlag,
   type DraftContent,
   type Finding,
@@ -35,12 +36,6 @@ export interface ChangeRequestProposalContent {
   flags: Record<CrFlag, { value: boolean; reason: string }>;
   /** Deterministic checks and the Kritiker's review of the agent's draft. */
   findings: Finding[];
-}
-
-export interface ChangeRequestProposal extends Omit<ChangeRequestProposalContent, "wish"> {
-  /** Submitting with this id records the request as drafted by the agent. */
-  proposalId: string;
-  producer: Producer;
 }
 
 /**

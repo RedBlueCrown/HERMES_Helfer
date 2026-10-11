@@ -1,11 +1,20 @@
 // Change Requests: the impact estimate in eight dimensions and the recheck of
-// SchuBAn, ISDS and DSFA (prototype: crImpact, openRechecks). Deterministic:
+// the data protection results (prototype: crImpact, openRechecks). Deterministic:
 // the engine computes the impact, the Change-Request agent only drafts the text,
 // and the Projektausschuss decides.
 
 import type { HermesModel } from "../model";
 import type { PhaseId } from "../model/types";
-import { CR_DAY_RATE_CHF, CR_RECHECK_ROLES, type CrFlags, type RecheckRole } from "../model/change-requests";
+import {
+  CR_DAY_RATE_CHF,
+  CR_RECHECK_DELIVERABLES,
+  CR_RECHECK_RESULTS,
+  CR_RECHECK_ROLES,
+  type CrFlags,
+  type RecheckOutcome,
+  type RecheckRole,
+} from "../model/change-requests";
+import { MIN_REASON, MIN_SUMMARY, MIN_TITLE } from "./decisions";
 import type { ChangeRequestState, ChangeRequestStatus, ProjectState } from "./state";
 
 export const CR_STATUS_LABELS: Readonly<Record<ChangeRequestStatus, string>> = {
@@ -76,12 +85,44 @@ export interface ImpactInput {
 export interface ImpactContext {
   phase: PhaseId;
   reserve: ReserveStatus;
+  /** Results marked not applicable; they are not rechecked. */
+  notApplicable?: readonly string[];
 }
 
 /** `exceptCrId`: the request itself, so an accepted request is not counted twice against the reserve. */
 export function impactContext(s: ProjectState, exceptCrId?: string): ImpactContext {
-  return { phase: s.phase, reserve: reserveStatus(s, exceptCrId) };
+  return {
+    phase: s.phase,
+    reserve: reserveStatus(s, exceptCrId),
+    notApplicable: Object.keys(s.notApplicable).filter((id) => s.notApplicable[id]),
+  };
 }
+
+/**
+ * The results a recheck covers when a request is accepted now: those of the
+ * current and earlier phases, unless marked not applicable. A result of a later
+ * phase is written with the change already known.
+ */
+export function recheckResults(
+  model: HermesModel,
+  phase: PhaseId,
+  notApplicable: readonly string[] = [],
+): string[] {
+  const current = model.phaseIndex(phase);
+  return CR_RECHECK_DELIVERABLES.filter(
+    (id) => !notApplicable.includes(id) && model.phaseIndex(model.deliverable(id).phase) <= current,
+  );
+}
+
+/** «SchuBAn und Datenschutz-Vorabklärung»: the short names of recheck results, for texts. */
+export function recheckNames(ids: readonly string[]): string {
+  const names = CR_RECHECK_RESULTS.filter((r) => ids.includes(r.id)).map((r) => r.short);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} und ${names.at(-1)}` : (names[0] ?? "");
+}
+
+/** The results of a request's recheck, as fixed at the decision. */
+export const recheckDeliverablesOf = (cr: ChangeRequestState): readonly string[] =>
+  cr.recheckDeliverables ?? CR_RECHECK_DELIVERABLES;
 
 /**
  * The impact of a request on budget, schedule, architecture, security, testing,
@@ -124,7 +165,7 @@ export function changeImpact(input: ImpactInput, ctx: ImpactContext, model: Herm
       id: "sicherheit",
       label: "Security und Datenschutz",
       text: flags.daten
-        ? "SchuBAn, Datenschutz-Vorabklärung, ISDS-Konzept und DSFA neu prüfen (ISM und Datenschutz); das Gate bleibt bis dahin zu"
+        ? `${recheckNames(recheckResults(model, ctx.phase, ctx.notApplicable))} neu prüfen (ISM und Datenschutz); das Gate bleibt bis dahin zu`
         : "keine Neuprüfung nötig",
       level: flags.daten ? "hoch" : "niedrig",
     },
@@ -166,6 +207,29 @@ export function changeImpact(input: ImpactInput, ctx: ImpactContext, model: Herm
 export function impactSummary(rows: readonly ImpactRow[]): string {
   const high = rows.filter((r) => r.level === "hoch").map((r) => r.label);
   return high.length ? `Hohe Auswirkung auf: ${high.join(", ")}` : "Keine hohe Auswirkung";
+}
+
+/** What the requester enters; a message for the person, or null. */
+export function validateChangeRequest(input: { title: string; summary: string }): string | null {
+  if (input.title.trim().length < MIN_TITLE) {
+    return `Bitte einen Titel erfassen (mindestens ${MIN_TITLE} Zeichen).`;
+  }
+  if (input.summary.trim().length < MIN_SUMMARY) {
+    return `Bitte die Änderung kurz beschreiben (mindestens ${MIN_SUMMARY} Zeichen).`;
+  }
+  return null;
+}
+
+export function validateWithdrawal(reason: string): string | null {
+  return reason.trim().length < MIN_REASON
+    ? "Bitte begründen, warum der Change Request zurückgezogen wird."
+    : null;
+}
+
+export function validateRecheck(outcome: RecheckOutcome, note: string): string | null {
+  return outcome === "Massnahme ergänzt" && note.trim().length < MIN_REASON
+    ? "Bitte die ergänzte Massnahme nennen."
+    : null;
 }
 
 /** Recheck roles that have not confirmed yet; empty when no recheck is needed or all confirmed. */

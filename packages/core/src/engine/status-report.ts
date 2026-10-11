@@ -22,6 +22,7 @@ import {
   reserveStatus,
 } from "./change-requests";
 import { isConditionOverdue } from "./conditions";
+import { MIN_REASON, MIN_SUMMARY } from "./decisions";
 import type { StatusEntry } from "./events";
 import { openParticipation } from "./participation";
 import { openRisks, riskLabel, riskScore } from "./risks";
@@ -30,6 +31,39 @@ import { gateStatus, isFinished, isPhaseCurrent, mandatoryProgress, missingRoles
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RANK: Readonly<Record<Ampel, number>> = { gruen: 0, gelb: 1, rot: 2 };
+
+/** What the project lead enters per criterion. */
+export interface StatusEntryInput {
+  ampel: Ampel;
+  problem: string;
+  measure: string;
+}
+
+/**
+ * The project lead's report against the engine's suggestion; a message for the
+ * person, or null. Yellow and red need a problem and a measure; a colour better
+ * than the suggestion needs a reason (in «Problem»).
+ */
+export function validateStatusReport(
+  input: { overview: string; criteria: Record<StatusCriterion, StatusEntryInput> },
+  suggestion: Record<StatusCriterion, StatusSuggestion>,
+): string | null {
+  for (const c of STATUS_CRITERIA) {
+    const e = input.criteria[c.id];
+    const problem = e.problem.trim();
+    if (e.ampel !== "gruen" && (problem.length < MIN_REASON || e.measure.trim().length < MIN_REASON)) {
+      return `«${c.label}» ist ${AMPEL_LABELS[e.ampel].label}: Bitte Problem und Massnahme nennen.`;
+    }
+    const suggested = suggestion[c.id].ampel;
+    if (RANK[e.ampel] < RANK[suggested] && problem.length < MIN_REASON) {
+      return `«${c.label}»: Bitte begründen, warum die Lage besser ist als vorgeschlagen (Vorschlag ${AMPEL_LABELS[suggested].label}).`;
+    }
+  }
+  if (input.overview.trim().length < MIN_SUMMARY) {
+    return `Bitte den Stand kurz zusammenfassen (Übersicht, mindestens ${MIN_SUMMARY} Zeichen).`;
+  }
+  return null;
+}
 
 /** Red if one criterion is red, yellow if one is yellow, else green. */
 export function overallAmpel(colours: Iterable<Ampel>): Ampel {

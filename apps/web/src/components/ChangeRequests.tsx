@@ -12,7 +12,6 @@ import {
   Input,
   MessageBar,
   MessageBarBody,
-  MessageBarTitle,
   OverlayDrawer,
   Spinner,
   Subtitle1,
@@ -31,10 +30,13 @@ import {
 import { Dismiss24Regular, Sparkle16Regular } from "@fluentui/react-icons";
 import {
   CR_FLAGS,
+  CR_RECHECK_NAMES,
   MODEL,
   NO_FLAGS,
   changeImpact,
   formatChf,
+  validateChangeRequest,
+  validateWithdrawal,
   type ChangeRequestStatus,
   type CrFlag,
   type CrFlags,
@@ -53,7 +55,16 @@ import type {
   ProjectView,
 } from "../api/types";
 import { DecisionForm, type DecisionValues } from "./DecisionForm";
-import { ErrorView, OverdueBadge, RichText, conditionDueText, errorText, formatDate, useNotify } from "./ui";
+import {
+  ErrorView,
+  FindingsBox,
+  OverdueBadge,
+  RichText,
+  conditionDueText,
+  errorText,
+  formatDate,
+  useNotify,
+} from "./ui";
 
 const useStyles = makeStyles({
   card: {
@@ -102,7 +113,6 @@ const useStyles = makeStyles({
   flags: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalXS },
   reason: { marginLeft: "32px", color: tokens.colorNeutralForeground3 },
   list: { margin: 0, paddingLeft: tokens.spacingHorizontalXL },
-  findings: { margin: 0, paddingLeft: tokens.spacingHorizontalL },
   grow: { flexGrow: 1 },
   titleCol: { width: "34%" },
 });
@@ -155,26 +165,6 @@ export function ImpactTable({ rows }: { rows: ImpactRow[] }) {
   );
 }
 
-function Findings({ findings }: { findings: Finding[] }) {
-  const s = useStyles();
-  if (!findings.length) return null;
-  return (
-    <MessageBar intent="warning" layout="multiline">
-      <MessageBarBody>
-        <MessageBarTitle>Hinweise des Kritikers</MessageBarTitle>
-        <ul className={s.findings}>
-          {findings.map((f, i) => (
-            <li key={i}>
-              {f.severity === "warnung" ? "Warnung: " : ""}
-              {f.text}
-            </li>
-          ))}
-        </ul>
-      </MessageBarBody>
-    </MessageBar>
-  );
-}
-
 // ---------- Register (tab) ----------
 
 export function ChangeRequestsTab({
@@ -198,7 +188,8 @@ export function ChangeRequestsTab({
           <Subtitle1 as="h2">Change Requests</Subtitle1>
           <Caption1 block className={s.muted}>
             Änderungen am vereinbarten Umfang. Der Projektausschuss entscheidet mit Konsent. Betrifft eine
-            Änderung Personendaten, prüfen ISM und Datenschutz SchuBAn, ISDS-Konzept und DSFA neu.
+            Änderung Personendaten, prüfen ISM und Datenschutz {CR_RECHECK_NAMES} neu, soweit es sie schon
+            gibt.
           </Caption1>
         </div>
         {r.canSubmit.ok ? (
@@ -350,13 +341,17 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
   // Sections arrive with the reference data; start from them once they are there.
   const current = content.sections.length ? content : emptyContent(sections);
   const effortDays = Number(effort);
-  const impact = useMemo(
-    () =>
-      register.data && effortDays > 0
-        ? changeImpact({ effortDays, flags }, { phase: view.phase, reserve: register.data.reserve }, MODEL)
-        : null,
-    [register.data, effortDays, flags, view.phase],
-  );
+  const impact = useMemo(() => {
+    if (!register.data || !(effortDays > 0)) return null;
+    const notApplicable = view.phases.flatMap((p) =>
+      p.deliverables.filter((d) => d.status === "na").map((d) => d.id),
+    );
+    return changeImpact(
+      { effortDays, flags },
+      { phase: view.phase, reserve: register.data.reserve, notApplicable },
+      MODEL,
+    );
+  }, [register.data, effortDays, flags, view.phase, view.phases]);
   const submit = useProjectCommand(code, () =>
     api.post(`${projectPath(code)}/change-requests`, {
       title,
@@ -391,7 +386,9 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
 
   const setSection = (i: number, body: string) =>
     setContent({ ...current, sections: current.sections.map((x, j) => (j === i ? { ...x, body } : x)) });
-  const canDraft = title.trim().length >= 4 && current.summary.trim().length >= 10 && !drafting;
+  // The same rules as the server (engine): title and summary long enough.
+  const incomplete = validateChangeRequest({ title, summary: current.summary }) !== null;
+  const canDraft = !incomplete && !drafting;
 
   return (
     <>
@@ -457,7 +454,7 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
               </Badge>
             ) : null}
           </div>
-          <Findings findings={findings} />
+          <FindingsBox findings={findings} />
 
           <section className={s.section} aria-label="Ausführliche Beschreibung">
             <Subtitle2 as="h3">Ausführliche Beschreibung</Subtitle2>
@@ -526,12 +523,7 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
           type="submit"
           form="new-cr"
           disabled={
-            submit.isPending ||
-            drafting ||
-            title.trim().length < 4 ||
-            requestedBy.trim().length < 2 ||
-            current.summary.trim().length < 10 ||
-            !(effortDays > 0)
+            submit.isPending || drafting || incomplete || requestedBy.trim().length < 2 || !(effortDays > 0)
           }
         >
           Einreichen
@@ -628,7 +620,7 @@ function ChangeRequestDetail({ code, cr }: { code: string; cr: ChangeRequestView
           </>
         ) : null}
       </section>
-      <Findings findings={cr.findings} />
+      <FindingsBox findings={cr.findings} />
       <section className={s.section} aria-label="Betroffene Bereiche">
         <Subtitle2 as="h3">Betroffene Bereiche</Subtitle2>
         <Body1>
@@ -831,7 +823,7 @@ function WithdrawSection({ code, cr }: { code: string; cr: ChangeRequestView }) 
           <Input value={reason} onChange={(_, d) => setReason(d.value)} />
         </Field>
         <Button
-          disabled={reason.trim().length < 5 || withdraw.isPending}
+          disabled={validateWithdrawal(reason) !== null || withdraw.isPending}
           onClick={() =>
             withdraw.mutate(undefined, {
               onSuccess: () => notify("success", "Change Request zurückgezogen", cr.label),

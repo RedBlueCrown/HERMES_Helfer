@@ -1,6 +1,7 @@
 // The model behind the agents is pluggable (architecture §4.3). Only providers
 // that process data in the EU may be added (decision D3).
 
+import type { ProposedReassessment, ProposedRisk } from "@hermes-helfer/core";
 import type {
   AgentDef,
   Ampel,
@@ -109,30 +110,7 @@ export interface RiskReviewRequest {
 }
 
 /** A new risk the Risiko agent proposes; the PL accepts it or not. */
-export interface ProposedRisk {
-  title: string;
-  description: string;
-  probability: Level;
-  impact: Level;
-  ownerRole: ProjectRole;
-  mitigation: string;
-  /** Why: the fact from the project behind it. */
-  reason: string;
-  /** The id of the trigger the proposal rests on, or "profil" / "ergebnisse". */
-  trigger: string;
-}
-
-/** A new assessment of an open risk, named by its label (R-02). */
-export interface ProposedReassessment {
-  risk: string;
-  probability: Level;
-  impact: Level;
-  /** A new or sharper measure; empty keeps the current one. */
-  mitigation: string;
-  reason: string;
-  /** The id of the trigger the proposal rests on, or "profil" / "ergebnisse". */
-  trigger: string;
-}
+export type { ProposedReassessment, ProposedRisk } from "@hermes-helfer/core";
 
 export interface RiskReview {
   newRisks: ProposedRisk[];

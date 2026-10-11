@@ -8,7 +8,6 @@ import {
   PROJECT_ROLES,
   canCreateProject,
   canViewProject,
-  AMPEL_LABELS,
   CR_DAY_RATE_CHF,
   CR_FLAGS,
   CR_RECHECK_ROLES,
@@ -39,18 +38,26 @@ import {
   checkWithdrawChangeRequest,
   contentVersion as currentContentVersion,
   findChecklist,
+  gateRisks,
   nextCrNumber,
   impactContext,
   mandatoryProgress,
   nextRiskNumber,
   nextStatusReportNumber,
   openChecklistItems,
+  recheckResults,
   reportRisks,
   reserveStatus,
   suggestStatus,
   rolesOf,
+  validateChangeRequest,
   validateDecision,
   validateNotApplicableReason,
+  validateRecheck,
+  validateRisk,
+  validateRiskAssessment,
+  validateStatusReport,
+  validateWithdrawal,
   type Actor,
   type Channel,
   type ConditionSpec,
@@ -157,8 +164,6 @@ export interface StatusReportInput {
   /** "ai" when the PL used the agent's texts. */
   producer: Producer;
 }
-
-const AMPEL_RANK: Readonly<Record<Ampel, number>> = { gruen: 0, gelb: 1, rot: 2 };
 
 export interface CreateProjectInput {
   code: string;
@@ -412,6 +417,10 @@ export class ProjectService {
             reason: input.reason.trim(),
             konsent: gate.requiresKonsent && input.konsent,
             conditions: this.conditions(input),
+            ...(() => {
+              const risks = gateRisks(s);
+              return risks.length ? { highRisks: risks } : {};
+            })(),
           },
         },
       ];
@@ -431,9 +440,8 @@ export class ProjectService {
   submitChangeRequest(code: string, ctx: RequestContext, input: ChangeRequestInput) {
     return this.command(code, ctx, (s) => {
       assertCheck(checkSubmitChangeRequest(s, this.model, ctx.viewer));
-      if (input.content.summary.trim().length < 10) {
-        throw unprocessable("Bitte die Änderung kurz beschreiben (mindestens 10 Zeichen).");
-      }
+      const invalid = validateChangeRequest({ title: input.title, summary: input.content.summary });
+      if (invalid) throw unprocessable(invalid);
       const p = input.proposal;
       const agentFlags = p
         ? (Object.fromEntries(CR_FLAGS.map((f) => [f, p.content.flags[f].value])) as CrFlags)
@@ -479,8 +487,8 @@ export class ProjectService {
   withdrawChangeRequest(code: string, ctx: RequestContext, crId: string, reason: string) {
     return this.command(code, ctx, (s) => {
       assertCheck(checkWithdrawChangeRequest(s, this.model, ctx.viewer, crId));
-      if (reason.trim().length < 5)
-        throw unprocessable("Bitte begründen, warum der Change Request zurückgezogen wird.");
+      const invalid = validateWithdrawal(reason);
+      if (invalid) throw unprocessable(invalid);
       return [{ type: "ChangeRequestWithdrawn", data: { crId, reason: reason.trim() } }];
     });
   }
@@ -523,7 +531,12 @@ export class ProjectService {
               return remaining === undefined ? {} : { reserveRemainingChf: remaining };
             })(),
             ...(accepted && input.recheckRequired && !cr.flags.daten ? { recheckRequired: true } : {}),
-            ...(recheck ? { recheckRoles: [...CR_RECHECK_ROLES] } : {}),
+            ...(recheck
+              ? {
+                  recheckRoles: [...CR_RECHECK_ROLES],
+                  recheckDeliverables: recheckResults(this.model, s.phase, impactContext(s).notApplicable),
+                }
+              : {}),
           },
         },
       ];
@@ -540,9 +553,8 @@ export class ProjectService {
   ) {
     return this.command(code, ctx, (s) => {
       assertCheck(checkConfirmRecheck(s, this.model, ctx.viewer, crId, role));
-      if (outcome === "Massnahme ergänzt" && note.trim().length < 5) {
-        throw unprocessable("Bitte die ergänzte Massnahme nennen.");
-      }
+      const invalid = validateRecheck(outcome, note);
+      if (invalid) throw unprocessable(invalid);
       return [{ type: "ChangeRecheckConfirmed", data: { crId, role, outcome, note: note.trim() } }];
     });
   }
@@ -559,6 +571,8 @@ export class ProjectService {
   recordRisk(code: string, ctx: RequestContext, input: RiskInput) {
     return this.command(code, ctx, (s) => {
       assertCheck(checkRecordRisk(s, this.model, ctx.viewer));
+      const invalid = validateRisk(input);
+      if (invalid) throw unprocessable(invalid);
       // Accepting a proposal of the Risiko agent is the PL's decision (architecture §5).
       if (input.producer.kind === "ai") assertCheck(checkReviewRisks(s, this.model, ctx.viewer));
       return [
@@ -601,24 +615,10 @@ export class ProjectService {
           "Das Risiko ist geschlossen. Zum Ändern zuerst wieder öffnen.",
         );
       }
+      const invalid = validateRiskAssessment(r, input);
+      if (invalid) throw unprocessable(invalid);
       const note = input.note.trim();
       const mitigation = input.mitigation.trim();
-      if (input.status === "geschlossen" && r.status !== "geschlossen" && note.length < 5) {
-        throw unprocessable("Bitte begründen, warum das Risiko geschlossen wird.");
-      }
-      if (r.status === "geschlossen" && input.status !== "geschlossen" && note.length < 5) {
-        throw unprocessable("Bitte begründen, warum das Risiko wieder offen ist.");
-      }
-      if (input.status === "in Bearbeitung" && mitigation.length < 5) {
-        throw unprocessable("Bitte die Massnahme nennen, an der gearbeitet wird.");
-      }
-      const unchanged =
-        input.probability === r.probability &&
-        input.impact === r.impact &&
-        input.status === r.status &&
-        input.ownerRole === r.ownerRole &&
-        mitigation === r.mitigation;
-      if (unchanged && !note) throw unprocessable("Es hat sich nichts geändert.");
       return [
         {
           type: "RiskAssessed",
@@ -648,26 +648,17 @@ export class ProjectService {
     return this.command(code, ctx, (s) => {
       assertCheck(checkPublishStatusReport(s, this.model, ctx.viewer));
       const suggestion = suggestStatus(s, this.model, now);
+      const invalid = validateStatusReport(input, suggestion);
+      if (invalid) throw unprocessable(invalid);
       const criteria = {} as Record<StatusCriterion, StatusEntry>;
       for (const c of STATUS_CRITERIA) {
         const e = input.criteria[c.id];
-        const problem = e.problem.trim();
-        const measure = e.measure.trim();
-        const suggested = suggestion[c.id].ampel;
-        if (e.ampel !== "gruen" && (problem.length < 5 || measure.length < 5)) {
-          throw unprocessable(
-            `«${c.label}» ist ${AMPEL_LABELS[e.ampel].label}: Bitte Problem und Massnahme nennen.`,
-          );
-        }
-        if (AMPEL_RANK[e.ampel] < AMPEL_RANK[suggested] && problem.length < 5) {
-          throw unprocessable(
-            `«${c.label}»: Bitte begründen, warum die Lage besser ist als vorgeschlagen (Vorschlag ${AMPEL_LABELS[suggested].label}).`,
-          );
-        }
-        criteria[c.id] = { ampel: e.ampel, suggested, problem, measure };
-      }
-      if (input.overview.trim().length < 10) {
-        throw unprocessable("Bitte den Stand kurz zusammenfassen (Übersicht, mindestens 10 Zeichen).");
+        criteria[c.id] = {
+          ampel: e.ampel,
+          suggested: suggestion[c.id].ampel,
+          problem: e.problem.trim(),
+          measure: e.measure.trim(),
+        };
       }
       return [
         {

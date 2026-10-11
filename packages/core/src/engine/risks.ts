@@ -14,11 +14,14 @@ import {
   impactSummary,
   openChangeRequests,
   openRechecks,
+  recheckDeliverablesOf,
+  recheckNames,
   reserveStatus,
 } from "./change-requests";
 import { isConditionOverdue } from "./conditions";
 import { openParticipation } from "./participation";
-import type { ProjectState, RiskState } from "./state";
+import { MIN_REASON, MIN_TITLE } from "./decisions";
+import type { ProjectState, RiskState, RiskValues } from "./state";
 import { gateStatus, isFinished, isPhaseCurrent, missingRoles } from "./status";
 
 export const riskLabel = (number: number) => `R-${String(number).padStart(2, "0")}`;
@@ -27,9 +30,42 @@ export const riskLabel = (number: number) => `R-${String(number).padStart(2, "0"
 export const riskScore = (probability: Level, impact: Level) =>
   RISK_LEVEL_VALUE[probability] * RISK_LEVEL_VALUE[impact];
 
-/** How serious a score is: from 6 high, from 3 medium (question F33). */
+/** How serious a score is: high from RISK_SCORE_HIGH, medium from RISK_SCORE_MEDIUM (question F33). */
 export function scoreLevel(score: number): Level {
   return score >= RISK_SCORE_HIGH ? "hoch" : score >= RISK_SCORE_MEDIUM ? "mittel" : "niedrig";
+}
+
+/** A new risk as entered; a message for the person, or null. */
+export function validateRisk(input: { title: string }): string | null {
+  return input.title.trim().length < MIN_TITLE
+    ? `Bitte das Risiko benennen (mindestens ${MIN_TITLE} Zeichen).`
+    : null;
+}
+
+/**
+ * A new assessment of `r` with all current values; a message for the person,
+ * or null. Closing and reopening need a reason, work on a measure needs the
+ * measure, and an assessment changes something or says why it is repeated.
+ */
+export function validateRiskAssessment(r: RiskState, input: RiskValues & { note: string }): string | null {
+  const note = input.note.trim();
+  const mitigation = input.mitigation.trim();
+  if (input.status === "geschlossen" && r.status !== "geschlossen" && note.length < MIN_REASON) {
+    return "Bitte begründen, warum das Risiko geschlossen wird.";
+  }
+  if (r.status === "geschlossen" && input.status !== "geschlossen" && note.length < MIN_REASON) {
+    return "Bitte begründen, warum das Risiko wieder offen ist.";
+  }
+  if (input.status === "in Bearbeitung" && mitigation.length < MIN_REASON) {
+    return "Bitte die Massnahme nennen, an der gearbeitet wird.";
+  }
+  const unchanged =
+    input.probability === r.probability &&
+    input.impact === r.impact &&
+    input.status === r.status &&
+    input.ownerRole === r.ownerRole &&
+    mitigation === r.mitigation;
+  return unchanged && !note ? "Es hat sich nichts geändert." : null;
 }
 
 export const isOpenRisk = (r: RiskState) => r.status !== "geschlossen";
@@ -185,7 +221,7 @@ export function riskTriggers(s: ProjectState, model: HermesModel, now: Date): Ri
   for (const cr of openRechecks(s)) {
     out.push({
       id: `neupruefung:${cr.id}`,
-      text: `Nach ${crLabel(cr.number)} prüfen ISM und Datenschutz SchuBAn, ISDS-Konzept und DSFA neu; bis dahin bleibt das Gate zu.`,
+      text: `Nach ${crLabel(cr.number)} prüfen ISM und Datenschutz ${recheckNames(recheckDeliverablesOf(cr))} neu; bis dahin bleibt das Gate zu.`,
     });
   }
   for (const cr of openChangeRequests(s)) {

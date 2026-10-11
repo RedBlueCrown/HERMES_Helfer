@@ -14,6 +14,8 @@ import {
   GLOBAL_ROLE_LABELS,
   INCOMPATIBLE_ROLES,
   INVOLVEMENT_OPTIONS,
+  MIN_SUMMARY,
+  MIN_TITLE,
   PHASE_IDS,
   PROJECT_ROLES,
   PROJECT_ROLE_LABELS,
@@ -41,6 +43,7 @@ import {
   type GlobalRole,
   type Producer,
   type ProjectRole,
+  type StatusReportTexts,
   type Viewer,
 } from "@hermes-helfer/core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -51,7 +54,6 @@ import type { ProviderInfo } from "./agents/provider";
 import { acceptedProducer, sameContent, type ProposalStore } from "./agents/proposals";
 import type { RiskAgent, RiskReviewContent } from "./agents/risk-agent";
 import type { StatusReportAgent } from "./agents/status-report-agent";
-import type { StatusReportTexts } from "./agents/kritiker";
 import type { RunService } from "./agents/runner";
 import type { Authenticator, DevUser } from "./auth";
 import { HttpError, notFound, parse } from "./errors";
@@ -137,7 +139,8 @@ const CrFlagsBody = z.object({
   oberflaeche: z.boolean(),
   extern: z.boolean(),
 });
-const CrTitle = z.string().trim().min(4, "Bitte einen Titel erfassen (mindestens 4 Zeichen).").max(200);
+/** Minimum lengths and their messages come from the engine (validateChangeRequest, validateRisk). */
+const Title = z.string().trim().max(200);
 /** One entry per criterion; a record with enum keys requires all of them (Zod 4). */
 const StatusCriteriaBody = z.record(
   z.enum(STATUS_CRITERION_IDS),
@@ -491,8 +494,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       const { code } = params(req, z.object({ code: Code }));
       const body = parse(
         z.object({
-          title: CrTitle,
-          description: z.string().trim().min(10, "Bitte den Wunsch kurz beschreiben.").max(4000),
+          title: Title.min(MIN_TITLE, `Bitte einen Titel erfassen (mindestens ${MIN_TITLE} Zeichen).`),
+          description: z
+            .string()
+            .trim()
+            .min(MIN_SUMMARY, `Bitte den Wunsch kurz beschreiben (mindestens ${MIN_SUMMARY} Zeichen).`)
+            .max(4000),
           requestedBy: z.string().trim().max(120).default(""),
         }),
         req.body,
@@ -505,7 +512,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const { code } = params(req, z.object({ code: Code }));
     const body = parse(
       z.object({
-        title: CrTitle,
+        title: Title,
         requestedBy: z.string().trim().min(2, "Bitte angeben, wer die Änderung beantragt.").max(120),
         effortDays: z.number().positive("Bitte den Aufwand in Personentagen schätzen.").max(2000),
         flags: CrFlagsBody,
@@ -617,7 +624,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const { code } = params(req, z.object({ code: Code }));
     const body = parse(
       z.object({
-        title: z.string().trim().min(4, "Bitte das Risiko benennen (mindestens 4 Zeichen).").max(200),
+        title: Title,
         description: z.string().max(2000).default(""),
         ...RiskValues,
         proposal: ProposalItem,

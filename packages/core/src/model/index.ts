@@ -3,7 +3,11 @@ import { PHASES } from "./hermes-model";
 import { DEFAULT_POLICY, type GovernancePolicy } from "./policy";
 import type { AgentDef, AgentId, DeliverableDef, PhaseDef, PhaseId, SkillDef } from "./types";
 
-/** Model version stored on every project, so later model changes don't silently alter running projects. */
+/**
+ * Model version stored on every project. Only this version exists in code so
+ * far; decisions keep their basis in the record, so a change of the model does
+ * not change decided facts (todo-later H12).
+ */
 export const MODEL_VERSION = "2026.10-pilot";
 
 export interface HermesModel {

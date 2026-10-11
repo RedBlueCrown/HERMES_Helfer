@@ -84,7 +84,7 @@ Status: Increment 1 (local vertical slice) is done. Increment 2: the SQL event s
 | H09 | Accessibility check against WCAG 2.1 AA | Before the pilot goes live |
 | H10 | External pentest | Before go-live |
 | H11 | Evaluation set per skill, run in CI on every prompt or model change | Once the real model is connected |
-| H12 | Pin each project to a HERMES model version, and an audited migration | Before the first model change |
+| H12 | Each project stores its model version, but only the current one exists in code. Keep older versions loadable by `modelVersion`, an audited migration by the PMO, and a replay check before each deployment: fold every stream under the old and the new configuration and fail if a decided fact differs | Before the first model change |
 | H13 | Split the web bundle (about 1 MB, 270 KB compressed) into vendor chunks | Before the pilot goes live |
 | H14 | Pin GitHub Actions to commit SHAs, add ESLint (React hooks, security rules) | Increment 2 |
 | H15 | Remove the dev-only console warning "Keyborg instance … disposed incorrectly" (Fluent UI under React StrictMode) | When Fluent UI fixes it, or by updating the focus management setup |

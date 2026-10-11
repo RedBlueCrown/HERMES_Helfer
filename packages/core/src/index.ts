@@ -13,3 +13,4 @@ export * from "./engine/risks";
 export * from "./engine/status-report";
 export * from "./engine/portfolio";
 export * from "./engine/describe";
+export * from "./engine/proposals";

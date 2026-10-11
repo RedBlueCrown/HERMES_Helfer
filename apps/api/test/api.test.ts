@@ -7,16 +7,17 @@ import {
   type ProjectListItem,
   type ProjectView,
   type RiskRegisterView,
+  type RiskReviewResult,
+  type StatusReportProposal,
   type StatusReportRegisterView,
 } from "@hermes-helfer/core";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pino } from "pino";
 import { afterEach, describe, expect, it } from "vitest";
 import { MockProvider } from "../src/agents/mock-provider";
 import { AiProviderError } from "../src/agents/provider";
-import type { RiskReviewResult } from "../src/agents/risk-agent";
-import type { StatusReportProposal } from "../src/agents/status-report-agent";
 import type { Authenticator } from "../src/auth";
 import { StoreUnavailableError } from "../src/store/event-store";
 import { testServer } from "./helpers";
@@ -370,6 +371,21 @@ describe("drafts, releases and decisions", () => {
         data: { phase: "init", participantId: p, how: "Workshop" },
       });
     }
+    // A high risk: no criterion of the gate, but the decision records it.
+    events.push({
+      type: "RiskRecorded",
+      data: {
+        riskId: "risk-1",
+        number: 1,
+        title: "Lieferverzug",
+        description: "",
+        probability: "hoch",
+        impact: "hoch",
+        ownerRole: "PL",
+        mitigation: "",
+        producer: { kind: "human" },
+      },
+    });
     await server.repo.append(
       s.projectId,
       s.lastSeq,
@@ -394,6 +410,13 @@ describe("drafts, releases and decisions", () => {
     expect(v.phase).toBe("konzept");
     expect(v.conditions).toHaveLength(1);
     expect(v.myTasks.some((t) => t.kind === "condition")).toBe(true);
+    expect(v.phases[0]!.gate.decisions[0]!.highRisks).toEqual([
+      { label: "R-01", title: "Lieferverzug", score: 9 },
+    ]);
+    const record = (await server.as("u-anna").get("/api/projects/KPO/events?category=entscheid")).json();
+    expect(record.items[0].text).toMatch(
+      /Variante B mit Auflage\. Offene hohe Risiken beim Entscheid: R-01\.$/,
+    );
   });
 });
 
@@ -743,6 +766,38 @@ describe("change requests", () => {
       outcome: "keine Anpassung",
     });
     expect(recheck.statusCode).toBe(403);
+  });
+
+  it("rechecks only the results that exist when the request is accepted, and keeps that list", async () => {
+    server = await testServer();
+    const kpo = (user: string) =>
+      server!
+        .as(user)
+        .get("/api/projects/KPO/change-requests")
+        .then((r) => r.json<ChangeRequestRegisterView>());
+    const submitted = await server.as("u-nina").post("/api/projects/KPO/change-requests", {
+      title: wish.title,
+      requestedBy: wish.requestedBy,
+      effortDays: 3,
+      flags: { ...NO_FLAGS, daten: true },
+      content,
+    });
+    expect(submitted.statusCode).toBe(201);
+    const [cr] = (await kpo("u-thomas")).items;
+    // Initialisierung: ISDS-Konzept and DSFA are written later, with the change already known.
+    expect(cr!.impact.find((r) => r.id === "sicherheit")?.text).toMatch(
+      /^SchuBAn und Datenschutz-Vorabklärung neu prüfen/,
+    );
+    const decided = await server.as("u-thomas").post(`/api/projects/KPO/change-requests/${cr!.id}/decision`, {
+      decision: "freigegeben",
+      reason: "Passt in den Rahmen.",
+      konsent: true,
+    });
+    expect(decided.statusCode).toBe(200);
+    expect((await kpo("u-marco")).items[0]!.recheck!.deliverables.map((d) => d.id)).toEqual([
+      "schuban",
+      "dsvor",
+    ]);
   });
 
   it("lets the requester withdraw a request and the PL record the reserve", async () => {
@@ -1166,6 +1221,98 @@ describe("status reports", () => {
     expect(answer.text).toMatch(/^Statusbericht 1 vom .*: Gesamtstatus Gelb\./);
     expect(answer.text).toContain("Vorschlag für den nächsten:");
     expect((await ask("Erstelle den Statusbericht")).text).toContain("«Neuer Statusbericht»");
+  });
+});
+
+describe("what reaches the model and the logs (principle 3)", () => {
+  it("passes restricted results only for roles that may read them, and keeps content out of the logs", async () => {
+    const CANARY = "KANARIENVOGEL-DSVOR";
+    const seen: { userId: string; context: string }[] = [];
+    const note = (ctx: { userId: string } | undefined, project: object) =>
+      seen.push({ userId: ctx?.userId ?? "", context: JSON.stringify(project) });
+    const mock = new MockProvider(0);
+    const lines: string[] = [];
+    const logger = pino({ level: "info" }, { write: (line: string) => void lines.push(line) });
+    server = await testServer({
+      logger,
+      provider: {
+        info: mock.info,
+        draft: (r, c) => mock.draft(r, c),
+        critique: (r) => mock.critique(r),
+        draftChangeRequest: (r, c) => {
+          note(c, r.project);
+          return mock.draftChangeRequest(r, c);
+        },
+        reviewRisks: (r, c) => {
+          note(c, r.project);
+          return mock.reviewRisks(r, c);
+        },
+        draftStatusReport: (r, c) => mock.draftStatusReport(r, c),
+      },
+    });
+    // A released Datenschutz-Vorabklärung: restricted, need-to-know.
+    const kpo = (await server.repo.findByCode("KPO"))!;
+    const skill = server.repo.model.skill("init.datenschutz");
+    const actor = { userId: "u-sandra", displayName: "Sandra Roth", roles: ["DS"], channel: "web" as const };
+    await server.repo.append(
+      kpo.projectId,
+      kpo.lastSeq,
+      [
+        { type: "SkillRunRequested", data: { runId: "run-dsvor", skillId: skill.id } },
+        {
+          type: "SkillRunCompleted",
+          data: {
+            runId: "run-dsvor",
+            skillId: skill.id,
+            draft: {
+              summary: `${CANARY}: Gesundheitsdaten von Kundinnen werden verarbeitet.`,
+              sections: skill.sections.map((heading) => ({ heading, body: `${heading} erfasst.` })),
+              openPoints: [],
+            },
+            findings: [],
+            producer: { kind: "human" },
+          },
+        },
+        {
+          type: "SkillDecisionRecorded",
+          data: {
+            skillId: skill.id,
+            role: "DS",
+            decision: "freigegeben",
+            reason: "",
+            konsent: false,
+            conditions: [],
+          },
+        },
+        { type: "DeliverableReleased", data: { deliverableId: "dsvor" } },
+      ],
+      actor,
+      "c-dsvor",
+    );
+    const wish = {
+      title: "Export für das Inkasso",
+      description: "WUNSCH-TEXT: Adressen säumiger Kunden an das Inkassobüro übermitteln.",
+      requestedBy: "Debitoren",
+    };
+    for (const user of ["u-nina", "u-sandra"]) {
+      expect((await server.as(user).post("/api/projects/KPO/change-requests/draft", wish)).statusCode).toBe(
+        200,
+      );
+    }
+    expect((await server.as("u-anna").post("/api/projects/KPO/risks/review")).statusCode).toBe(200);
+
+    const contextOf = (userId: string) => seen.filter((x) => x.userId === userId).map((x) => x.context);
+    // Fachvertretung has no need-to-know; Datenschutz and the project lead have.
+    expect(contextOf("u-nina").join()).not.toContain(CANARY);
+    expect(contextOf("u-sandra").join()).toContain(CANARY);
+    expect(contextOf("u-anna").join()).toContain(CANARY);
+
+    // The audit logs keep who, what and how much, never the content.
+    const log = lines.join("\n");
+    expect(lines.filter((l) => l.includes('"type":"ai_run"'))).toHaveLength(3);
+    expect(log).not.toContain(CANARY);
+    expect(log).not.toContain("WUNSCH-TEXT");
+    expect(log).not.toContain("Inkasso");
   });
 });
 

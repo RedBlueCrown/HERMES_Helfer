@@ -64,6 +64,13 @@ export interface StatusFigures {
   forecastEnd?: string;
 }
 
+/** A risk as a decision or a report names it: R-02, its title and score. */
+export interface RiskRef {
+  label: string;
+  title: string;
+  score: number;
+}
+
 /** Who produced a result: an AI agent (with model) or a person (manual skill). */
 export interface Producer {
   kind: "ai" | "human";
@@ -138,6 +145,8 @@ export type ProjectEvent =
         reason: string;
         konsent: boolean;
         conditions: ConditionSpec[];
+        /** The open high risks the deciders saw: no criterion, but part of the basis (§5.6). */
+        highRisks?: RiskRef[];
       };
     }
   | { type: "ConditionCompleted"; data: { conditionId: string; text: string; note: string } }
@@ -179,6 +188,8 @@ export type ProjectEvent =
         recheckRequired?: boolean;
         /** Who confirms the recheck; set when one is needed. */
         recheckRoles?: RecheckRole[];
+        /** The results to recheck: those that existed at the decision and apply (deliverable ids). */
+        recheckDeliverables?: string[];
       };
     }
   | {
@@ -219,7 +230,7 @@ export type ProjectEvent =
         /** Facts at the time of the report, kept with it: phase, mandatory results, open risks. */
         phase: PhaseId;
         mandatory: { done: number; total: number };
-        risks: { label: string; title: string; score: number }[];
+        risks: RiskRef[];
         /** "ai": the texts were drafted with the agent, then reviewed and published by the PL. */
         producer: Producer;
       };

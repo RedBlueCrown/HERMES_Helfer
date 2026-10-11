@@ -20,12 +20,14 @@ import {
   type ProjectState,
   type StatusCriterion,
   type StatusFigures,
+  type StatusReportProposal,
+  type StatusReportTexts,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
 import { HttpError, assertCheck } from "../errors";
 import type { ProjectService, RequestContext } from "../projects/service";
 import { CRITIQUE_BUDGET_MS } from "./change-request-agent";
-import { checkStatusReport, mergeFindings, statusReportCritique, type StatusReportTexts } from "./kritiker";
+import { checkStatusReport, mergeFindings, statusReportCritique } from "./kritiker";
 import { AiProviderError, USER_FACING_REASON, type AiProvider, type Usage } from "./provider";
 import type { ProposalStore } from "./proposals";
 import { callFor, projectContext, recordAiRun, type Logger } from "./runner";
@@ -34,14 +36,6 @@ import { callFor, projectContext, recordAiRun, type Logger } from "./runner";
 export interface StatusReportInputSoFar {
   criteria: Record<StatusCriterion, { ampel: Ampel; problem: string; measure: string }>;
   figures: StatusFigures;
-}
-
-export interface StatusReportProposal extends StatusReportTexts {
-  /** Publishing with this id records the texts as drafted by the agent. */
-  proposalId: string;
-  /** Deterministic checks and the Kritiker's review; advice for the PL, not stored. */
-  findings: Finding[];
-  producer: Producer;
 }
 
 const add = (a: Usage, b?: Usage): Usage =>

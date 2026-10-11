@@ -4,7 +4,6 @@
 import type { HermesModel } from "../model";
 import {
   CR_DAY_RATE_CHF,
-  CR_RECHECK_DELIVERABLES,
   CR_RECHECK_ROLES,
   type CrFlags,
   type RecheckOutcome,
@@ -41,12 +40,22 @@ import {
   openChangeRequests,
   openRechecks,
   pendingRecheckRoles,
+  recheckDeliverablesOf,
+  recheckNames,
   reserveStatus,
   type ImpactRow,
   type ReserveStatus,
 } from "./change-requests";
 import { conditionDue, isConditionOverdue } from "./conditions";
-import type { AgentAssessment, Decision, DraftContent, Finding, Producer, StatusFigures } from "./events";
+import type {
+  AgentAssessment,
+  Decision,
+  DraftContent,
+  Finding,
+  Producer,
+  RiskRef,
+  StatusFigures,
+} from "./events";
 import { isInvolved, participantsFor } from "./participation";
 import {
   assignableRoles,
@@ -235,6 +244,8 @@ export interface GateDecisionView {
   at: string;
   by: ActorRef;
   conditions: ConditionView[];
+  /** The open high risks the deciders saw. */
+  highRisks: RiskRef[];
 }
 
 export interface GateView {
@@ -489,7 +500,7 @@ export interface StatusReportView {
   outlook: string;
   figures: StatusFigures;
   mandatory: { done: number; total: number };
-  risks: { label: string; title: string; score: number }[];
+  risks: RiskRef[];
   producer: Producer;
   acknowledgements: { at: string; by: ActorRef; note: string }[];
   canAcknowledge: Check;
@@ -506,7 +517,7 @@ export interface StatusReportRegisterView {
   current: {
     phaseLabel: string;
     mandatory: { done: number; total: number };
-    risks: { label: string; title: string; score: number }[];
+    risks: RiskRef[];
   };
   /** The figures of the last report, to start from. */
   lastFigures: StatusFigures;
@@ -761,6 +772,7 @@ function gateView(s: ProjectState, model: HermesModel, v: Viewer, phase: PhaseId
         .map((id) => s.conditions[id])
         .filter((c): c is ConditionState => !!c)
         .map((c) => conditionView(s, model, v, c, now)),
+      highRisks: x.highRisks ?? [],
     })),
   };
 }
@@ -852,8 +864,7 @@ function taskView(s: ProjectState, model: HermesModel, t: MyTask, now: Date): Ta
       return {
         kind: t.kind,
         title: `Neuprüfung nach ${crLabel(c.number)}`,
-        detail:
-          "SchuBAn, Datenschutz-Vorabklärung, ISDS-Konzept und DSFA prüfen. Bis dahin bleibt das Gate zu.",
+        detail: `${recheckNames(recheckDeliverablesOf(c))} prüfen. Bis dahin bleibt das Gate zu.`,
         crId: c.id,
         role: t.role,
       };
@@ -967,8 +978,7 @@ function nextStepView(s: ProjectState, model: HermesModel, v: Viewer): NextStepV
       return {
         kind: n.kind,
         title: `Neuprüfung nach ${crs.map((c) => crLabel(c.number)).join(", ")}`,
-        detail:
-          "Ein angenommener Change Request betrifft Personendaten: ISM und Datenschutz prüfen SchuBAn, ISDS-Konzept und DSFA. Bis dahin bleibt das Gate zu.",
+        detail: `Ein angenommener Change Request betrifft Personendaten: ISM und Datenschutz prüfen ${recheckNames(crs.flatMap((c) => recheckDeliverablesOf(c)))}. Bis dahin bleibt das Gate zu.`,
         crId: (mine ?? crs[0]!).id,
         actionLabel: "Zur Neuprüfung",
         canAct: !!mine,
@@ -1118,7 +1128,7 @@ export function changeRequestView(
       ? {
           recheck: {
             done: pendingRecheckRoles(c).length === 0,
-            deliverables: CR_RECHECK_DELIVERABLES.map((id) => ({ id, name: model.deliverable(id).name })),
+            deliverables: recheckDeliverablesOf(c).map((id) => ({ id, name: model.deliverable(id).name })),
             roles: (c.recheckRoles ?? CR_RECHECK_ROLES).map((role) => {
               const confirmed = c.recheck![role];
               const check = checkConfirmRecheck(s, model, v, c.id, role);
@@ -1263,10 +1273,20 @@ export function statusReportView(
 }
 
 /** Open risks as a report records them: the five most serious. */
-export function reportRisks(s: ProjectState): { label: string; title: string; score: number }[] {
-  return openRisks(s)
-    .slice(0, 5)
-    .map((r) => ({ label: riskLabel(r.number), title: r.title, score: riskScore(r.probability, r.impact) }));
+const riskRef = (r: RiskState): RiskRef => ({
+  label: riskLabel(r.number),
+  title: r.title,
+  score: riskScore(r.probability, r.impact),
+});
+
+/** The most serious open risks, for a status report. */
+export function reportRisks(s: ProjectState): RiskRef[] {
+  return openRisks(s).slice(0, 5).map(riskRef);
+}
+
+/** The open high risks, for a gate decision. */
+export function gateRisks(s: ProjectState): RiskRef[] {
+  return highRisks(s).map(riskRef);
 }
 
 export function statusReportRegister(

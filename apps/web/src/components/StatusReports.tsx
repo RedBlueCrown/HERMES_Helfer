@@ -15,7 +15,6 @@ import {
   Input,
   MessageBar,
   MessageBarBody,
-  MessageBarTitle,
   OverlayDrawer,
   Radio,
   RadioGroup,
@@ -36,6 +35,7 @@ import { Dismiss24Regular, Sparkle16Regular } from "@fluentui/react-icons";
 import {
   AMPEL_LABELS,
   AMPEL_VALUES,
+  MIN_SUMMARY,
   STATUS_CRITERIA,
   formatChf,
   overallAmpel,
@@ -47,7 +47,16 @@ import {
 import { Fragment, useState } from "react";
 import { projectPath, useApi, useProjectCommand, useStatusReports } from "../api/hooks";
 import type { StatusReportProposal, StatusReportRegisterView, StatusReportView } from "../api/types";
-import { AmpelBadge, ErrorView, RichText, errorText, formatDate, formatDay, useNotify } from "./ui";
+import {
+  AmpelBadge,
+  ErrorView,
+  FindingsBox,
+  RichText,
+  errorText,
+  formatDate,
+  formatDay,
+  useNotify,
+} from "./ui";
 
 const useStyles = makeStyles({
   card: {
@@ -623,21 +632,7 @@ function NewStatusReportForm({
               </Badge>
             ) : null}
           </div>
-          {findings.length ? (
-            <MessageBar intent="warning" layout="multiline">
-              <MessageBarBody>
-                <MessageBarTitle>Hinweise des Kritikers</MessageBarTitle>
-                <ul className={s.list}>
-                  {findings.map((f, i) => (
-                    <li key={i}>
-                      {f.severity === "warnung" ? "Warnung: " : ""}
-                      {f.text}
-                    </li>
-                  ))}
-                </ul>
-              </MessageBarBody>
-            </MessageBar>
-          ) : null}
+          <FindingsBox findings={findings} />
           <Field label="Übersicht und Prognose" required>
             <Textarea value={overview} onChange={(_, d) => setOverview(d.value)} rows={4} resize="vertical" />
           </Field>
@@ -656,7 +651,7 @@ function NewStatusReportForm({
           appearance="primary"
           type="submit"
           form="new-status-report"
-          disabled={publish.isPending || drafting || overview.trim().length < 10}
+          disabled={publish.isPending || drafting || overview.trim().length < MIN_SUMMARY}
         >
           Veröffentlichen
         </Button>

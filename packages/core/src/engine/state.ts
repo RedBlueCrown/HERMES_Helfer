@@ -5,6 +5,7 @@
 import type { HermesModel } from "../model";
 import {
   CR_DAY_RATE_CHF,
+  CR_RECHECK_DELIVERABLES,
   CR_RECHECK_ROLES,
   type CrFlags,
   type RecheckOutcome,
@@ -22,6 +23,7 @@ import type {
   Finding,
   ImpactRecord,
   Producer,
+  RiskRef,
   StatusEntry,
   StatusFigures,
   StoredEvent,
@@ -115,12 +117,14 @@ export interface ChangeRequestState {
   };
   withdrawn?: { reason: string; at: string; by: ActorRef };
   /**
-   * Accepted requests that touch personal data: SchuBAn, ISDS and DSFA are checked
+   * Accepted requests that touch personal data: the recheck results are checked
    * again; each recheck role confirms. Absent when no recheck is needed.
    */
   recheck?: Partial<Record<RecheckRole, { outcome: RecheckOutcome; note: string; at: string; by: ActorRef }>>;
   /** The roles that confirm the recheck, fixed when it was opened. */
   recheckRoles?: RecheckRole[];
+  /** The results to recheck, fixed when it was opened (CR_RECHECK_DELIVERABLES before they were). */
+  recheckDeliverables?: string[];
 }
 
 /** The values of a risk at one point in time. */
@@ -163,7 +167,7 @@ export interface StatusReportState {
   figures: StatusFigures;
   phase: PhaseId;
   mandatory: { done: number; total: number };
-  risks: { label: string; title: string; score: number }[];
+  risks: RiskRef[];
   producer: Producer;
   publishedAt: string;
   publishedBy: ActorRef;
@@ -178,6 +182,8 @@ export interface GateDecisionRecord {
   at: string;
   by: ActorRef;
   conditionIds: string[];
+  /** The open high risks at the decision. */
+  highRisks?: RiskRef[];
 }
 
 export interface ProjectState {
@@ -377,6 +383,7 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
         at: e.at,
         by: ref(e.actor),
         conditionIds,
+        ...(e.data.highRisks?.length ? { highRisks: e.data.highRisks } : {}),
       });
       if (e.data.decision === "zurückgewiesen") return;
       if (!s.passed.includes(e.data.phase)) s.passed.push(e.data.phase);
@@ -438,6 +445,7 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
       if (accepted && (cr.flags.daten || e.data.recheckRequired)) {
         cr.recheck = {};
         cr.recheckRoles = e.data.recheckRoles ?? [...CR_RECHECK_ROLES];
+        cr.recheckDeliverables = e.data.recheckDeliverables ?? [...CR_RECHECK_DELIVERABLES];
       }
       return;
     }

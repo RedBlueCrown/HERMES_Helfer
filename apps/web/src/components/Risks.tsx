@@ -44,6 +44,7 @@ import {
   riskScore,
   scoreLevel,
   titlesSimilar,
+  validateRisk,
   type Level,
   type ProjectRole,
   type RiskStatus,
@@ -188,7 +189,7 @@ function AgentBadge({ text }: { text: string }) {
 function RiskMatrix({ matrix }: { matrix: number[][] }) {
   const s = useStyles();
   const cellClass = (p: number, i: number) => {
-    const level = scoreLevel((p + 1) * (i + 1));
+    const level = scoreLevel(riskScore(RISK_LEVELS[p]!, RISK_LEVELS[i]!));
     return mergeClasses(
       s.cell,
       level === "hoch" ? s.cellHigh : level === "mittel" ? s.cellMedium : s.cellLow,
@@ -515,7 +516,7 @@ function NewRiskForm({ code, onClose }: { code: string; onClose(): void }) {
           appearance="primary"
           type="submit"
           form="new-risk"
-          disabled={save.isPending || title.trim().length < 4}
+          disabled={save.isPending || validateRisk({ title }) !== null}
         >
           Erfassen
         </Button>

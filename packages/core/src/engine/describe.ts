@@ -143,7 +143,10 @@ export function describeEvent(e: StoredEvent, model: HermesModel, refs: EventRef
     case "GateDecisionRecorded": {
       const g = model.phase(e.data.phase).gate.name;
       const verb = e.data.decision === "zurückgewiesen" ? "nicht freigegeben" : decisionText(e.data.decision);
-      return `Gate «${g}» ${verb}${e.data.konsent ? " (Konsent festgestellt)" : ""}${withReason(e.data.reason)}`;
+      const text = `Gate «${g}» ${verb}${e.data.konsent ? " (Konsent festgestellt)" : ""}${withReason(e.data.reason)}`;
+      if (!e.data.highRisks?.length) return text;
+      const risks = e.data.highRisks.map((r) => r.label).join(", ");
+      return `${/[.!?]$/.test(text) ? text : `${text}.`} Offene hohe Risiken beim Entscheid: ${risks}.`;
     }
     case "ConditionCompleted":
       return `Auflage erledigt: ${e.data.text}${e.data.note ? ` (${e.data.note})` : ""}.`;
@@ -152,7 +155,8 @@ export function describeEvent(e: StoredEvent, model: HermesModel, refs: EventRef
     case "ChangeRequestWithdrawn":
       return `${crName(e.data.crId)} zurückgezogen${withReason(e.data.reason)}`;
     case "ChangeRequestDecided":
-      return `${crName(e.data.crId)} ${decisionText(e.data.decision)} durch den Projektausschuss${e.data.konsent ? " (Konsent festgestellt)" : ""}${withReason(e.data.reason)}`;
+      // A change request is «abgelehnt», as in the register (CR_STATUS_LABELS).
+      return `${crName(e.data.crId)} ${e.data.decision === "zurückgewiesen" ? "abgelehnt" : decisionText(e.data.decision)} durch den Projektausschuss${e.data.konsent ? " (Konsent festgestellt)" : ""}${withReason(e.data.reason)}`;
     case "ChangeRecheckConfirmed":
       return `Neuprüfung nach ${crName(e.data.crId)} durch ${PROJECT_ROLE_LABELS[e.data.role]}: ${e.data.outcome}${e.data.note ? ` (${e.data.note})` : ""}.`;
     case "ChangeReserveSet":

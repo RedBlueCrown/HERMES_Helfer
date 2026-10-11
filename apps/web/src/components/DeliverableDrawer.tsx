@@ -11,7 +11,6 @@ import {
   Field,
   MessageBar,
   MessageBarBody,
-  MessageBarTitle,
   OverlayDrawer,
   Spinner,
   Subtitle1,
@@ -28,14 +27,15 @@ import type { ChecklistView, DeliverableDetailView, SkillView } from "../api/typ
 import { DecisionForm, type DecisionValues } from "./DecisionForm";
 import { DraftEditor } from "./DraftEditor";
 import {
+  conditionDueText,
   DeliverableBadge,
+  errorText,
   ErrorView,
+  FindingsBox,
+  formatDate,
   OverdueBadge,
   RestrictedBadge,
   RichText,
-  conditionDueText,
-  errorText,
-  formatDate,
   useNotify,
 } from "./ui";
 
@@ -245,21 +245,7 @@ function SkillSection({ code, skill }: { code: string; skill: SkillView }) {
               ? ` · bearbeitet von ${out.editedBy.displayName}, ${formatDate(out.editedAt)}`
               : ""}
           </Caption1>
-          {out.findings.length ? (
-            <MessageBar intent="warning" layout="multiline">
-              <MessageBarBody>
-                <MessageBarTitle>Qualitätscheck (Kritiker)</MessageBarTitle>
-                <ul className={s.list}>
-                  {out.findings.map((f, i) => (
-                    <li key={i}>
-                      {f.severity === "warnung" ? "Muss behoben werden: " : ""}
-                      {f.text}
-                    </li>
-                  ))}
-                </ul>
-              </MessageBarBody>
-            </MessageBar>
-          ) : null}
+          <FindingsBox findings={out.findings} />
           {mode === "edit" && draft ? (
             <DraftEditor
               initial={draft}

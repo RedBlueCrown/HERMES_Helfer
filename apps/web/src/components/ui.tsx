@@ -33,6 +33,7 @@ import {
   type Ampel,
   type ConditionView,
   type DeliverableStatus,
+  type Finding,
   type GateStatus,
   type ProjectListItem,
   type SignalId,
@@ -41,6 +42,37 @@ import {
 import { createContext, Fragment, useCallback, useContext, type ReactElement, type ReactNode } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import { ApiError } from "../api/client";
+
+// ---------- Hints on a draft ----------
+
+const useFindingStyles = makeStyles({
+  list: { margin: 0, paddingLeft: tokens.spacingHorizontalL },
+});
+
+/**
+ * Hints on a draft, each with where it comes from: the rule check of the engine
+ * (sections, open points, cleared areas …) or the Kritiker, the agent that
+ * reviews the content.
+ */
+export function FindingsBox({ findings }: { findings: readonly Finding[] }) {
+  const s = useFindingStyles();
+  if (!findings.length) return null;
+  return (
+    <MessageBar intent="warning" layout="multiline">
+      <MessageBarBody>
+        <MessageBarTitle>Hinweise zum Entwurf</MessageBarTitle>
+        <ul className={s.list}>
+          {findings.map((f, i) => (
+            <li key={i}>
+              {f.source === "kritiker" ? "Kritiker" : "Regelprüfung"}
+              {f.severity === "warnung" ? ", Warnung" : ""}: {f.text}
+            </li>
+          ))}
+        </ul>
+      </MessageBarBody>
+    </MessageBar>
+  );
+}
 
 // ---------- Status badges ----------
 

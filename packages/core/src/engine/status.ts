@@ -175,7 +175,7 @@ export function gateCriteria(s: ProjectState, model: HermesModel, phase: PhaseId
       blocking: true,
     });
   }
-  // A change request that touches personal data: SchuBAn, ISDS and DSFA are checked again first.
+  // A change request that touches personal data: its recheck results are checked again first.
   const rechecks = isPhaseCurrent(s, phase) ? openRechecks(s) : [];
   if (rechecks.length) {
     out.push({

@@ -7,6 +7,7 @@
 // per request. Figures are per project, never per person (architecture §9.6).
 
 import type { HermesModel } from "../model";
+import { RISK_SCORE_HIGH } from "../model/risks";
 import type { PhaseId, ProjectRole } from "../model/types";
 import { openChangeRequests, openRechecks } from "./change-requests";
 import { conditionDue } from "./conditions";
@@ -75,7 +76,7 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
     label: "Neuprüfung offen",
     level: "mittel",
     description:
-      "Ein angenommener Change Request betrifft Personendaten; SchuBAn, ISDS und DSFA werden neu geprüft, bis dahin bleibt das Gate zu.",
+      "Ein angenommener Change Request betrifft Personendaten; ISM und Datenschutz prüfen die betroffenen Ergebnisse neu, bis dahin bleibt das Gate zu.",
   },
   "gate-zurueckgewiesen": {
     label: "Gate zurückgewiesen",
@@ -90,8 +91,7 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
   "risiko-hoch": {
     label: "Hohe Risiken",
     level: "mittel",
-    description:
-      "Mindestens ein offenes Risiko mit hoher Bewertung (Eintritt mal Auswirkung 6 oder mehr, z. B. Eintritt mittel und Auswirkung hoch).",
+    description: `Mindestens ein offenes Risiko mit hoher Bewertung (Eintritt mal Auswirkung ${RISK_SCORE_HIGH} oder mehr, z. B. Eintritt mittel und Auswirkung hoch).`,
   },
   "ohne-aktivitaet": {
     label: "Ohne Aktivität",
@@ -145,7 +145,7 @@ export interface ProjectSummary {
   gateRejected: boolean;
   /** Change requests waiting for the Projektausschuss. */
   openChangeRequests: number;
-  /** Accepted change requests whose recheck (SchuBAn, ISDS, DSFA) is not complete. */
+  /** Accepted change requests whose recheck by ISM and Datenschutz is not complete. */
   openRechecks: number;
   openRisks: number;
   /** Open risks with a score from RISK_SCORE_HIGH on. */

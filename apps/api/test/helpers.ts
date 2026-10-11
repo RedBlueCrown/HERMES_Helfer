@@ -1,4 +1,5 @@
 import { MODEL, withPolicy } from "@hermes-helfer/core";
+import type { FastifyBaseLogger } from "fastify";
 import { MockProvider } from "../src/agents/mock-provider";
 import type { AiProvider } from "../src/agents/provider";
 import { createDevAuthenticator, type Authenticator } from "../src/auth";
@@ -16,6 +17,8 @@ export async function testServer(
     seed?: boolean;
     env?: Record<string, string>;
     now?: () => Date;
+    /** A logger to inspect what is logged; none by default. */
+    logger?: FastifyBaseLogger;
   } = {},
 ) {
   const config = loadConfig({ NODE_ENV: "test", LOG_LEVEL: "silent", AUTH_MODE: "dev", ...opts.env });
@@ -32,7 +35,7 @@ export async function testServer(
     provider: opts.provider ?? new MockProvider(0),
     authenticator: opts.authenticator ?? createDevAuthenticator(DEV_USERS),
     devUsers: DEV_USERS,
-    logger: false,
+    logger: opts.logger ?? false,
     ...(opts.now ? { now: opts.now } : {}),
   });
   const as = (user: string) => ({

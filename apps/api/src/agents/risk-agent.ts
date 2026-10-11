@@ -16,57 +16,22 @@ import {
   similarOpenRisk,
   titlesSimilar,
   type Finding,
-  type Level,
   type Producer,
-  type ProjectRole,
-  type RiskStatus,
-  type RiskTrigger,
+  type ReassessmentProposal,
+  type RiskProposal,
+  type RiskReviewResult,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
 import { HttpError, assertCheck } from "../errors";
 import type { ProjectService, RequestContext } from "../projects/service";
-import {
-  AiProviderError,
-  USER_FACING_REASON,
-  type AiProvider,
-  type ProposedReassessment,
-  type ProposedRisk,
-  type Usage,
-} from "./provider";
+import { AiProviderError, USER_FACING_REASON, type AiProvider, type Usage } from "./provider";
 import type { ProposalStore } from "./proposals";
 import { callFor, projectContext, recordAiRun, type Logger } from "./runner";
-
-export interface RiskProposal extends ProposedRisk {
-  /** Deterministic checks: a similar open risk, a high risk without a measure. */
-  findings: Finding[];
-}
-
-export interface ReassessmentProposal extends ProposedReassessment {
-  riskId: string;
-  title: string;
-  current: {
-    probability: Level;
-    impact: Level;
-    status: RiskStatus;
-    ownerRole: ProjectRole;
-    mitigation: string;
-    /** Version of the risk the proposal is based on; accepting it names this version. */
-    version: number;
-  };
-}
 
 /** What the server keeps of a review until the PL accepts items of it (proposals.ts). */
 export interface RiskReviewContent {
   newRisks: RiskProposal[];
   reassessments: ReassessmentProposal[];
-}
-
-export interface RiskReviewResult extends RiskReviewContent {
-  /** Accepting an item names this id and the item's index. */
-  proposalId: string;
-  /** The facts the agent reviewed. */
-  triggers: RiskTrigger[];
-  producer: Producer;
 }
 
 /** Besides the engine's triggers, a proposal may rest on the profile or on released results. */

@@ -16,6 +16,7 @@ import {
   type Finding,
   type SkillDef,
   type StatusCriterion,
+  type StatusReportTexts,
 } from "@hermes-helfer/core";
 import type { CritiqueRequest } from "./provider";
 
@@ -109,12 +110,6 @@ export function changeRequestCritique(
 }
 
 /** The texts of a status report: overview, outlook, problem and measure per criterion. */
-export interface StatusReportTexts {
-  overview: string;
-  outlook: string;
-  criteria: Partial<Record<StatusCriterion, { problem: string; measure: string }>>;
-}
-
 /** A status report as a document for the Kritiker: one section per text. */
 export function statusReportDocument(texts: StatusReportTexts, colours: Record<StatusCriterion, Ampel>) {
   const notGreen = STATUS_CRITERIA.filter((c) => colours[c.id] !== "gruen");

@@ -38,6 +38,7 @@ import {
 
 const useStyles = makeStyles({
   inlineLink: { padding: 0, minWidth: 0, height: "auto", color: tokens.colorBrandForegroundLink },
+  block: { display: "block" },
   timeline: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
@@ -228,6 +229,12 @@ export function GatePanel({
           durch {d.by.displayName}, {formatDate(d.at)}
           {d.konsent ? " (Konsent festgestellt)" : ""}
           {d.reason ? `: ${d.reason}` : ""}
+          {d.highRisks.length ? (
+            <span className={s.block}>
+              Offene hohe Risiken beim Entscheid:{" "}
+              {d.highRisks.map((r) => `${r.label} «${r.title}»`).join(", ")}
+            </span>
+          ) : null}
         </Caption1>
       ))}
       <Dialog open={open} onOpenChange={(_, d) => onOpenChange(d.open)}>

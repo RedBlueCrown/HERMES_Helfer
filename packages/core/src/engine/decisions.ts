@@ -1,5 +1,7 @@
 // Validation of decisions (prototype: submitDecide). Returns a German message
-// for the user, or null when the input is valid.
+// for the user, or null when the input is valid. The other validations of what
+// people enter (change requests, risks, status reports) live next to their
+// domain and use the same minimum lengths; the API and the web app share them.
 
 import { PROJECT_ROLES, type ProjectRole } from "../model/types";
 import { DECISIONS, type Decision } from "./events";
@@ -29,7 +31,12 @@ export interface DecisionContext {
   checklistTitle?: string;
 }
 
+/** Least characters of a reason, a note or a measure. */
 export const MIN_REASON = 5;
+/** Least characters of a title (change request, risk). */
+export const MIN_TITLE = 4;
+/** Least characters of a summary (change request, overview of a status report). */
+export const MIN_SUMMARY = 10;
 
 export function validateDecision(input: DecisionInput, ctx: DecisionContext): string | null {
   if (!DECISIONS.includes(input.decision)) return "Bitte einen Entscheid wählen.";

@@ -54,7 +54,7 @@ test("A change request from the wish to the recheck: agent, Projektausschuss, IS
   await expect(drawer.getByRole("region", { name: "Neuprüfung" })).toContainText("Neuprüfung offen");
   await shot(page, "14-change-request-entscheid");
 
-  // ISM and Datenschutz recheck SchuBAn, ISDS and DSFA; until then the gate stays closed.
+  // ISM and Datenschutz recheck the results that exist (in Realisierung all four); until then the gate stays closed.
   await signInAs(page, "u-marco");
   await page.goto("/vorhaben/ERP");
   await page

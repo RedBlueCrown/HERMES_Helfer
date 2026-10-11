@@ -4,18 +4,23 @@ import type {
   AgentDef,
   Ampel,
   CrFlag,
-  DraftContent,
-  Finding,
   GlobalRole,
   Level,
   PhaseId,
   PortfolioOverview,
-  Producer,
   ProjectListItem,
   ProjectRole,
   RiskStatus,
-  RiskTrigger,
   StatusCriterion,
+} from "@hermes-helfer/core";
+
+// The agents' proposals, as the API returns them.
+export type {
+  ChangeRequestProposal,
+  ReassessmentProposal,
+  RiskProposal,
+  RiskReviewResult,
+  StatusReportProposal,
 } from "@hermes-helfer/core";
 
 export type {
@@ -76,69 +81,6 @@ export interface Reference {
     controlRoles: ProjectRole[];
     incompatibleRoles: [ProjectRole, ProjectRole][];
   };
-}
-
-/** The texts the agent drafted for a status report (kept on the server until published). */
-export interface StatusReportProposal {
-  proposalId: string;
-  overview: string;
-  outlook: string;
-  criteria: Partial<Record<StatusCriterion, { problem: string; measure: string }>>;
-  findings: Finding[];
-  producer: Producer;
-}
-
-/** A new risk the Risiko agent proposes (not stored until the PL accepts it). */
-export interface RiskProposal {
-  title: string;
-  description: string;
-  probability: Level;
-  impact: Level;
-  ownerRole: ProjectRole;
-  mitigation: string;
-  reason: string;
-  /** The trigger the proposal rests on, or "profil" / "ergebnisse". */
-  trigger: string;
-  findings: Finding[];
-}
-
-/** A new assessment of an open risk the Risiko agent proposes. */
-export interface ReassessmentProposal {
-  risk: string;
-  riskId: string;
-  title: string;
-  probability: Level;
-  impact: Level;
-  mitigation: string;
-  reason: string;
-  trigger: string;
-  current: {
-    probability: Level;
-    impact: Level;
-    status: RiskStatus;
-    ownerRole: ProjectRole;
-    mitigation: string;
-    version: number;
-  };
-}
-
-export interface RiskReviewResult {
-  /** Accepting an item names this id and the item's index. */
-  proposalId: string;
-  newRisks: RiskProposal[];
-  reassessments: ReassessmentProposal[];
-  triggers: RiskTrigger[];
-  producer: Producer;
-}
-
-/** The Change-Request agent's proposal (kept on the server until submitted). */
-export interface ChangeRequestProposal {
-  /** Submitting with it records the request as drafted by the agent. */
-  proposalId: string;
-  content: DraftContent;
-  flags: Record<CrFlag, { value: boolean; reason: string }>;
-  findings: Finding[];
-  producer: Producer;
 }
 
 export interface ProjectPage {

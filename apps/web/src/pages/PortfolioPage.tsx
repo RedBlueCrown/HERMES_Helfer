@@ -24,8 +24,10 @@ import { Dismiss12Regular } from "@fluentui/react-icons";
 import {
   INACTIVE_AFTER_DAYS,
   PHASE_IDS,
+  RISK_SCORE_HIGH,
   SIGNALS,
   SIGNAL_IDS,
+  STATUS_REPORT_INTERVAL_DAYS,
   type PhaseFigures,
   type PhaseId,
   type SignalFigures,
@@ -338,17 +340,17 @@ function tileDetail(sig: SignalFigures, data: Portfolio): string {
     case "status-rot":
       return "Eskalation nötig";
     case "statusbericht-faellig":
-      return "Letzter Bericht älter als 30 Tage";
+      return `Letzter Bericht älter als ${STATUS_REPORT_INTERVAL_DAYS} Tage`;
     case "auflagen-ueberfaellig":
       return `${data.overdueConditions} von ${data.openConditions} offenen Auflagen`;
     case "neupruefung":
-      return "SchuBAn, ISDS und DSFA nach Change Request";
+      return "ISM und Datenschutz prüfen nach Change Request";
     case "gate-zurueckgewiesen":
       return "Nacharbeit vor dem nächsten Entscheid";
     case "rollen-fehlen":
       return "Entscheid so nicht möglich";
     case "risiko-hoch":
-      return "Eintritt mal Auswirkung 6 oder mehr";
+      return `Eintritt mal Auswirkung ${RISK_SCORE_HIGH} oder mehr`;
     case "ohne-aktivitaet":
       return `Seit ${INACTIVE_AFTER_DAYS} Tagen oder länger`;
     case "cr-offen":
