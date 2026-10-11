@@ -16,7 +16,7 @@ import {
   type Viewer,
 } from "./permissions";
 import { highRisks } from "./risks";
-import { isStatusReportDue, reportAwaitingAcknowledgement } from "./status-report";
+import { isStatusReportDue, reportsAwaitingAcknowledgement } from "./status-report";
 import type { ProjectState } from "./state";
 import {
   deliverableStatus,
@@ -78,9 +78,10 @@ export function myTasks(s: ProjectState, model: HermesModel, v: Viewer, now: Dat
     for (const c of openChangeRequests(s)) {
       if (checkDecideChangeRequest(s, model, v, c.id).ok) out.push({ kind: "decide-cr", crId: c.id });
     }
-    const report = reportAwaitingAcknowledgement(s);
-    if (report && !isFinished(s, model) && checkAcknowledgeStatusReport(s, model, v, report.id).ok) {
-      out.push({ kind: "acknowledge-report", reportId: report.id });
+    for (const report of isFinished(s, model) ? [] : reportsAwaitingAcknowledgement(s)) {
+      if (checkAcknowledgeStatusReport(s, model, v, report.id).ok) {
+        out.push({ kind: "acknowledge-report", reportId: report.id });
+      }
     }
   }
   if (isPL && isStatusReportDue(s, model, now)) out.push({ kind: "status-report" });

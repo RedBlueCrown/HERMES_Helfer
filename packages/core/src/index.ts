@@ -14,3 +14,4 @@ export * from "./engine/status-report";
 export * from "./engine/portfolio";
 export * from "./engine/describe";
 export * from "./engine/proposals";
+export * from "./engine/fingerprint";

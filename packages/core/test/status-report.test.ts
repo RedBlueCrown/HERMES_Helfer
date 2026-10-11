@@ -56,14 +56,19 @@ const criteria = (colours: Partial<Record<StatusCriterion, Ampel>> = {}) =>
     }),
   ) as Record<StatusCriterion, StatusEntry>;
 
-const publish = (st: Stream, reportId: string, colours: Partial<Record<StatusCriterion, Ampel>> = {}) =>
+const publish = (
+  st: Stream,
+  reportId: string,
+  colours: Partial<Record<StatusCriterion, Ampel>> = {},
+  entries: Partial<Record<StatusCriterion, StatusEntry>> = {},
+) =>
   st.add(
     {
       type: "StatusReportPublished",
       data: {
         reportId,
         number: nextStatusReportNumber(st.state()),
-        criteria: criteria(colours),
+        criteria: { ...criteria(colours), ...entries },
         overview: "Übersicht",
         outlook: "Ausblick",
         figures: { budgetChf: 100_000, spentChf: 40_000, progressPct: 40 },
@@ -142,7 +147,7 @@ describe("suggested traffic light", () => {
     expect(sug.termine.ampel).toBe("rot");
     expect(sug.termine.reasons[0]).toContain("zurückgewiesen");
     // 6'000 CHF accepted against a reserve of 5'000.
-    expect(sug.kosten).toEqual({
+    expect(sug.kosten).toMatchObject({
       ampel: "rot",
       reasons: [
         "Die angenommenen Change Requests übersteigen die Reserve um 1'000 CHF.",
@@ -155,6 +160,8 @@ describe("suggested traffic light", () => {
     expect(sug.risiken).toEqual({
       ampel: "rot",
       reasons: ["R-01 «Lieferverzug»: Eintritt und Auswirkung hoch."],
+      // For the agents: the engine's fact, and the title people typed as a quote beside it.
+      facts: [{ text: "R-01: Eintritt und Auswirkung hoch.", quotes: ["Lieferverzug"] }],
     });
     expect(overallAmpel(Object.values(sug).map((x) => x.ampel))).toBe("rot");
   });
@@ -201,11 +208,20 @@ describe("status report lifecycle", () => {
       latest: { number: 1, overall: "gelb" },
       due: false,
     });
-    // Only the latest report can be taken note of.
-    publish(st, "s2");
-    expect(checkAcknowledgeStatusReport(st.state(), MODEL, viewer("thomas"), "s1")).toMatchObject({
+    // Of the earlier reports, only the red ones can still be taken note of.
+    publish(st, "s2", { kosten: "gelb" });
+    publish(st, "s3", { kosten: "rot" });
+    publish(st, "s4");
+    const thomas = viewer("thomas");
+    expect(checkAcknowledgeStatusReport(st.state(), MODEL, thomas, "s2")).toMatchObject({
       reason: "Es gibt einen neueren Statusbericht.",
     });
+    expect(checkAcknowledgeStatusReport(st.state(), MODEL, thomas, "s3").ok).toBe(true);
+    expect(
+      myTasks(st.state(), MODEL, thomas, now)
+        .filter((t) => t.kind === "acknowledge-report")
+        .map((t) => (t.kind === "acknowledge-report" ? t.reportId : "")),
+    ).toEqual(["s4", "s3"]);
   });
 
   it("describes the reports in German", () => {
@@ -223,6 +239,33 @@ describe("status report lifecycle", () => {
     );
   });
 
+  it("keeps the project lead's reason for a colour better than suggested, and flags it in the portfolio", () => {
+    const st = team();
+    const better: StatusEntry = {
+      ampel: "gruen",
+      suggested: "rot",
+      reasons: ["R-01 «Lieferverzug»: Eintritt und Auswirkung hoch."],
+      problem: "",
+      measure: "",
+      deviationReason: "Der Lieferant hat geliefert.",
+    };
+    publish(st, "s1");
+    expect(projectSignals(projectSummary(st.state(), MODEL), at(st, 1))).not.toContain("status-abweichung");
+    publish(st, "s2", {}, { risiken: better });
+    const view = statusReportRegister(st.state(), MODEL, viewer("thomas"), at(st, 1)).items[0]!;
+    expect(view.criteria.find((c) => c.id === "risiken")).toMatchObject({
+      ampel: "gruen",
+      suggested: "rot",
+      deviates: true,
+      reasons: better.reasons,
+      deviationReason: "Der Lieferant hat geliefert.",
+    });
+    expect(describeEvent(st.events.at(-1)!, MODEL, eventRefs(st.state()))).toBe(
+      "Statusbericht 2 veröffentlicht: Gesamtstatus Grün. Besser als vorgeschlagen, mit Begründung: Risiken (Vorschlag Rot).",
+    );
+    expect(projectSignals(projectSummary(st.state(), MODEL), at(st, 1))).toContain("status-abweichung");
+  });
+
   it("shows red reports and due reports in the portfolio", () => {
     const st = team();
     publish(st, "s1", { kosten: "rot" });
@@ -231,7 +274,10 @@ describe("status report lifecycle", () => {
     expect(projectSignals(p, at(st, 1))).toContain("status-rot");
     expect(projectSignals(p, at(st, 1))).not.toContain("statusbericht-faellig");
     expect(projectSignals(p, at(st, 30))).toContain("statusbericht-faellig");
+    // A green report right after does not hide the red one until someone took note of it.
     publish(st, "s2");
+    expect(projectSignals(projectSummary(st.state(), MODEL), at(st, 1))).toContain("status-rot");
+    st.add({ type: "StatusReportAcknowledged", data: { reportId: "s1", note: "" } }, actor("thomas", "PA"));
     expect(projectSignals(projectSummary(st.state(), MODEL), at(st, 1))).not.toContain("status-rot");
   });
 });

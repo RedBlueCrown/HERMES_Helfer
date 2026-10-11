@@ -49,9 +49,13 @@ export interface StatusEntry {
   ampel: Ampel;
   /** What the engine suggested when the report was written. */
   suggested: Ampel;
-  /** Required for yellow and red. */
+  /** The engine's reasons for its suggestion, as the project lead saw them. */
+  reasons?: string[];
+  /** Required for yellow and red; empty for green. */
   problem: string;
   measure: string;
+  /** Why the project lead judges the criterion better than suggested: always their own words, never the agent's. */
+  deviationReason?: string;
 }
 
 /** Target and actual figures of a status report; all optional (from portfolio planning later, F11). */

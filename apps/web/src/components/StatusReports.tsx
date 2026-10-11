@@ -275,7 +275,11 @@ function ReportDetail({ code, report }: { code: string; report: StatusReportView
                 {c.deviates ? (
                   <Caption1 block className={s.muted}>
                     Vorschlag: {ampelLabel(c.suggested)}
+                    {c.reasons.length ? `. ${c.reasons.join(" ")}` : ""}
                   </Caption1>
+                ) : null}
+                {c.deviationReason ? (
+                  <Caption1 block>Begründung der Projektleitung: {c.deviationReason}</Caption1>
                 ) : null}
               </TableCell>
               <TableCell>{c.problem || "–"}</TableCell>
@@ -385,6 +389,8 @@ interface Entry {
   ampel: Ampel;
   problem: string;
   measure: string;
+  /** The project lead's own reason for a colour better than suggested; the agent never fills it. */
+  deviationReason: string;
 }
 
 const RANK: Record<Ampel, number> = { gruen: 0, gelb: 1, rot: 2 };
@@ -417,7 +423,10 @@ function NewStatusReportForm({
   const [entries, setEntries] = useState<Record<StatusCriterion, Entry>>(
     () =>
       Object.fromEntries(
-        register.suggestion.map((x) => [x.id, { ampel: x.ampel, problem: "", measure: "" }]),
+        register.suggestion.map((x) => [
+          x.id,
+          { ampel: x.ampel, problem: "", measure: "", deviationReason: "" },
+        ]),
       ) as Record<StatusCriterion, Entry>,
   );
   const last = register.lastFigures;
@@ -456,6 +465,8 @@ function NewStatusReportForm({
       overview,
       outlook,
       figures: figures(),
+      // The suggestion this form showed; the server refuses when it changed meanwhile.
+      basedOn: register.suggestionVersion,
       ...(proposalId ? { proposalId } : {}),
     }),
   );
@@ -470,11 +481,18 @@ function NewStatusReportForm({
       });
       setOverview(p.overview);
       setOutlook(p.outlook);
+      // What the agent left empty keeps the project lead's own text.
       setEntries((all) => {
         const next = { ...all };
         for (const c of STATUS_CRITERIA) {
           const t = p.criteria[c.id];
-          if (t) next[c.id] = { ...next[c.id], problem: t.problem, measure: t.measure };
+          if (t) {
+            next[c.id] = {
+              ...next[c.id],
+              problem: t.problem || next[c.id].problem,
+              measure: t.measure || next[c.id].measure,
+            };
+          }
         }
         return next;
       });
@@ -559,6 +577,19 @@ function NewStatusReportForm({
                     <Radio key={a} value={a} label={ampelLabel(a)} />
                   ))}
                 </RadioGroup>
+                {better ? (
+                  <Field
+                    label="Begründung (besser als vorgeschlagen)"
+                    hint="Deine eigene Einschätzung; der Agent schreibt sie nie."
+                    required
+                  >
+                    <Textarea
+                      value={e.deviationReason}
+                      onChange={(_, d) => set(c.id, { deviationReason: d.value })}
+                      rows={2}
+                    />
+                  </Field>
+                ) : null}
                 {e.ampel !== "gruen" ? (
                   <div className={s.pair}>
                     <Field label="Problem" required>
@@ -576,14 +607,6 @@ function NewStatusReportForm({
                       />
                     </Field>
                   </div>
-                ) : better ? (
-                  <Field label="Begründung (besser als vorgeschlagen)" required>
-                    <Textarea
-                      value={e.problem}
-                      onChange={(_, d) => set(c.id, { problem: d.value })}
-                      rows={2}
-                    />
-                  </Field>
                 ) : null}
               </section>
             );

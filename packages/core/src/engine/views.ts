@@ -47,6 +47,7 @@ import {
   type ReserveStatus,
 } from "./change-requests";
 import { conditionDue, isConditionOverdue } from "./conditions";
+import { fingerprint } from "./fingerprint";
 import type {
   AgentAssessment,
   Decision,
@@ -108,6 +109,8 @@ import {
   statusReportDueAt,
   statusReports,
   suggestStatus,
+  suggestionVersion,
+  type StatusFact,
 } from "./status-report";
 import {
   compareRisks,
@@ -384,6 +387,8 @@ export interface ChangeRequestView {
   statusLabel: string;
   impact: ImpactRow[];
   impactSummary: string;
+  /** A decision names it; the API refuses when the impact changed meanwhile (for example the reserve). */
+  impactVersion: string;
   decision?: { decision: Decision; reason: string; konsent: boolean; at: string; by: ActorRef };
   withdrawn?: { reason: string; at: string; by: ActorRef };
   /** Accepted requests that touch personal data. */
@@ -477,10 +482,14 @@ export interface StatusCriterionView {
   ampel: Ampel;
   ampelLabel: string;
   suggested: Ampel;
+  /** The engine's reasons for its suggestion, as the project lead saw them (absent in early reports). */
+  reasons: string[];
   /** The project lead chose another colour than the engine suggested. */
   deviates: boolean;
   problem: string;
   measure: string;
+  /** The project lead's reason for a colour better than suggested. */
+  deviationReason?: string;
 }
 
 export interface StatusReportView {
@@ -511,8 +520,17 @@ export interface StatusReportRegisterView {
   due: boolean;
   dueAt: string;
   canPublish: Check;
-  /** The engine's suggestion for a new report, per criterion with its reasons. */
-  suggestion: { id: StatusCriterion; code: string; label: string; ampel: Ampel; reasons: string[] }[];
+  /** The engine's suggestion for a new report, per criterion with its reasons (facts: for agents). */
+  suggestion: {
+    id: StatusCriterion;
+    code: string;
+    label: string;
+    ampel: Ampel;
+    reasons: string[];
+    facts: StatusFact[];
+  }[];
+  /** Publishing names it; the API refuses when the suggestion changed meanwhile. */
+  suggestionVersion: string;
   /** What a new report would record with it. */
   current: {
     phaseLabel: string;
@@ -1112,6 +1130,7 @@ export function changeRequestView(
     statusLabel: CR_STATUS_LABELS[c.status],
     impact,
     impactSummary: impactSummary(impact),
+    impactVersion: fingerprint(impact),
     ...(c.decision
       ? {
           decision: {
@@ -1256,9 +1275,11 @@ export function statusReportView(
         ampel: e.ampel,
         ampelLabel: AMPEL_LABELS[e.ampel].label,
         suggested: e.suggested,
+        reasons: e.reasons ?? [],
         deviates: e.ampel !== e.suggested,
         problem: e.problem,
         measure: e.measure,
+        ...(e.deviationReason ? { deviationReason: e.deviationReason } : {}),
       };
     }),
     overview: r.overview,
@@ -1302,7 +1323,15 @@ export function statusReportRegister(
     due: isStatusReportDue(s, model, now),
     dueAt: statusReportDueAt(last?.publishedAt, s.createdAt),
     canPublish: checkPublishStatusReport(s, model, v),
-    suggestion: STATUS_CRITERIA.map((c) => ({ id: c.id, code: c.code, label: c.label, ...suggestion[c.id] })),
+    suggestion: STATUS_CRITERIA.map((c) => ({
+      id: c.id,
+      code: c.code,
+      label: c.label,
+      ampel: suggestion[c.id].ampel,
+      reasons: suggestion[c.id].reasons,
+      facts: suggestion[c.id].facts,
+    })),
+    suggestionVersion: suggestionVersion(suggestion),
     current: {
       phaseLabel: model.phase(s.phase).label,
       mandatory: mandatoryProgress(s, model, s.phase),

@@ -88,9 +88,15 @@ describe("what people enter: the same rules in the API and the web app", () => {
       StatusCriterion,
       StatusEntryInput
     >;
-    const suggestion = Object.fromEntries(
-      STATUS_CRITERION_IDS.map((c) => [c, { ampel: "gruen", reasons: ["ok"] }]),
-    ) as Record<StatusCriterion, StatusSuggestion>;
+    const ok = (ampel: StatusSuggestion["ampel"]): StatusSuggestion => ({
+      ampel,
+      reasons: ["ok"],
+      facts: [{ text: "ok", quotes: [] }],
+    });
+    const suggestion = Object.fromEntries(STATUS_CRITERION_IDS.map((c) => [c, ok("gruen")])) as Record<
+      StatusCriterion,
+      StatusSuggestion
+    >;
     const overview = "Planmässig unterwegs.";
     expect(validateStatusReport({ overview, criteria }, suggestion)).toBeNull();
     expect(validateStatusReport({ overview: "kurz", criteria }, suggestion)).toMatch(/Übersicht/);
@@ -103,12 +109,15 @@ describe("what people enter: the same rules in the API and the web app", () => {
         suggestion,
       ),
     ).toBe("«Kosten» ist Gelb: Bitte Problem und Massnahme nennen.");
-    expect(
-      validateStatusReport(
-        { overview, criteria },
-        { ...suggestion, risiken: { ampel: "rot", reasons: ["x"] } },
-      ),
-    ).toMatch(/«Risiken»: Bitte begründen, warum die Lage besser ist als vorgeschlagen \(Vorschlag Rot\)/);
+    const red = { ...suggestion, risiken: ok("rot") };
+    expect(validateStatusReport({ overview, criteria }, red)).toMatch(
+      /«Risiken»: Bitte begründen, warum die Lage besser ist als vorgeschlagen \(Vorschlag Rot\)/,
+    );
+    // The reason is the project lead's own field: a problem text does not count.
+    const withProblem = { ...criteria, risiken: { ...green, problem: "Lieferverzug abgewendet." } };
+    expect(validateStatusReport({ overview, criteria: withProblem }, red)).toMatch(/Bitte begründen/);
+    const withReason = { ...criteria, risiken: { ...green, deviationReason: "Lieferant hat geliefert." } };
+    expect(validateStatusReport({ overview, criteria: withReason }, red)).toBeNull();
   });
 });
 

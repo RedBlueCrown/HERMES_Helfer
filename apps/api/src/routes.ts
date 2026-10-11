@@ -148,9 +148,16 @@ const StatusCriteriaBody = z.record(
     ampel: z.enum(AMPEL_VALUES),
     problem: z.string().max(2000).default(""),
     measure: z.string().max(2000).default(""),
+    /** The project lead's reason for a colour better than suggested; never the agent's text. */
+    deviationReason: z.string().max(2000).default(""),
   }),
 );
-const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum im Format JJJJ-MM-TT");
+const IsoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Datum im Format JJJJ-MM-TT")
+  .refine((d) => new Date(`${d}T00:00:00Z`).toISOString().startsWith(d), "Dieses Datum gibt es nicht.");
+/** The fingerprint of the basis a person saw (engine/fingerprint.ts). */
+const BasisVersion = z.string().regex(/^[0-9a-f]{8}$/, "Bitte die Ansicht neu laden.");
 const StatusFiguresBody = z
   .object({
     budgetChf: z.number().int().min(0).max(1_000_000_000).optional(),
@@ -206,6 +213,18 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     };
   };
   const params = <S extends z.ZodType>(req: FastifyRequest, schema: S) => parse(schema, req.params);
+
+  /** Runs a command with a claimed proposal: a failed command hands it back, a successful one uses it up. */
+  const withProposal = async <R>(proposal: { id: string } | undefined, command: () => Promise<R>) => {
+    try {
+      const result = await command();
+      if (proposal) deps.proposals.delete(proposal.id);
+      return result;
+    } catch (err) {
+      if (proposal) deps.proposals.release(proposal.id);
+      throw err;
+    }
+  };
 
   // Liveness: the process runs. Readiness: the event store answers too.
   app.get("/api/health", async () => ({ status: "ok" }));
@@ -525,22 +544,23 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const c = ctx(req);
     const s = await projects.requireProject(code, c.viewer);
     const proposal = body.proposalId
-      ? deps.proposals.require<ChangeRequestProposalContent>(
+      ? deps.proposals.claim<ChangeRequestProposalContent>(
           body.proposalId,
           "change-request",
           s.projectId,
           c.viewer.userId,
         )
       : undefined;
-    const result = await projects.submitChangeRequest(code, c, {
-      title: body.title,
-      requestedBy: body.requestedBy,
-      effortDays: body.effortDays,
-      flags: body.flags,
-      content: body.content,
-      ...(proposal ? { proposal } : {}),
-    });
-    if (proposal) deps.proposals.delete(proposal.id);
+    const result = await withProposal(proposal, () =>
+      projects.submitChangeRequest(code, c, {
+        title: body.title,
+        requestedBy: body.requestedBy,
+        effortDays: body.effortDays,
+        flags: body.flags,
+        content: body.content,
+        ...(proposal ? { proposal } : {}),
+      }),
+    );
     return reply.code(201).send(result);
   });
 
@@ -552,7 +572,14 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   app.post("/api/projects/:code/change-requests/:crId/decision", async (req) => {
     const { code, crId } = params(req, z.object({ code: Code, crId: z.uuid() }));
-    const body = parse(DecisionBody.extend({ recheckRequired: z.boolean().default(false) }), req.body);
+    const body = parse(
+      DecisionBody.extend({
+        recheckRequired: z.boolean().default(false),
+        /** The impact the decider saw (impactVersion); a changed impact is refused with 409. */
+        basedOn: BasisVersion,
+      }),
+      req.body,
+    );
     return projects.decideChangeRequest(code, ctx(req), crId, body);
   });
 
@@ -730,6 +757,8 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         overview: z.string().max(4000),
         outlook: z.string().max(4000).default(""),
         figures: StatusFiguresBody,
+        /** The suggestion the project lead saw (suggestionVersion); a changed one is refused with 409. */
+        basedOn: BasisVersion,
         /** The agent's texts the report started from; the server records them as drafted by the agent. */
         proposalId: z.uuid().optional(),
       }),
@@ -738,35 +767,28 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const c = ctx(req);
     const s = await projects.requireProject(code, c.viewer);
     const proposal = body.proposalId
-      ? deps.proposals.require<StatusReportTexts>(
+      ? deps.proposals.claim<StatusReportTexts>(
           body.proposalId,
           "status-report",
           s.projectId,
           c.viewer.userId,
         )
       : undefined;
-    // Edited: any text differs from the agent's (texts of green criteria are not part of the proposal).
-    const edited = (texts: StatusReportTexts) =>
-      texts.overview !== body.overview ||
-      texts.outlook !== body.outlook ||
-      Object.entries(texts.criteria).some(
-        ([id, t]) =>
-          t?.problem !== body.criteria[id as keyof typeof body.criteria].problem ||
-          t?.measure !== body.criteria[id as keyof typeof body.criteria].measure,
-      );
-    const result = await projects.publishStatusReport(
-      code,
-      c,
-      {
-        criteria: body.criteria,
-        overview: body.overview,
-        outlook: body.outlook,
-        figures: body.figures,
-        producer: proposal ? acceptedProducer(proposal, edited(proposal.content)) : { kind: "human" },
-      },
-      deps.now(),
+    const result = await withProposal(proposal, () =>
+      projects.publishStatusReport(
+        code,
+        c,
+        {
+          criteria: body.criteria,
+          overview: body.overview,
+          outlook: body.outlook,
+          figures: body.figures,
+          basedOn: body.basedOn,
+          ...(proposal ? { proposal } : {}),
+        },
+        deps.now(),
+      ),
     );
-    if (proposal) deps.proposals.delete(proposal.id);
     return reply.code(201).send(result);
   });
 

@@ -349,6 +349,8 @@ function tileDetail(sig: SignalFigures, data: Portfolio): string {
       return "Nacharbeit vor dem nächsten Entscheid";
     case "rollen-fehlen":
       return "Entscheid so nicht möglich";
+    case "status-abweichung":
+      return "Ampel mit Begründung der Projektleitung";
     case "risiko-hoch":
       return `Eintritt mal Auswirkung ${RISK_SCORE_HIGH} oder mehr`;
     case "ohne-aktivitaet":

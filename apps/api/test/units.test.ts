@@ -1,11 +1,22 @@
-import { CR_FLAGS, CR_FLAG_LABELS, CR_SECTIONS, DEFAULT_PROFILE, MODEL } from "@hermes-helfer/core";
+import {
+  CR_FLAGS,
+  CR_FLAG_LABELS,
+  CR_SECTIONS,
+  DEFAULT_PROFILE,
+  MODEL,
+  foldEvents,
+  skillReaders,
+  type StoredEvent,
+} from "@hermes-helfer/core";
 import { exportJWK, generateKeyPair, SignJWT, createLocalJWKSet } from "jose";
 import { describe, expect, it } from "vitest";
 import { AzureOpenAiProvider } from "../src/agents/azure-openai-provider";
 import { checkDraftStructure } from "../src/agents/kritiker";
 import { cut, fitSections } from "../src/agents/output";
 import { AiQuota } from "../src/agents/quota";
+import { CONFIDENTIAL_SUMMARY, projectContext } from "../src/agents/runner";
 import { AiProviderError } from "../src/agents/provider";
+import { ProposalStore } from "../src/agents/proposals";
 import { createEntraAuthenticator } from "../src/auth";
 import { loadConfig } from "../src/config";
 import { HttpError } from "../src/errors";
@@ -157,6 +168,79 @@ describe("Kritiker structure check", () => {
   });
 });
 
+describe("what an agent may put into a text (principle 3)", () => {
+  it("passes a restricted result only into texts whose readers may all read it", () => {
+    const canary = "KANARIENVOGEL";
+    const skill = MODEL.skill("init.datenschutz");
+    const events = [
+      { type: "SkillRunRequested", data: { runId: "r1", skillId: skill.id } },
+      {
+        type: "SkillRunCompleted",
+        data: {
+          runId: "r1",
+          skillId: skill.id,
+          draft: { summary: canary, sections: [], openPoints: [] },
+          findings: [],
+          producer: { kind: "human" },
+        },
+      },
+      {
+        type: "SkillDecisionRecorded",
+        data: {
+          skillId: skill.id,
+          role: "DS",
+          decision: "freigegeben",
+          reason: "",
+          konsent: false,
+          conditions: [],
+        },
+      },
+      { type: "DeliverableReleased", data: { deliverableId: "dsvor" } },
+    ] as const;
+    const st = foldEvents(
+      [
+        {
+          type: "ProjectCreated",
+          data: {
+            code: "T",
+            name: "T",
+            description: "",
+            phase: "init",
+            profile: DEFAULT_PROFILE,
+            modelVersion: MODEL.version,
+          },
+        },
+        { type: "MemberRoleAssigned", data: { userId: "anna", displayName: "Anna", role: "PL" } },
+        ...events,
+      ].map((e, i) => ({
+        ...e,
+        projectId: "p",
+        seq: i + 1,
+        id: `e${i}`,
+        at: new Date(Date.UTC(2026, 9, 1, 8, i)).toISOString(),
+        actor: { userId: "anna", displayName: "Anna", roles: ["PL"], channel: "web" as const },
+        correlationId: "c",
+        prevHash: "",
+        hash: "",
+      })) as StoredEvent[],
+      MODEL,
+    );
+    const anna = { userId: "anna", displayName: "Anna", globalRoles: ["HH.User" as const] };
+    const summaryOf = (readers: Parameters<typeof projectContext>[3]) =>
+      projectContext(st, MODEL, anna, readers).releasedResults.find((r) => r.name === skill.outputDoc)
+        ?.summary;
+    // A text everyone reads: the result by name and status only.
+    expect(summaryOf("all")).toBe(CONFIDENTIAL_SUMMARY);
+    // The DSFA is read only by roles that may also read the Datenschutz-Vorabklärung.
+    const dsfa = MODEL.skill(MODEL.deliverable("dsfa").skills[0]!);
+    expect(summaryOf(skillReaders(MODEL, dsfa))).toBe(canary);
+    // The ISDS-Konzept is also read by Infrastruktur (security engineering), which may not.
+    expect(summaryOf(skillReaders(MODEL, MODEL.skill("konzept.isds")))).toBe(CONFIDENTIAL_SUMMARY);
+    // The SchuBAn is also read by the Fachvertretung, which may not read it.
+    expect(summaryOf(skillReaders(MODEL, MODEL.skill("init.schutzbedarf")))).toBe(CONFIDENTIAL_SUMMARY);
+  });
+});
+
 describe("agent output that does not fit (review F7)", () => {
   it("cuts over-long text instead of refusing it", () => {
     expect(cut("kurz", 10)).toBe("kurz");
@@ -219,6 +303,27 @@ describe("agent output that does not fit (review F7)", () => {
       { heading: "Ziel", body: "A\n\nC" },
       { heading: "Abschnitt 2", body: "B" },
     ]);
+  });
+});
+
+describe("agent proposals (review F3)", () => {
+  it("serve one submission at a time: handed back when it fails, used up when it succeeds", () => {
+    const store = new ProposalStore();
+    const id = store.put({
+      kind: "change-request",
+      projectId: "p1",
+      userId: "u1",
+      producer: { kind: "ai", agent: "A10", provider: "mock", model: "mock", runId: "r1" },
+      content: {},
+    });
+    const claim = () => store.claim(id, "change-request", "p1", "u1");
+    claim();
+    // A second submission while the first is still running: refused, not recorded twice.
+    expect(claim).toThrow(/bereits übernommen/);
+    store.release(id);
+    expect(claim().id).toBe(id);
+    store.delete(id);
+    expect(claim).toThrow(/abgelaufen/);
   });
 });
 
@@ -493,7 +598,14 @@ describe("Azure OpenAI provider (against a fake API)", () => {
       agent: MODEL.agent("A2"),
       project: req.project,
       criteria: [
-        { id: "kosten", label: "Kosten", ampel: "gelb", reasons: ["Mehrkosten"], problem: "", measure: "" },
+        {
+          id: "kosten",
+          label: "Kosten",
+          ampel: "gelb",
+          reasons: [{ text: "Mehrkosten", quotes: [] }],
+          problem: "",
+          measure: "",
+        },
       ],
       facts: ["Reserve 40'000 CHF."],
     });

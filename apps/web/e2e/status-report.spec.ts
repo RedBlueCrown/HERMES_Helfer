@@ -40,7 +40,12 @@ test("Status report: the engine suggests, the PL decides and publishes with the 
 
   const latest = tab.getByRole("article", { name: "Statusbericht 2" });
   await expect(latest).toContainText("Gesamtstatus Rot");
-  await expect(latest.locator('[data-criterion="personal"]')).toContainText("Vorschlag: Gelb");
+  const staffing = latest.locator('[data-criterion="personal"]');
+  await expect(staffing).toContainText("Vorschlag: Gelb");
+  // The reason is the project lead's own, kept beside the suggestion it departs from.
+  await expect(staffing).toContainText(
+    "Begründung der Projektleitung: Die Beteiligten sind über die Fachstelle eingebunden",
+  );
   await expect(latest).toContainText("400'000 CHF");
 
   // The Projektausschuss takes note, from its task.

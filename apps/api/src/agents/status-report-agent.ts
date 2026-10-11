@@ -124,7 +124,7 @@ export class StatusReportAgent {
             id: c.id,
             label: c.label,
             ampel: colours[c.id],
-            reasons: suggestion[c.id].reasons,
+            reasons: suggestion[c.id].facts,
             problem: input.criteria[c.id].problem,
             measure: input.criteria[c.id].measure,
           })),
@@ -133,15 +133,16 @@ export class StatusReportAgent {
         callFor(ctx),
       );
       usage = add(usage, drafted.usage);
-      // Texts only for criteria that are not green; what the PL wrote stays if the agent left it out.
+      // Only what the agent wrote, for the criteria that are not green: the proposal is the
+      // agent's text alone, so the record can tell it from the project lead's. The web app keeps
+      // the project lead's own text where the agent left a field empty.
       const texts: StatusReportTexts = {
         overview: drafted.draft.overview,
         outlook: drafted.draft.outlook,
         criteria: Object.fromEntries(
           STATUS_CRITERIA.filter((c) => colours[c.id] !== "gruen").map((c) => {
             const d = drafted.draft.criteria.find((x) => x.id === c.id);
-            const own = input.criteria[c.id];
-            return [c.id, { problem: d?.problem || own.problem, measure: d?.measure || own.measure }];
+            return [c.id, { problem: d?.problem ?? "", measure: d?.measure ?? "" }];
           }),
         ),
       };

@@ -386,7 +386,8 @@ Heute gelten diese Signale:
 | Gate zurückgewiesen | Der letzte Gate-Entscheid der aktuellen Phase lautet «zurückgewiesen». | mittel |
 | Rollen unbesetzt | Eine Rolle, die in der aktuellen Phase entscheidet, hat im Vorhaben niemand. | mittel |
 | Hohe Risiken | Mindestens ein offenes Risiko mit Eintritt mal Auswirkung 6 oder mehr (siehe F33). | mittel |
-| Status rot | Der letzte Statusbericht meldet Rot (siehe F35). | hoch |
+| Status rot | Der letzte Statusbericht meldet Rot, oder ein roter Bericht ist noch nicht zur Kenntnis genommen (siehe F35). | hoch |
+| Besser als vorgeschlagen | Im letzten Statusbericht schätzt die Projektleitung ein Kriterium besser ein, als die App vorschlägt; die Begründung steht im Bericht (siehe F35). | mittel |
 | Statusbericht fällig | Seit 30 Tagen kein Statusbericht. | Hinweis |
 | Ohne Aktivität | Seit 30 Tagen kein neuer Eintrag in der Projektakte. | mittel |
 | Change Request offen | Ein Change Request wartet auf den Entscheid des Projektausschusses. | Hinweis |
@@ -484,11 +485,12 @@ Der Statusbericht ist gebaut, wie im Prototyp: sechs Kriterien mit Ampel (Termin
 
 1. Stimmen die sechs Kriterien? Sie stammen aus dem Prototyp und folgen dem HERMES-Ergebnis «Projektstatusbericht». Habt ihr eine eigene Vorlage mit anderen Kriterien?
 2. Der Vorschlag folgt festen Regeln, zum Beispiel: Kosten Rot, wenn die angenommenen Change Requests die Reserve übersteigen; Risiken Rot bei einem Risiko mit Eintritt und Auswirkung hoch oder bei einem hohen Risiko ohne Massnahme. Die Regeln stehen im Architekturdokument, Abschnitt 5.7. Passen sie?
-3. Wer eine bessere Farbe wählt als vorgeschlagen, muss das begründen. Einverstanden?
+3. Wer eine bessere Farbe wählt als vorgeschlagen, muss das begründen. Die Begründung schreibt die Projektleitung selbst in ein eigenes Feld; der Agent schreibt sie nie. Der Bericht zeigt Vorschlag, Gründe und Begründung nebeneinander, und das Portfolio markiert solche Berichte («Besser als vorgeschlagen»). Einverstanden?
 4. Heute ist alle **30 Tage** ein Bericht fällig. Gilt bei euch ein anderer Rhythmus, zum Beispiel monatlich auf ein Datum oder vor jeder Sitzung des Projektausschusses?
 5. Bei Rot ist «Eskalation an die nächsthöhere Stufe» nötig. Wer ist das: der Projektausschuss, das Portfolio-Gremium, die Geschäftsleitung? Soll die App diese Stelle benachrichtigen (siehe F15)?
+6. Ein roter Bericht bleibt für den Projektausschuss offen, bis jemand ihn zur Kenntnis genommen hat, auch wenn schon ein neuerer Bericht vorliegt. So kann ein grüner Bericht kurz danach einen roten nicht verdecken. Frühere Berichte in Gelb oder Grün schliessen mit dem nächsten Bericht. Passt das?
 
-**Meine Empfehlung:** Kriterien und Regeln so für den Pilot; Begründung bei besserer Farbe; 30 Tage; bei Rot eine Meldung an das Portfolio-Gremium.
+**Meine Empfehlung:** Kriterien und Regeln so für den Pilot; Begründung bei besserer Farbe; 30 Tage; bei Rot eine Meldung an das Portfolio-Gremium; rote Berichte bleiben offen.
 
 **Antwort:**
 

@@ -17,6 +17,7 @@ import {
   type SkillDef,
 } from "../model/types";
 import { pendingRecheckRoles } from "./change-requests";
+import { reportsAwaitingAcknowledgement } from "./status-report";
 import { isInvolved, participantsFor } from "./participation";
 import { checklistKey, type ChangeRequestState, type ProjectState } from "./state";
 import {
@@ -88,6 +89,37 @@ export function canViewDeliverableContent(
   const roles = rolesOf(s, v.userId);
   if (roles.some((r) => RESTRICTED_READERS.includes(r))) return true;
   return d.skills.some((id) => model.skill(id).mayStart.some((r) => roles.includes(r)));
+}
+
+/** Who may read a content: every member, or only these roles (need-to-know). */
+export type Readers = "all" | ReadonlySet<ProjectRole>;
+
+/** The readers of a deliverable: everyone, or the governance roles and those that contribute to it. */
+export function deliverableReaders(model: HermesModel, d: DeliverableDef): Readers {
+  if (!d.restricted) return "all";
+  return new Set<ProjectRole>([...RESTRICTED_READERS, ...d.skills.flatMap((id) => model.skill(id).mayStart)]);
+}
+
+/** The readers of a skill's output: who may read every deliverable it contributes to. */
+export function skillReaders(model: HermesModel, skill: SkillDef): Readers {
+  let readers = "all" as Readers;
+  for (const d of model.deliverablesOfSkill(skill.id)) {
+    const r = deliverableReaders(model, d);
+    if (r === "all") continue;
+    readers = readers === "all" ? r : new Set([...readers].filter((x) => r.has(x)));
+  }
+  return readers;
+}
+
+/**
+ * Whether content read by `source` may go into an output read by `output`:
+ * everyone who reads the output may also read the source (architecture §3,
+ * principle 3: what an agent writes reaches its readers, not only the requester).
+ */
+export function readersCover(source: Readers, output: Readers): boolean {
+  if (source === "all") return true;
+  if (output === "all") return false;
+  return [...output].every((r) => source.has(r));
 }
 
 /** A skill's output is restricted if it contributes to any restricted deliverable. */
@@ -480,9 +512,9 @@ export function checkAcknowledgeStatusReport(
   }
   const separate = separated(s, model, v, "PA");
   if (!separate.ok) return separate;
-  const latest = Object.values(s.statusReports).every((x) => x.number <= r.number);
-  if (!latest) return invalid("Es gibt einen neueren Statusbericht.");
   if (r.acknowledgements.length) return invalid("Der Statusbericht wurde bereits zur Kenntnis genommen.");
+  // The latest report, and a red one also after a newer report.
+  if (!reportsAwaitingAcknowledgement(s).includes(r)) return invalid("Es gibt einen neueren Statusbericht.");
   return OK;
 }
 

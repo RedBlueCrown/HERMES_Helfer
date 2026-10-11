@@ -38,6 +38,7 @@ import {
   checkWithdrawChangeRequest,
   contentVersion as currentContentVersion,
   findChecklist,
+  fingerprint,
   gateRisks,
   nextCrNumber,
   impactContext,
@@ -46,9 +47,11 @@ import {
   nextStatusReportNumber,
   openChecklistItems,
   recheckResults,
+  reportEntry,
   reportRisks,
   reserveStatus,
   suggestStatus,
+  suggestionVersion,
   rolesOf,
   validateChangeRequest,
   validateDecision,
@@ -63,7 +66,6 @@ import {
   type ConditionSpec,
   type CrFlags,
   type DecisionInput,
-  type Ampel,
   type DraftContent,
   type Level,
   type PhaseId,
@@ -77,7 +79,9 @@ import {
   type RiskStatus,
   type StatusCriterion,
   type StatusEntry,
+  type StatusEntryInput,
   type StatusFigures,
+  type StatusReportTexts,
   type Viewer,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
@@ -157,12 +161,33 @@ export interface RiskAssessmentInput {
 }
 
 export interface StatusReportInput {
-  criteria: Record<StatusCriterion, { ampel: Ampel; problem: string; measure: string }>;
+  criteria: Record<StatusCriterion, StatusEntryInput>;
   overview: string;
   outlook: string;
   figures: StatusFigures;
-  /** "ai" when the PL used the agent's texts. */
-  producer: Producer;
+  /** The version of the suggestion the project lead saw (suggestionVersion). */
+  basedOn: string;
+  /** The agent's texts the project lead started from (proposals.ts). */
+  proposal?: StoredProposal<StatusReportTexts>;
+}
+
+/** Every published text against the agent's: the record says whether the project lead changed any. */
+function reportEdited(
+  p: StatusReportTexts,
+  published: Omit<StatusReportTexts, "criteria"> & {
+    criteria: Record<StatusCriterion, StatusEntry>;
+  },
+): boolean {
+  const same = (a: string | undefined, b: string) => (a ?? "").trim() === b.trim();
+  return (
+    !same(p.overview, published.overview) ||
+    !same(p.outlook, published.outlook) ||
+    STATUS_CRITERIA.some(
+      (c) =>
+        !same(p.criteria[c.id]?.problem, published.criteria[c.id].problem) ||
+        !same(p.criteria[c.id]?.measure, published.criteria[c.id].measure),
+    )
+  );
 }
 
 export interface CreateProjectInput {
@@ -502,10 +527,19 @@ export class ProjectService {
     code: string,
     ctx: RequestContext,
     crId: string,
-    input: DecisionInput & { recheckRequired?: boolean },
+    input: DecisionInput & { recheckRequired?: boolean; basedOn: string },
   ) {
     return this.command(code, ctx, (s) => {
       assertCheck(checkDecideChangeRequest(s, this.model, ctx.viewer, crId));
+      const impact = changeImpact(s.changeRequests[crId]!, impactContext(s, crId), this.model);
+      // The decision is taken on the impact the Projektausschuss saw (impactVersion).
+      if (fingerprint(impact) !== input.basedOn) {
+        throw new HttpError(
+          409,
+          "stale",
+          "Die Auswirkungen haben sich inzwischen geändert, zum Beispiel die Reserve. Bitte prüfen und neu entscheiden.",
+        );
+      }
       const error = validateDecision(input, {
         veto: false,
         konsentRequired: true,
@@ -525,7 +559,7 @@ export class ProjectService {
             reason: input.reason.trim(),
             konsent: accepted && input.konsent,
             conditions: this.conditions(input),
-            impact: changeImpact(cr, impactContext(s, crId), this.model),
+            impact,
             ...(() => {
               const remaining = reserveStatus(s, crId).remainingChf;
               return remaining === undefined ? {} : { reserveRemainingChf: remaining };
@@ -648,18 +682,20 @@ export class ProjectService {
     return this.command(code, ctx, (s) => {
       assertCheck(checkPublishStatusReport(s, this.model, ctx.viewer));
       const suggestion = suggestStatus(s, this.model, now);
+      // The colours are judged against the suggestion the project lead saw.
+      if (suggestionVersion(suggestion) !== input.basedOn) {
+        throw new HttpError(
+          409,
+          "stale",
+          "Der Vorschlag hat sich inzwischen geändert, weil sich das Vorhaben geändert hat. Bitte die Ampel neu prüfen.",
+        );
+      }
       const invalid = validateStatusReport(input, suggestion);
       if (invalid) throw unprocessable(invalid);
       const criteria = {} as Record<StatusCriterion, StatusEntry>;
-      for (const c of STATUS_CRITERIA) {
-        const e = input.criteria[c.id];
-        criteria[c.id] = {
-          ampel: e.ampel,
-          suggested: suggestion[c.id].ampel,
-          problem: e.problem.trim(),
-          measure: e.measure.trim(),
-        };
-      }
+      for (const c of STATUS_CRITERIA) criteria[c.id] = reportEntry(input.criteria[c.id], suggestion[c.id]);
+      const texts = { overview: input.overview.trim(), outlook: input.outlook.trim(), criteria };
+      const p = input.proposal;
       return [
         {
           type: "StatusReportPublished",
@@ -667,13 +703,13 @@ export class ProjectService {
             reportId: this.newId(),
             number: nextStatusReportNumber(s),
             criteria,
-            overview: input.overview.trim(),
-            outlook: input.outlook.trim(),
+            overview: texts.overview,
+            outlook: texts.outlook,
             figures: input.figures,
             phase: s.phase,
             mandatory: mandatoryProgress(s, this.model, s.phase),
             risks: reportRisks(s),
-            producer: input.producer,
+            producer: p ? acceptedProducer(p, reportEdited(p.content, texts)) : { kind: "human" },
           },
         },
       ];

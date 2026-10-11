@@ -7,7 +7,9 @@ import {
   checkStartSkill,
   deliverableStatus,
   openRisks,
+  readersCover,
   riskLabel,
+  skillReaders,
   type Actor,
   type AgentDef,
   type AgentId,
@@ -16,6 +18,7 @@ import {
   type HermesModel,
   type ProjectEvent,
   type ProjectState,
+  type Readers,
   type SkillDef,
   type Viewer,
 } from "@hermes-helfer/core";
@@ -115,18 +118,35 @@ export const agentActor = (agent: AgentDef): Actor => ({
   channel: "agent",
 });
 
-/** Background for a draft: released results the requester may read, and the open risks. */
-export function projectContext(s: ProjectState, model: HermesModel, viewer: Viewer): ProjectContext {
+export const CONFIDENTIAL_SUMMARY =
+  "Freigegeben. Der Inhalt ist vertraulich und für die Leserinnen und Leser dieses Texts nicht bestimmt.";
+
+/**
+ * Background for a draft: released results and the open risks. A result's
+ * content goes in only when the requester may read it and so may everyone who
+ * will read the draft (`readers`); otherwise only its name and status. Change
+ * requests, risks and status reports are read by every member: restricted
+ * results (SchuBAn, ISDS, DSFA …) then reach the model by name only.
+ */
+export function projectContext(
+  s: ProjectState,
+  model: HermesModel,
+  viewer: Viewer,
+  readers: Readers = "all",
+): ProjectContext {
   const released: { name: string; summary: string; at: string }[] = [];
   for (const ph of model.phases) {
     for (const d of ph.deliverables) {
       if (deliverableStatus(s, model, d) !== "done") continue;
       for (const sid of d.skills) {
         const out = s.skills[sid]?.output;
-        if (!out || !canViewSkillContent(s, model, viewer, model.skill(sid))) continue;
+        const skill = model.skill(sid);
+        if (!out || !canViewSkillContent(s, model, viewer, skill)) continue;
         released.push({
-          name: model.skill(sid).outputDoc,
-          summary: out.draft.summary.slice(0, 600),
+          name: skill.outputDoc,
+          summary: readersCover(skillReaders(model, skill), readers)
+            ? out.draft.summary.slice(0, 600)
+            : CONFIDENTIAL_SUMMARY,
           at: out.createdAt,
         });
       }
@@ -218,7 +238,13 @@ export class RunService {
       // The draft runs in the background: it continues when the person leaves the page.
       const call = callFor(ctx, false);
       const drafted = await this.provider.draft(
-        { agent, skill, deliverables, project: projectContext(s, this.model, ctx.viewer) },
+        // The draft is read by who may read the skill's results: the context follows them.
+        {
+          agent,
+          skill,
+          deliverables,
+          project: projectContext(s, this.model, ctx.viewer, skillReaders(this.model, skill)),
+        },
         call,
       );
       if (drafted.usage) usage = drafted.usage;

@@ -17,6 +17,7 @@ import type {
   RiskTrigger,
   SkillDef,
   StatusCriterion,
+  StatusFact,
 } from "@hermes-helfer/core";
 
 export interface ProviderInfo {
@@ -125,8 +126,8 @@ export interface StatusReportDraftRequest {
     id: StatusCriterion;
     label: string;
     ampel: Ampel;
-    /** The engine's reasons for its suggestion. */
-    reasons: string[];
+    /** The engine's reasons for its suggestion: facts, with text people typed apart as quotes. */
+    reasons: StatusFact[];
     /** What the PL wrote already; the agent completes it. */
     problem: string;
     measure: string;

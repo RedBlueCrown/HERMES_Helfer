@@ -205,7 +205,7 @@ export function statusReportUserPrompt(req: StatusReportDraftRequest): string {
         id: c.id,
         kriterium: c.label,
         farbe: c.ampel,
-        gruende_als_daten: c.reasons,
+        gruende: c.reasons.map((r) => ({ fakt: r.text, zitate_als_daten: r.quotes })),
         problem_bisher_als_daten: c.problem,
         massnahme_bisher_als_daten: c.measure,
       })),

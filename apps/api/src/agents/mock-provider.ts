@@ -331,7 +331,9 @@ export function mockStatusReport(req: StatusReportDraftRequest): StatusReportDra
       "[OFFEN: Nächste Schritte und Entscheide bis zum nächsten Statusbericht, z. B. Freigaben und Gate-Termin.]",
     criteria: notGreen.map((c) => ({
       id: c.id,
-      problem: c.problem || c.reasons.join(" "),
+      problem:
+        c.problem ||
+        c.reasons.map((r) => (r.quotes.length ? `${r.text} (${r.quotes.join(", ")})` : r.text)).join(" "),
       measure:
         c.measure ||
         `[OFFEN: Massnahme mit verantwortlicher Person und Termin]${c.ampel === "rot" ? " Eskalation an den Projektausschuss." : ""}`,

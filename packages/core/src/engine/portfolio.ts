@@ -14,7 +14,13 @@ import { conditionDue } from "./conditions";
 import { rolesOf, type Viewer } from "./permissions";
 import { highRisks, openRisks } from "./risks";
 import { STATUS_REPORT_INTERVAL_DAYS, type Ampel } from "../model/status-report";
-import { latestStatusReport, reportOverall, statusReportDueAt } from "./status-report";
+import {
+  deviatingCriteria,
+  latestStatusReport,
+  reportOverall,
+  reportsAwaitingAcknowledgement,
+  statusReportDueAt,
+} from "./status-report";
 import type { ProjectState } from "./state";
 import {
   gateStatus,
@@ -39,6 +45,7 @@ export const SIGNAL_IDS = [
   "neupruefung",
   "gate-zurueckgewiesen",
   "rollen-fehlen",
+  "status-abweichung",
   "risiko-hoch",
   "ohne-aktivitaet",
   "statusbericht-faellig",
@@ -65,7 +72,7 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
     label: "Status rot",
     level: "hoch",
     description:
-      "Der letzte Statusbericht meldet Rot: Neben Massnahmen ist eine Eskalation an die nächsthöhere Stufe nötig.",
+      "Der letzte Statusbericht meldet Rot, oder ein roter Bericht ist noch nicht zur Kenntnis genommen: Neben Massnahmen ist eine Eskalation an die nächsthöhere Stufe nötig.",
   },
   "auflagen-ueberfaellig": {
     label: "Auflagen überfällig",
@@ -87,6 +94,12 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
     label: "Rollen unbesetzt",
     level: "mittel",
     description: "Eine Rolle, die in der aktuellen Phase entscheidet, hat niemand im Vorhaben.",
+  },
+  "status-abweichung": {
+    label: "Besser als vorgeschlagen",
+    level: "mittel",
+    description:
+      "Im letzten Statusbericht schätzt die Projektleitung mindestens ein Kriterium besser ein, als der HERMES Helfer aus den Daten vorschlägt; die Begründung steht im Bericht.",
   },
   "risiko-hoch": {
     label: "Hohe Risiken",
@@ -152,6 +165,10 @@ export interface ProjectSummary {
   highRisks: number;
   /** The latest status report: its overall colour and date. */
   status?: { overall: Ampel; number: number; publishedAt: string };
+  /** A red report the Projektausschuss has not taken note of, also behind a newer one. */
+  redUnacknowledged: boolean;
+  /** Criteria of the latest report judged better than suggested. */
+  statusDeviations: number;
   /** When the next status report is due (the clock decides whether it is overdue). */
   statusDueAt: string;
   projectLeads: string[];
@@ -205,6 +222,11 @@ export function projectSummary(s: ProjectState, model: HermesModel): ProjectSumm
         : {};
     })(),
     statusDueAt: statusReportDueAt(latestStatusReport(s)?.publishedAt, s.createdAt),
+    redUnacknowledged: reportsAwaitingAcknowledgement(s).some((r) => reportOverall(r) === "rot"),
+    statusDeviations: (() => {
+      const last = latestStatusReport(s);
+      return last ? deviatingCriteria(last).length : 0;
+    })(),
     projectLeads: Object.values(s.members)
       .filter((m) => m.roles.includes("PL"))
       .map((m) => m.displayName),
@@ -231,7 +253,8 @@ export function projectSignals(p: ProjectSummary, now: Date): SignalId[] {
   const on: Record<SignalId, boolean> = {
     // A pending veto on a mandatory result blocks the gate (status.ts).
     veto: !p.finished && p.gateStatus === "blocked",
-    "status-rot": !p.finished && p.status?.overall === "rot",
+    "status-rot": !p.finished && (p.status?.overall === "rot" || p.redUnacknowledged),
+    "status-abweichung": !p.finished && p.statusDeviations > 0,
     "auflagen-ueberfaellig": !p.finished && overdueConditions(p, now) > 0,
     neupruefung: !p.finished && p.openRechecks > 0,
     "gate-zurueckgewiesen": !p.finished && p.gateRejected,

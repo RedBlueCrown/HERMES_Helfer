@@ -23,6 +23,7 @@ import {
 } from "./change-requests";
 import { isConditionOverdue } from "./conditions";
 import { MIN_REASON, MIN_SUMMARY } from "./decisions";
+import { fingerprint } from "./fingerprint";
 import type { StatusEntry } from "./events";
 import { openParticipation } from "./participation";
 import { openRisks, riskLabel, riskScore } from "./risks";
@@ -37,12 +38,17 @@ export interface StatusEntryInput {
   ampel: Ampel;
   problem: string;
   measure: string;
+  /** Required for a colour better than suggested; never drafted by the agent. */
+  deviationReason?: string;
 }
+
+/** The colour is better than the engine suggested. */
+export const betterThanSuggested = (ampel: Ampel, suggested: Ampel) => RANK[ampel] < RANK[suggested];
 
 /**
  * The project lead's report against the engine's suggestion; a message for the
  * person, or null. Yellow and red need a problem and a measure; a colour better
- * than the suggestion needs a reason (in «Problem»).
+ * than the suggestion needs the project lead's own reason.
  */
 export function validateStatusReport(
   input: { overview: string; criteria: Record<StatusCriterion, StatusEntryInput> },
@@ -50,12 +56,14 @@ export function validateStatusReport(
 ): string | null {
   for (const c of STATUS_CRITERIA) {
     const e = input.criteria[c.id];
-    const problem = e.problem.trim();
-    if (e.ampel !== "gruen" && (problem.length < MIN_REASON || e.measure.trim().length < MIN_REASON)) {
+    if (
+      e.ampel !== "gruen" &&
+      (e.problem.trim().length < MIN_REASON || e.measure.trim().length < MIN_REASON)
+    ) {
       return `«${c.label}» ist ${AMPEL_LABELS[e.ampel].label}: Bitte Problem und Massnahme nennen.`;
     }
     const suggested = suggestion[c.id].ampel;
-    if (RANK[e.ampel] < RANK[suggested] && problem.length < MIN_REASON) {
+    if (betterThanSuggested(e.ampel, suggested) && (e.deviationReason ?? "").trim().length < MIN_REASON) {
       return `«${c.label}»: Bitte begründen, warum die Lage besser ist als vorgeschlagen (Vorschlag ${AMPEL_LABELS[suggested].label}).`;
     }
   }
@@ -79,8 +87,40 @@ export const reportTitle = (number: number) => `Statusbericht ${number}`;
 
 export interface StatusSuggestion {
   ampel: Ampel;
-  /** Why, in German; at least one line. */
+  /** Why, in German, as people see it; at least one line. */
   reasons: string[];
+  /**
+   * The same reasons for an agent: the engine's fact without text people typed
+   * (risk titles), which comes separately as a quote (architecture §3, principle 7).
+   */
+  facts: StatusFact[];
+}
+
+export interface StatusFact {
+  text: string;
+  quotes: string[];
+}
+
+/** One line of a suggestion: the colour, the text people see, and for the agents the fact without quotes. */
+type Line = [Ampel, string, StatusFact?];
+
+/**
+ * What a report stores per criterion: problem and measure for yellow and red,
+ * the project lead's reason for a colour better than suggested, and the
+ * engine's suggestion with its reasons.
+ */
+export function reportEntry(input: StatusEntryInput, suggestion: StatusSuggestion): StatusEntry {
+  const green = input.ampel === "gruen";
+  return {
+    ampel: input.ampel,
+    suggested: suggestion.ampel,
+    reasons: suggestion.reasons,
+    problem: green ? "" : input.problem.trim(),
+    measure: green ? "" : input.measure.trim(),
+    ...(betterThanSuggested(input.ampel, suggestion.ampel)
+      ? { deviationReason: (input.deviationReason ?? "").trim() }
+      : {}),
+  };
 }
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
@@ -103,13 +143,17 @@ export function suggestStatus(
   );
   const rechecks = openRechecks(s);
   const idleDays = Math.floor((now.getTime() - Date.parse(s.updatedAt)) / DAY_MS);
-  const result = (ampel: Ampel, reasons: string[], ok: string): StatusSuggestion => ({
-    ampel,
-    reasons: reasons.length ? reasons : [ok],
-  });
+  const result = (ampel: Ampel, lines: Line[], ok: string): StatusSuggestion =>
+    lines.length
+      ? {
+          ampel,
+          reasons: lines.map(([, text]) => text),
+          facts: lines.map(([, text, fact]) => fact ?? { text, quotes: [] }),
+        }
+      : { ampel, reasons: [ok], facts: [{ text: ok, quotes: [] }] };
 
   // Termine
-  const termine: [Ampel, string][] = [];
+  const termine: Line[] = [];
   if (rejected)
     termine.push(["rot", `Das Gate «${phase.gate.name}» wurde zurückgewiesen; Nacharbeit nötig.`]);
   if (gate === "blocked") termine.push(["rot", `Ein Veto blockiert das Gate «${phase.gate.name}».`]);
@@ -121,7 +165,7 @@ export function suggestStatus(
   if (idleDays >= 30) termine.push(["gelb", `Seit ${idleDays} Tagen kein Eintrag in der Projektakte.`]);
 
   // Kosten
-  const kosten: [Ampel, string][] = [];
+  const kosten: Line[] = [];
   const reserve = reserveStatus(s);
   const openCost = openChangeRequests(s).reduce((n, c) => n + crCostChf(c.effortDays, c.dayRateChf), 0);
   if (reserve.remainingChf !== undefined && reserve.remainingChf < 0) {
@@ -140,7 +184,7 @@ export function suggestStatus(
   }
 
   // Personalaufwand
-  const personal: [Ampel, string][] = [];
+  const personal: Line[] = [];
   const missing = current ? missingRoles(s, model, phase.id) : [];
   if (missing.length) {
     personal.push(["gelb", `Unbesetzt: ${missing.map((r) => PROJECT_ROLE_LABELS[r]).join(", ")}.`]);
@@ -151,7 +195,7 @@ export function suggestStatus(
   }
 
   // Ergebnisse
-  const ergebnisse: [Ampel, string][] = [];
+  const ergebnisse: Line[] = [];
   if (gate === "blocked") ergebnisse.push(["rot", "Ein Veto-Entscheid zu einem Pflichtergebnis ist offen."]);
   for (const sk of current ? phase.skills : []) {
     const st = s.skills[sk.id];
@@ -162,7 +206,7 @@ export function suggestStatus(
   const progress = mandatoryProgress(s, model, s.phase);
 
   // Ziele
-  const ziele: [Ampel, string][] = [];
+  const ziele: Line[] = [];
   const crs = openChangeRequests(s);
   if (crs.length) {
     ziele.push([
@@ -172,26 +216,26 @@ export function suggestStatus(
   }
 
   // Risiken
-  const risiken: [Ampel, string][] = [];
+  const risiken: Line[] = [];
   for (const r of openRisks(s)) {
     const score = riskScore(r.probability, r.impact);
     if (score < RISK_SCORE_HIGH) continue;
-    const name = `${riskLabel(r.number)} «${r.title}»`;
-    if (score === 9) risiken.push(["rot", `${name}: Eintritt und Auswirkung hoch.`]);
-    else if (!r.mitigation) risiken.push(["rot", `${name}: hohes Risiko ohne Massnahme.`]);
+    // The title is text people typed: the agents get it as a quote next to the fact.
+    const label = riskLabel(r.number);
+    const line = (ampel: Ampel, what: string): Line => [
+      ampel,
+      `${label} «${r.title}»: ${what}`,
+      { text: `${label}: ${what}`, quotes: [r.title] },
+    ];
+    if (score === 9) risiken.push(line("rot", "Eintritt und Auswirkung hoch."));
+    else if (!r.mitigation) risiken.push(line("rot", "hohes Risiko ohne Massnahme."));
     else
-      risiken.push([
-        "gelb",
-        `${name}: hohes Risiko, Massnahme ${r.status === "offen" ? "festgelegt" : "in Bearbeitung"}.`,
-      ]);
+      risiken.push(
+        line("gelb", `hohes Risiko, Massnahme ${r.status === "offen" ? "festgelegt" : "in Bearbeitung"}.`),
+      );
   }
 
-  const pick = (list: [Ampel, string][], ok: string) =>
-    result(
-      overallAmpel(list.map(([a]) => a)),
-      list.map(([, text]) => text),
-      ok,
-    );
+  const pick = (list: Line[], ok: string) => result(overallAmpel(list.map(([a]) => a)), list, ok);
   return {
     termine: pick(termine, "Keine Verzögerung erkennbar."),
     kosten: pick(
@@ -228,10 +272,25 @@ export function isStatusReportDue(s: ProjectState, model: HermesModel, now: Date
 }
 
 /** The latest report, if no member of the Projektausschuss took note of it yet. */
-export function reportAwaitingAcknowledgement(s: ProjectState): StatusReportState | undefined {
+/**
+ * Reports the Projektausschuss has to take note of, newest first: the latest
+ * one, and every red one, also when a newer report followed it. A red report
+ * cannot disappear unseen behind a greener one.
+ */
+export function reportsAwaitingAcknowledgement(s: ProjectState): StatusReportState[] {
   const latest = latestStatusReport(s);
-  return latest && latest.acknowledgements.length === 0 ? latest : undefined;
+  return statusReports(s).filter(
+    (r) => r.acknowledgements.length === 0 && (r === latest || reportOverall(r) === "rot"),
+  );
 }
+
+/** What publishing a report names: the suggestion the project lead saw. */
+export const suggestionVersion = (suggestion: Record<StatusCriterion, StatusSuggestion>) =>
+  fingerprint(STATUS_CRITERIA.map((c) => [suggestion[c.id].ampel, suggestion[c.id].reasons]));
+
+/** Criteria of a report the project lead judged better than the engine suggested. */
+export const deviatingCriteria = (r: Pick<StatusReportState, "criteria">) =>
+  STATUS_CRITERIA.filter((c) => betterThanSuggested(r.criteria[c.id].ampel, r.criteria[c.id].suggested));
 
 export const ampelLabel = (a: Ampel) => AMPEL_LABELS[a].label;
 

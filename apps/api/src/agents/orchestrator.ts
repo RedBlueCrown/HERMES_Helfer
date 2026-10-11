@@ -343,7 +343,7 @@ export class Orchestrator {
           vorschlag_fuer_den_naechsten: r.suggestion.map((x) => ({
             kriterium: x.label,
             ampel: x.ampel,
-            gruende: x.reasons,
+            gruende: x.facts.map((f) => ({ fakt: f.text, zitate_als_daten: f.quotes })),
           })),
         };
       }

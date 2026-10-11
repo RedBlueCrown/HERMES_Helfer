@@ -681,7 +681,10 @@ describe("change requests", () => {
     expect(cr!.canDecide.ok).toBe(true);
 
     const decide = (user: string, body: object) =>
-      server!.as(user).post(`/api/projects/ERP/change-requests/${cr!.id}/decision`, body);
+      server!.as(user).post(`/api/projects/ERP/change-requests/${cr!.id}/decision`, {
+        basedOn: cr!.impactVersion,
+        ...body,
+      });
     expect(
       (await decide("u-jonas", { decision: "freigegeben", reason: "Passt.", konsent: true })).statusCode,
     ).toBe(403);
@@ -736,6 +739,7 @@ describe("change requests", () => {
         decision: "freigegeben",
         reason: "Im Rahmen der Reserve.",
         konsent: true,
+        basedOn: cr!.impactVersion,
       });
     expect((await decide("u-thomas")).statusCode).toBe(403);
     // The PMO adds a second member of the Projektausschuss, who decides.
@@ -755,6 +759,7 @@ describe("change requests", () => {
       decision: "freigegeben",
       reason: "Im Rahmen der Reserve.",
       konsent: true,
+      basedOn: own.impactVersion,
     });
     const roles = (await register(server, "u-marco")).items[0]!.recheck!.roles;
     expect(roles.find((r) => r.role === "ISM")).toMatchObject({
@@ -792,6 +797,7 @@ describe("change requests", () => {
       decision: "freigegeben",
       reason: "Passt in den Rahmen.",
       konsent: true,
+      basedOn: cr!.impactVersion,
     });
     expect(decided.statusCode).toBe(200);
     expect((await kpo("u-marco")).items[0]!.recheck!.deliverables.map((d) => d.id)).toEqual([
@@ -854,6 +860,14 @@ describe("change requests", () => {
     expect((await submit(server, "u-nina", { proposalId })).statusCode).toBe(422);
   });
 
+  it("hands a proposal back when the submission fails", async () => {
+    server = await testServer();
+    const { proposalId } = await draftWith(server, "u-nina");
+    expect((await submit(server, "u-nina", { proposalId, effortDays: 0 })).statusCode).toBe(422);
+    expect((await submit(server, "u-nina", { proposalId })).statusCode).toBe(201);
+    expect((await register(server, "u-nina")).items[0]!.producer).toMatchObject({ kind: "ai", agent: "A10" });
+  });
+
   it("keeps the impact the Projektausschuss decided on, and opens a recheck it requires", async () => {
     server = await testServer();
     await submit(server, "u-nina");
@@ -862,14 +876,21 @@ describe("change requests", () => {
       flags: { ...NO_FLAGS, oberflaeche: true },
     });
     const [plain, data] = (await register(server, "u-thomas")).items;
-    const decide = (id: string, extra: object = {}) =>
+    const version = async (id: string) =>
+      (await register(server!, "u-thomas")).items.find((c) => c.id === id)!.impactVersion;
+    const decide = async (id: string, extra: object = {}) =>
       server!.as("u-thomas").post(`/api/projects/ERP/change-requests/${id}/decision`, {
         decision: "freigegeben",
         reason: "Im Rahmen der Reserve.",
         konsent: true,
+        basedOn: await version(id),
         ...extra,
       });
     expect((await decide(data!.id)).statusCode).toBe(200);
+    // Accepting the first request used reserve: a decision on the impact seen before is refused.
+    const stale = await decide(plain!.id, { recheckRequired: true, basedOn: plain!.impactVersion });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.message).toMatch(/Auswirkungen haben sich inzwischen geändert/);
     expect((await decide(plain!.id, { recheckRequired: true })).statusCode).toBe(200);
     const budget = (id: string, r: ChangeRequestRegisterView) =>
       r.items.find((c) => c.id === id)!.impact.find((x) => x.id === "budget")!.text;
@@ -1159,6 +1180,7 @@ describe("status reports", () => {
         criteria,
         overview: "Realisierung planmässig, Fachtest im nächsten Monat.",
         outlook: "Entscheid zu CR-02.",
+        basedOn: reg.suggestionVersion,
         ...extra,
       });
     const base = fromSuggestion(reg);
@@ -1177,6 +1199,20 @@ describe("status reports", () => {
     });
     expect(better.statusCode).toBe(422);
     expect(better.json().error.message).toMatch(/besser ist als vorgeschlagen \(Vorschlag Rot\)/);
+    // A problem text (perhaps the agent's) is no reason: the project lead's own field is.
+    const problemOnly = await publish("u-jonas", {
+      ...base,
+      risiken: {
+        ampel: "gruen",
+        problem: "Zwei Fachtester sind knapp.",
+        measure: "Testfenster reservieren.",
+      },
+    });
+    expect(problemOnly.statusCode).toBe(422);
+    // The suggestion changed since the form was opened.
+    const stale = await publish("u-jonas", base, { basedOn: "00000000" });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.message).toMatch(/Vorschlag hat sich inzwischen geändert/);
     expect((await publish("u-nina", base)).statusCode).toBe(403);
     expect((await publish("u-jonas", base, { proposalId })).statusCode).toBe(201);
 
@@ -1213,6 +1249,75 @@ describe("status reports", () => {
     expect(red.items.map((p: { code: string }) => p.code).sort()).toEqual(["CRM", "ERP"]);
   });
 
+  it("records whether the PL changed the agent's texts; the reason for a better colour is always the PL's", async () => {
+    server = await testServer();
+    const draftAndChoose = async () => {
+      const reg = await reports(server!, "u-jonas");
+      const p = (
+        await server!
+          .as("u-jonas")
+          .post("/api/projects/ERP/status-reports/draft", { criteria: fromSuggestion(reg, "") })
+      ).json() as StatusReportProposal;
+      const criteria = Object.fromEntries(
+        reg.suggestion.map((x) => [
+          x.id,
+          {
+            ampel: x.ampel,
+            problem: p.criteria[x.id]?.problem ?? "",
+            measure: p.criteria[x.id]?.measure ?? "",
+            deviationReason: "",
+          },
+        ]),
+      );
+      const publish = (changed: object) =>
+        server!.as("u-jonas").post("/api/projects/ERP/status-reports", {
+          criteria: { ...criteria, ...changed },
+          overview: p.overview,
+          outlook: p.outlook,
+          basedOn: reg.suggestionVersion,
+          proposalId: p.proposalId,
+        });
+      return publish;
+    };
+    // The agent's texts as they are.
+    expect((await (await draftAndChoose())({})).statusCode).toBe(201);
+    let latest = (await reports(server, "u-thomas")).items[0]!;
+    expect(latest.producer).toMatchObject({ kind: "ai", agent: "A2", edited: false });
+
+    // Risiken better than suggested: the agent's problem text goes, the PL's reason stays.
+    const publish = await draftAndChoose();
+    const reason = "Die Fachstelle hat die Testfenster zugesagt.";
+    expect(
+      (
+        await publish({
+          risiken: { ampel: "gelb", problem: "Engpass", measure: "Testfenster", deviationReason: "" },
+        })
+      ).statusCode,
+    ).toBe(422);
+    expect(
+      (await publish({ risiken: { ampel: "gruen", problem: "x", measure: "y", deviationReason: reason } }))
+        .statusCode,
+    ).toBe(201);
+    latest = (await reports(server, "u-thomas")).items[0]!;
+    expect(latest.producer).toMatchObject({ kind: "ai", edited: true });
+    expect(latest.criteria.find((c) => c.id === "risiken")).toMatchObject({
+      ampel: "gruen",
+      suggested: "rot",
+      problem: "",
+      measure: "",
+      deviationReason: reason,
+      reasons: expect.arrayContaining([
+        "R-02 «Engpass bei Fachtestern im Monatsabschluss»: hohes Risiko ohne Massnahme.",
+      ]),
+    });
+    const record = (
+      await server.as("u-jonas").get("/api/projects/ERP/events?category=status&limit=1")
+    ).json();
+    expect(record.items[0].text).toMatch(
+      /Besser als vorgeschlagen, mit Begründung: Risiken \(Vorschlag Rot\)\.$/,
+    );
+  });
+
   it("answers questions about the status report in the chat", async () => {
     server = await testServer();
     const ask = async (message: string) =>
@@ -1225,7 +1330,7 @@ describe("status reports", () => {
 });
 
 describe("what reaches the model and the logs (principle 3)", () => {
-  it("passes restricted results only for roles that may read them, and keeps content out of the logs", async () => {
+  it("keeps restricted results out of texts everyone reads, and content out of the logs", async () => {
     const CANARY = "KANARIENVOGEL-DSVOR";
     const seen: { userId: string; context: string }[] = [];
     const note = (ctx: { userId: string } | undefined, project: object) =>
@@ -1247,7 +1352,10 @@ describe("what reaches the model and the logs (principle 3)", () => {
           note(c, r.project);
           return mock.reviewRisks(r, c);
         },
-        draftStatusReport: (r, c) => mock.draftStatusReport(r, c),
+        draftStatusReport: (r, c) => {
+          note(c, r.project);
+          return mock.draftStatusReport(r, c);
+        },
       },
     });
     // A released Datenschutz-Vorabklärung: restricted, need-to-know.
@@ -1300,16 +1408,29 @@ describe("what reaches the model and the logs (principle 3)", () => {
       );
     }
     expect((await server.as("u-anna").post("/api/projects/KPO/risks/review")).statusCode).toBe(200);
+    const reg = (await server.as("u-anna").get("/api/projects/KPO/status-reports")).json();
+    const criteria = Object.fromEntries(
+      reg.suggestion.map((x: { id: string; ampel: string }) => [
+        x.id,
+        { ampel: x.ampel, problem: "", measure: "" },
+      ]),
+    );
+    expect(
+      (await server.as("u-anna").post("/api/projects/KPO/status-reports/draft", { criteria })).statusCode,
+    ).toBe(200);
 
-    const contextOf = (userId: string) => seen.filter((x) => x.userId === userId).map((x) => x.context);
-    // Fachvertretung has no need-to-know; Datenschutz and the project lead have.
-    expect(contextOf("u-nina").join()).not.toContain(CANARY);
-    expect(contextOf("u-sandra").join()).toContain(CANARY);
-    expect(contextOf("u-anna").join()).toContain(CANARY);
+    // Change requests, risks and status reports are read by every member: the restricted
+    // result reaches the model by name only, also when the requester (Datenschutz, the
+    // project lead) may read it.
+    expect(seen.map((x) => x.userId).sort()).toEqual(["u-anna", "u-anna", "u-nina", "u-sandra"]);
+    expect(seen.filter((x) => x.context.includes(CANARY))).toEqual([]);
+    // Who may read the result learns that it exists and is released; the others not even that.
+    const named = seen.filter((x) => x.context.includes(skill.outputDoc)).map((x) => x.userId);
+    expect(named.sort()).toEqual(["u-anna", "u-anna", "u-sandra"]);
 
     // The audit logs keep who, what and how much, never the content.
     const log = lines.join("\n");
-    expect(lines.filter((l) => l.includes('"type":"ai_run"'))).toHaveLength(3);
+    expect(lines.filter((l) => l.includes('"type":"ai_run"'))).toHaveLength(4);
     expect(log).not.toContain(CANARY);
     expect(log).not.toContain("WUNSCH-TEXT");
     expect(log).not.toContain("Inkasso");

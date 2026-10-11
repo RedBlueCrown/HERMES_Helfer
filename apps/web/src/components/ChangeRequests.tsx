@@ -692,6 +692,8 @@ function DecisionSection({ code, cr }: { code: string; cr: ChangeRequestView }) 
       konsent: v.konsent,
       conditions: v.conditions,
       recheckRequired,
+      // The impact this drawer showed; the server refuses when it changed meanwhile.
+      basedOn: cr.impactVersion,
     }),
   );
   const decideCheck = cr.canDecide;

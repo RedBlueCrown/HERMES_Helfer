@@ -6,7 +6,7 @@ import { PROJECT_ROLE_LABELS } from "../model/roles";
 import { crLabel, formatChf } from "./change-requests";
 import { findChecklist } from "./permissions";
 import { riskLabel } from "./risks";
-import { ampelLabel, nonGreenSummary, reportOverall, reportTitle } from "./status-report";
+import { ampelLabel, deviatingCriteria, nonGreenSummary, reportOverall, reportTitle } from "./status-report";
 import type { StoredEvent } from "./events";
 import type { ProjectState } from "./state";
 
@@ -163,7 +163,10 @@ export function describeEvent(e: StoredEvent, model: HermesModel, refs: EventRef
       return `Reserve für Change Requests: ${formatChf(e.data.amountChf)}.`;
     case "StatusReportPublished": {
       const others = nonGreenSummary(e.data.criteria);
-      return `${reportTitle(e.data.number)} veröffentlicht: Gesamtstatus ${ampelLabel(reportOverall(e.data))}${others ? ` (${others})` : ""}${byAgent(e.data.producer, "; Texte mit dem Agenten entworfen")}.`;
+      const better = deviatingCriteria(e.data)
+        .map((c) => `${c.label} (Vorschlag ${ampelLabel(e.data.criteria[c.id].suggested)})`)
+        .join(", ");
+      return `${reportTitle(e.data.number)} veröffentlicht: Gesamtstatus ${ampelLabel(reportOverall(e.data))}${others ? ` (${others})` : ""}${byAgent(e.data.producer, "; Texte mit dem Agenten entworfen")}.${better ? ` Besser als vorgeschlagen, mit Begründung: ${better}.` : ""}`;
     }
     case "StatusReportAcknowledged": {
       const n = refs.reportNumbers?.get(e.data.reportId);

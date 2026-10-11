@@ -18,7 +18,9 @@ import {
   suggestStatus,
   gateStatus,
   openParticipation,
+  reportEntry,
   rolesOf,
+  skillReaders,
   type Actor,
   type ConditionSpec,
   type CrFlags,
@@ -148,7 +150,12 @@ class Seeder {
       agent,
       skill,
       deliverables: model.deliverablesOfSkill(skillId),
-      project: projectContext(s, model, { userId: by.id, displayName: by.displayName, globalRoles: [] }),
+      project: projectContext(
+        s,
+        model,
+        { userId: by.id, displayName: by.displayName, globalRoles: [] },
+        skillReaders(model, skill),
+      ),
     });
     await this.append(
       projectId,
@@ -377,6 +384,8 @@ class Seeder {
     r: {
       colours?: Partial<Record<StatusCriterion, Ampel>>;
       texts?: Partial<Record<StatusCriterion, { problem: string; measure: string }>>;
+      /** The project lead's reason where a colour is better than suggested. */
+      deviationReasons?: Partial<Record<StatusCriterion, string>>;
       overview: string;
       outlook: string;
     },
@@ -388,13 +397,15 @@ class Seeder {
       STATUS_CRITERIA.map((c) => {
         const ampel = r.colours?.[c.id] ?? suggestion[c.id].ampel;
         const text = r.texts?.[c.id];
-        const entry: StatusEntry = {
-          ampel,
-          suggested: suggestion[c.id].ampel,
-          problem: ampel === "gruen" ? "" : (text?.problem ?? suggestion[c.id].reasons.join(" ")),
-          measure:
-            ampel === "gruen" ? "" : (text?.measure ?? "Massnahme mit dem Projektausschuss abgestimmt."),
-        };
+        const entry: StatusEntry = reportEntry(
+          {
+            ampel,
+            problem: text?.problem ?? suggestion[c.id].reasons.join(" "),
+            measure: text?.measure ?? "Massnahme mit dem Projektausschuss abgestimmt.",
+            deviationReason: r.deviationReasons?.[c.id] ?? "Einschätzung der Projektleitung (Demodaten).",
+          },
+          suggestion[c.id],
+        );
         return [c.id, entry];
       }),
     ) as Record<StatusCriterion, StatusEntry>;
@@ -654,6 +665,10 @@ export async function seedDemo(repo: ProjectRepository, now = new Date()): Promi
   const erpReport = await seed.statusReport(erp, jonas, {
     // The engine suggests red for the high risk without a measure; the PL reports yellow, with the measure.
     colours: { risiken: "gelb" },
+    deviationReasons: {
+      risiken:
+        "Die Fachstelle hat die Testfenster zugesagt; die Massnahme ist eingeleitet und wird beobachtet.",
+    },
     texts: {
       ziele: {
         problem: "Der Export für die Revision (CR-02) ist noch nicht entschieden; der Umfang kann wachsen.",
