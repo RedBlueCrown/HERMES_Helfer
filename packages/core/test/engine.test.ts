@@ -22,6 +22,7 @@ import {
   projectView,
   skillStatus,
   validateDecision,
+  type Viewer,
 } from "../src";
 import { PROFILE, Stream, completeMandatory, viewer } from "./helpers";
 
@@ -350,9 +351,21 @@ describe("tasks and next step", () => {
     });
   });
 
-  it("asks the PL to fill decision roles that nobody holds", () => {
-    const st = new Stream("init").member("anna", "PL");
-    expect(myTasks(st.state(), MODEL, viewer("anna"))).toContainEqual({ kind: "assign-role", role: "ISM" });
+  it("asks the PL to fill the team roles that decide, and the PMO the control roles", () => {
+    const st = new Stream("konzept").member("anna", "PL");
+    const roleTasks = (v: Viewer) => myTasks(st.state(), MODEL, v).filter((t) => t.kind === "assign-role");
+    expect(roleTasks(viewer("anna"))).toEqual([{ kind: "assign-role", role: "ARCH" }]);
+    expect(roleTasks(viewer("peter", "HH.PMO"))).toEqual([
+      { kind: "assign-role", role: "PA" },
+      { kind: "assign-role", role: "ISM" },
+    ]);
+    const task = projectView(st.state(), MODEL, viewer("peter", "HH.PMO")).myTasks.find(
+      (t) => t.kind === "assign-role" && t.role === "ISM",
+    );
+    expect(task).toMatchObject({
+      title: "Rolle besetzen: Informationssicherheit (ISM)",
+      detail: "Es wartet: «ISDS-Konzept» (Veto). Niemand im Vorhaben hat diese Rolle.",
+    });
   });
 
   it("reports the gate as next step once everything is done", () => {

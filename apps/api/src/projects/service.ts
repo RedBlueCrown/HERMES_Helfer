@@ -69,7 +69,9 @@ import {
   type DraftContent,
   type Level,
   type PhaseId,
-  type Producer,
+  type AgentRiskBasis,
+  type ReassessmentProposal,
+  type RiskProposal,
   type ProjectEvent,
   type ProjectProfile,
   type ProjectRole,
@@ -86,6 +88,7 @@ import {
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
 import type { ChangeRequestProposalContent } from "../agents/change-request-agent";
+import type { RiskReviewContent } from "../agents/risk-agent";
 import {
   checkChangeRequest,
   checkClearedFlags,
@@ -137,6 +140,12 @@ export interface ChangeRequestInput {
   proposal?: StoredProposal<ChangeRequestProposalContent>;
 }
 
+/** An item of a risk review the project lead accepts, with the review it belongs to (proposals.ts). */
+export interface AcceptedRiskItem<T> {
+  proposal: StoredProposal<RiskReviewContent>;
+  item: T;
+}
+
 export interface RiskInput {
   title: string;
   description: string;
@@ -144,8 +153,8 @@ export interface RiskInput {
   impact: Level;
   ownerRole: ProjectRole;
   mitigation: string;
-  /** "ai" when the PL accepts a proposal of the Risiko agent. */
-  producer: Producer;
+  /** A new risk the Risiko agent proposed. */
+  accepted?: AcceptedRiskItem<RiskProposal>;
 }
 
 export interface RiskAssessmentInput {
@@ -157,8 +166,19 @@ export interface RiskAssessmentInput {
   ownerRole: ProjectRole;
   mitigation: string;
   note: string;
-  producer: Producer;
+  /** A new assessment the Risiko agent proposed. */
+  accepted?: AcceptedRiskItem<ReassessmentProposal>;
 }
+
+/** The agent's reason for an accepted item and the fact it rested on, for the record. */
+const agentBasis = (
+  review: RiskReviewContent,
+  item: { reason: string; trigger: string },
+): AgentRiskBasis => ({
+  reason: item.reason.trim(),
+  trigger: item.trigger,
+  fact: review.triggers.find((t) => t.id === item.trigger)?.text ?? "",
+});
 
 export interface StatusReportInput {
   criteria: Record<StatusCriterion, StatusEntryInput>;
@@ -607,21 +627,42 @@ export class ProjectService {
       assertCheck(checkRecordRisk(s, this.model, ctx.viewer));
       const invalid = validateRisk(input);
       if (invalid) throw unprocessable(invalid);
+      const a = input.accepted;
       // Accepting a proposal of the Risiko agent is the PL's decision (architecture §5).
-      if (input.producer.kind === "ai") assertCheck(checkReviewRisks(s, this.model, ctx.viewer));
+      if (a) assertCheck(checkReviewRisks(s, this.model, ctx.viewer));
+      const values = [
+        input.title.trim(),
+        input.description.trim(),
+        input.probability,
+        input.impact,
+        input.ownerRole,
+        input.mitigation.trim(),
+      ] as const;
+      const [title, description, probability, impact, ownerRole, mitigation] = values;
+      const proposed = (p: RiskProposal) => [
+        p.title.trim(),
+        p.description.trim(),
+        p.probability,
+        p.impact,
+        p.ownerRole,
+        p.mitigation.trim(),
+      ];
       return [
         {
           type: "RiskRecorded",
           data: {
             riskId: this.newId(),
             number: nextRiskNumber(s),
-            title: input.title.trim(),
-            description: input.description.trim(),
-            probability: input.probability,
-            impact: input.impact,
-            ownerRole: input.ownerRole,
-            mitigation: input.mitigation.trim(),
-            producer: input.producer,
+            title,
+            description,
+            probability,
+            impact,
+            ownerRole,
+            mitigation,
+            producer: a
+              ? acceptedProducer(a.proposal, !sameContent(proposed(a.item), values))
+              : { kind: "human" },
+            ...(a ? { agentBasis: agentBasis(a.proposal.content, a.item) } : {}),
           },
         },
       ];
@@ -632,10 +673,20 @@ export class ProjectService {
   assessRisk(code: string, ctx: RequestContext, riskId: string, input: RiskAssessmentInput) {
     return this.command(code, ctx, (s) => {
       assertCheck(checkAssessRisk(s, this.model, ctx.viewer, riskId));
-      if (input.producer.kind === "ai") assertCheck(checkReviewRisks(s, this.model, ctx.viewer));
+      const a = input.accepted;
+      if (a) {
+        assertCheck(checkReviewRisks(s, this.model, ctx.viewer));
+        // The agent proposed values for the risk as it was; status and responsibility stay.
+        if (input.status !== a.item.current.status || input.ownerRole !== a.item.current.ownerRole) {
+          throw unprocessable(
+            "Beim Übernehmen eines Vorschlags bleiben Status und Verantwortung. Ändere sie danach in einer eigenen Beurteilung.",
+          );
+        }
+      }
       const r = s.risks[riskId]!;
-      // Optimistic concurrency: an assessment always names the version it was based on.
-      if (r.history.length !== input.basedOn) {
+      // Optimistic concurrency: an assessment always names the version it was based on, and an
+      // accepted proposal the version the agent saw.
+      if (r.history.length !== input.basedOn || (a && a.item.current.version !== input.basedOn)) {
         throw new HttpError(
           409,
           "stale",
@@ -649,10 +700,16 @@ export class ProjectService {
           "Das Risiko ist geschlossen. Zum Ändern zuerst wieder öffnen.",
         );
       }
-      const invalid = validateRiskAssessment(r, input);
+      // The agent's reason is kept as its own (agentBasis), not as the person's note.
+      const note = a ? "" : input.note.trim();
+      const invalid = validateRiskAssessment(r, { ...input, note });
       if (invalid) throw unprocessable(invalid);
-      const note = input.note.trim();
       const mitigation = input.mitigation.trim();
+      const edited = (p: ReassessmentProposal) =>
+        !sameContent(
+          [p.probability, p.impact, (p.mitigation || p.current.mitigation).trim()],
+          [input.probability, input.impact, mitigation],
+        );
       return [
         {
           type: "RiskAssessed",
@@ -664,7 +721,8 @@ export class ProjectService {
             ownerRole: input.ownerRole,
             mitigation,
             note,
-            producer: input.producer,
+            producer: a ? acceptedProducer(a.proposal, edited(a.item)) : { kind: "human" },
+            ...(a ? { agentBasis: agentBasis(a.proposal.content, a.item) } : {}),
           },
         },
       ];

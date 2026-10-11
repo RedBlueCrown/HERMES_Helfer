@@ -12,11 +12,12 @@ import { exportJWK, generateKeyPair, SignJWT, createLocalJWKSet } from "jose";
 import { describe, expect, it } from "vitest";
 import { AzureOpenAiProvider } from "../src/agents/azure-openai-provider";
 import { checkDraftStructure } from "../src/agents/kritiker";
-import { cut, fitSections } from "../src/agents/output";
-import { AiQuota } from "../src/agents/quota";
-import { CONFIDENTIAL_SUMMARY, projectContext } from "../src/agents/runner";
+import { SECTION_MAX, cut, fitSections } from "../src/agents/output";
+import { AiQuota, type QuotaOptions } from "../src/agents/quota";
+import { CONFIDENTIAL_SUMMARY, agentFailure, projectContext } from "../src/agents/runner";
 import { AiProviderError } from "../src/agents/provider";
 import { ProposalStore } from "../src/agents/proposals";
+import { reviewGrounds } from "../src/agents/risk-agent";
 import { createEntraAuthenticator } from "../src/auth";
 import { loadConfig } from "../src/config";
 import { HttpError } from "../src/errors";
@@ -286,6 +287,26 @@ describe("agent output that does not fit (review F7)", () => {
     );
   });
 
+  it("cuts a section joined from several parts to the length the API accepts", () => {
+    const long = "x".repeat(SECTION_MAX - 10);
+    const { draft, findings } = fitSections(
+      {
+        summary: "S",
+        sections: [
+          { heading: "Gewünschte Änderung", body: long },
+          { heading: "Gewünschte Änderung", body: long },
+        ],
+        openPoints: [],
+      },
+      CR_SECTIONS,
+    );
+    expect(draft.sections[1]!.body).toHaveLength(SECTION_MAX);
+    expect(draft.sections[1]!.body.endsWith("…")).toBe(true);
+    expect(findings.map((f) => f.text)).toEqual([
+      "Der Abschnitt «Gewünschte Änderung» war zu lang und wurde gekürzt; bitte das Ende prüfen.",
+    ]);
+  });
+
   it("names empty headings and merges repeated ones when there is no template", () => {
     const { draft } = fitSections(
       {
@@ -302,6 +323,58 @@ describe("agent output that does not fit (review F7)", () => {
     expect(draft.sections).toEqual([
       { heading: "Ziel", body: "A\n\nC" },
       { heading: "Abschnitt 2", body: "B" },
+    ]);
+  });
+});
+
+describe("an agent request that fails", () => {
+  it("is no error when the person closed it, and says what to do otherwise", () => {
+    const logged: string[] = [];
+    const log = {
+      info: (_: object, msg?: string) => void logged.push(`info ${msg}`),
+      warn: (_: object, msg?: string) => void logged.push(`warn ${msg}`),
+      error: (_: object, msg?: string) => void logged.push(`error ${msg}`),
+    };
+    const closed = agentFailure(
+      log,
+      new AiProviderError("aborted", "closed"),
+      {},
+      "risk review",
+      "Selbst erfassen.",
+    );
+    expect(closed).toMatchObject({ status: 499, code: "aborted" });
+    const busy = agentFailure(
+      log,
+      new AiProviderError("busy", "busy"),
+      {},
+      "risk review",
+      "Selbst erfassen.",
+    );
+    expect(busy).toMatchObject({ status: 503, code: "ai_unavailable" });
+    expect(busy.message).toMatch(/ausgelastet.*\. Selbst erfassen\.$/);
+    expect(logged).toEqual(["info risk review: closed by the person", "error risk review failed"]);
+  });
+});
+
+describe("what a risk proposal may rest on (review F8)", () => {
+  it("names the engine's facts, and released results only when the agent sees their content", () => {
+    const fact = { id: "profil:lieferant", text: "Ein externer Lieferant ist beteiligt." };
+    const context = (summaries: string[]) => ({
+      code: "KPO",
+      name: "Kundenportal",
+      description: "",
+      phase: "init" as const,
+      phaseLabel: "Initialisierung",
+      profile: DEFAULT_PROFILE,
+      releasedResults: summaries.map((summary, i) => ({ name: `Ergebnis ${i + 1}`, summary })),
+      openRisks: [],
+    });
+    expect(reviewGrounds([fact], context([]))).toEqual([fact]);
+    // Known by name only: nothing to rest a proposal on.
+    expect(reviewGrounds([fact], context([CONFIDENTIAL_SUMMARY]))).toEqual([fact]);
+    expect(reviewGrounds([fact], context([CONFIDENTIAL_SUMMARY, "Kurzfassung."]))).toEqual([
+      fact,
+      { id: "ergebnisse", text: "Freigegebene Ergebnisse: «Ergebnis 2»." },
     ]);
   });
 });
@@ -335,6 +408,14 @@ describe("shared model quota (review F9)", () => {
     });
     return { promise, resolve };
   };
+  const limits = (o: Partial<QuotaOptions>): QuotaOptions => ({
+    maxConcurrent: 8,
+    maxConcurrentPerUser: 8,
+    waitMs: 0,
+    backgroundWaitMs: 0,
+    dailyTokensPerUser: 0,
+    ...o,
+  });
   const reasonOf = (p: Promise<unknown>) =>
     p.then(
       () => "ok",
@@ -342,7 +423,7 @@ describe("shared model quota (review F9)", () => {
     );
 
   it("runs at most the configured calls at a time; the next waits, then is refused as busy", async () => {
-    const quota = new AiQuota({ maxConcurrent: 1, waitMs: 50, dailyTokensPerUser: 0 });
+    const quota = new AiQuota(limits({ maxConcurrent: 1, waitMs: 50 }));
     const first = deferred();
     const running = quota.run({ userId: "a" }, () => first.promise);
     let secondStarted = false;
@@ -368,7 +449,7 @@ describe("shared model quota (review F9)", () => {
   });
 
   it("stops waiting when the person closes the request", async () => {
-    const quota = new AiQuota({ maxConcurrent: 1, waitMs: 5_000, dailyTokensPerUser: 0 });
+    const quota = new AiQuota(limits({ maxConcurrent: 1, waitMs: 5_000 }));
     const hold = deferred();
     const holding = quota.run({ userId: "a" }, () => hold.promise);
     const controller = new AbortController();
@@ -385,7 +466,7 @@ describe("shared model quota (review F9)", () => {
 
   it("charges the tokens to the person and refuses more once the daily budget is used up", async () => {
     let now = Date.UTC(2026, 9, 11, 22, 0);
-    const quota = new AiQuota({ maxConcurrent: 2, waitMs: 0, dailyTokensPerUser: 1000, now: () => now });
+    const quota = new AiQuota(limits({ maxConcurrent: 2, dailyTokensPerUser: 1000, now: () => now }));
     const spend = (userId: string, tokens: number) =>
       quota.run({ userId }, async () => ({ usage: { inputTokens: tokens / 2, outputTokens: tokens / 2 } }));
     await spend("a", 600);
@@ -397,6 +478,49 @@ describe("shared model quota (review F9)", () => {
     now += 3 * 3600_000;
     expect(await reasonOf(spend("a", 10))).toBe("ok");
     expect(quota.usedToday("a")).toBe(10);
+    // A call that failed after the model answered (cut off, not matching the schema) counts too.
+    const failed = new AiProviderError("invalid_output", "cut off", { inputTokens: 300, outputTokens: 700 });
+    expect(await reasonOf(quota.run({ userId: "a" }, () => Promise.reject(failed)))).toBe("invalid_output");
+    expect(quota.usedToday("a")).toBe(1010);
+  });
+
+  it("keeps slots for others: one person runs only a few calls at a time", async () => {
+    const quota = new AiQuota(limits({ maxConcurrent: 3, maxConcurrentPerUser: 2, waitMs: 5_000 }));
+    const holds = [deferred(), deferred()];
+    const running = holds.map((h) => quota.run({ userId: "a" }, () => h.promise));
+    // Anna's third call waits although a slot is free; Bruno's call takes that slot at once.
+    let third = false;
+    const waiting = quota.run({ userId: "a" }, async () => {
+      third = true;
+      return {};
+    });
+    expect(await reasonOf(quota.run({ userId: "b" }, async () => ({})))).toBe("ok");
+    expect(third).toBe(false);
+    // When one of Anna's calls ends, her waiting call goes first.
+    holds[0]!.resolve({ inputTokens: 0, outputTokens: 0 });
+    await waiting;
+    expect(third).toBe(true);
+    holds[1]!.resolve({ inputTokens: 0, outputTokens: 0 });
+    await Promise.all(running);
+
+    // Without a free slot of her own, Anna hears why.
+    const short = new AiQuota(limits({ maxConcurrent: 3, maxConcurrentPerUser: 1, waitMs: 20 }));
+    const hold = deferred();
+    const holding = short.run({ userId: "a" }, () => hold.promise);
+    expect(await reasonOf(short.run({ userId: "a" }, async () => ({})))).toBe("own_limit");
+    hold.resolve({ inputTokens: 0, outputTokens: 0 });
+    await holding;
+  });
+
+  it("lets a draft in the background wait longer for a slot than a request", async () => {
+    const quota = new AiQuota(limits({ maxConcurrent: 1, waitMs: 10, backgroundWaitMs: 5_000 }));
+    const hold = deferred();
+    const holding = quota.run({ userId: "a" }, () => hold.promise);
+    const background = reasonOf(quota.run({ userId: "b", background: true }, async () => ({})));
+    expect(await reasonOf(quota.run({ userId: "c" }, async () => ({})))).toBe("busy");
+    hold.resolve({ inputTokens: 0, outputTokens: 0 });
+    await holding;
+    expect(await background).toBe("ok");
   });
 });
 
@@ -581,7 +705,7 @@ describe("Azure OpenAI provider (against a fake API)", () => {
       { id: "profil:lieferant", hinweis: "Ein externer Lieferant ist beteiligt." },
     ]);
     // Every proposal names one of the supplied facts.
-    expect(item.properties.trigger.enum).toEqual(["profil:lieferant", "profil", "ergebnisse"]);
+    expect(item.properties.trigger.enum).toEqual(["profil:lieferant"]);
   });
 
   it("drafts status report texts as structured output and never asks for the colours", async () => {

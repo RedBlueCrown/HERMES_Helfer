@@ -155,7 +155,7 @@ describe("suggested traffic light", () => {
       ],
     });
     expect(sug.personal.ampel).toBe("gelb");
-    expect(sug.personal.reasons[0]).toMatch(/^Unbesetzt: /);
+    expect(sug.personal.reasons[0]).toMatch(/^Für offene Entscheide fehlt: .*\(«/);
     expect(sug.ziele.ampel).toBe("gelb");
     expect(sug.risiken).toEqual({
       ampel: "rot",

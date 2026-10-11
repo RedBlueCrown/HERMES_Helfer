@@ -31,7 +31,7 @@ import {
   type ToolSpec,
   type Usage,
 } from "./provider";
-import { clampedList, clampedText } from "./output";
+import { SECTION_MAX, clampedList, clampedText } from "./output";
 import {
   changeRequestSystemPrompt,
   changeRequestUserPrompt,
@@ -106,7 +106,7 @@ const LEVEL_SCHEMA = { type: "string", enum: [...RISK_LEVELS] } as const;
 
 /** The trigger of each proposal must be one of the supplied ids (the agent's grounding). */
 const riskReviewSchema = (triggers: readonly string[]) => {
-  const trigger = { type: "string", enum: [...triggers, "profil", "ergebnisse"] };
+  const trigger = { type: "string", enum: [...triggers] };
   return {
     type: "object",
     additionalProperties: false,
@@ -204,7 +204,7 @@ const CRITIQUE_SCHEMA = {
 // the agent proposes can be submitted as it is.
 const DraftOut = z.object({
   summary: clampedText(4000),
-  sections: clampedList(z.object({ heading: clampedText(200), body: clampedText(30_000) }), 40),
+  sections: clampedList(z.object({ heading: clampedText(200), body: clampedText(SECTION_MAX) }), 40),
   openPoints: clampedList(clampedText(500), 50),
 });
 const FlagOut = z.object({ value: z.boolean(), reason: clampedText(500) });
@@ -354,14 +354,15 @@ export class AzureOpenAiProvider implements AiProvider {
     const parsed = ApiResponse.safeParse(await res.json());
     if (!parsed.success) throw new AiProviderError("invalid_output", "Unexpected Azure OpenAI response");
     const choice = parsed.data.choices[0]!;
-    if (choice.finish_reason === "content_filter")
-      throw new AiProviderError("blocked", "Azure OpenAI content filter");
-    if (choice.finish_reason === "length") {
-      throw new AiProviderError("invalid_output", "Answer cut off at max_completion_tokens");
-    }
+    // The tokens count also when the answer is of no use (review F9).
     const usage: Usage | undefined = parsed.data.usage
       ? { inputTokens: parsed.data.usage.prompt_tokens, outputTokens: parsed.data.usage.completion_tokens }
       : undefined;
+    if (choice.finish_reason === "content_filter")
+      throw new AiProviderError("blocked", "Azure OpenAI content filter", usage);
+    if (choice.finish_reason === "length") {
+      throw new AiProviderError("invalid_output", "Answer cut off at max_completion_tokens", usage);
+    }
     return { message: choice.message, usage };
   }
 
@@ -389,10 +390,12 @@ export class AzureOpenAiProvider implements AiProvider {
     try {
       json = JSON.parse(message.content ?? "");
     } catch {
-      throw new AiProviderError("invalid_output", "Model output is not JSON");
+      throw new AiProviderError("invalid_output", "Model output is not JSON", usage);
     }
     const value = out.safeParse(json);
-    if (!value.success) throw new AiProviderError("invalid_output", "Model output does not match the schema");
+    if (!value.success) {
+      throw new AiProviderError("invalid_output", "Model output does not match the schema", usage);
+    }
     return { value: value.data, ...(usage ? { usage } : {}) };
   }
 

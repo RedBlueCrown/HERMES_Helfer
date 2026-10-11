@@ -19,7 +19,7 @@ export interface ProposedRisk {
   mitigation: string;
   /** Why: the fact from the project behind it. */
   reason: string;
-  /** The id of the trigger the proposal rests on, or "profil" / "ergebnisse". */
+  /** The id of the fact the proposal rests on (a trigger, or "ergebnisse" for released results). */
   trigger: string;
 }
 
@@ -31,7 +31,7 @@ export interface ProposedReassessment {
   /** A new or sharper measure; empty keeps the current one. */
   mitigation: string;
   reason: string;
-  /** The id of the trigger the proposal rests on, or "profil" / "ergebnisse". */
+  /** The id of the fact the proposal rests on (a trigger, or "ergebnisse" for released results). */
   trigger: string;
 }
 

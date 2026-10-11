@@ -24,8 +24,9 @@ const DAY = 24 * 60 * 60 * 1000;
 /** Time of the stream's last event, plus some days. */
 const after = (st: Stream, days: number) => new Date(Date.parse(st.events.at(-1)!.at) + days * DAY);
 
-/** A project in which every role is held, so no role is missing. */
-const staffed = (phase: PhaseId) => new Stream(phase).member("anna", ...PROJECT_ROLES);
+/** A project in which every role is held by someone who may decide, so no role is missing. */
+const staffed = (phase: PhaseId) =>
+  new Stream(phase).member("anna", "PL").member("rest", ...PROJECT_ROLES.filter((r) => r !== "PL"));
 
 const skillAuflage = (st: Stream, due: string, id = "c1", skillId = "init.datenklassifizierung") =>
   st.add({
@@ -116,7 +117,9 @@ describe("due dates of Auflagen", () => {
     const v = projectView(st.state(), MODEL, viewer("anna"), after(st, 8));
     expect(v.conditions[0]).toMatchObject({ due: "1 Woche", overdue: true });
     expect(v.conditions[0]?.dueAt).toBeDefined();
-    expect(v.myTasks.find((t) => t.kind === "condition")?.detail).toBe("Frist: 1 Woche · überfällig");
+    // The Auflage is ISM's: their task shows the due date.
+    const ism = projectView(st.state(), MODEL, viewer("rest"), after(st, 8));
+    expect(ism.myTasks.find((t) => t.kind === "condition")?.detail).toBe("Frist: 1 Woche · überfällig");
     expect(projectView(st.state(), MODEL, viewer("anna"), after(st, 1)).conditions[0]?.overdue).toBe(false);
   });
 });
@@ -174,7 +177,7 @@ describe("project summary and signals", () => {
     expect(Object.values(s.conditions).filter((c) => isConditionOverdue(s, MODEL, c, now))).toHaveLength(1);
   });
 
-  it("flags projects without activity, but not finished ones", () => {
+  it("flags projects without activity, but not finished ones, except for Auflagen still owed", () => {
     const st = staffed("init");
     const p = projectSummary(st.state(), MODEL);
     expect(projectSignals(p, after(st, INACTIVE_AFTER_DAYS - 1))).toEqual([]);
@@ -188,6 +191,17 @@ describe("project summary and signals", () => {
     const f = projectSummary(done.state(), MODEL);
     expect(f.finished).toBe(true);
     expect(projectSignals(f, after(done, 400))).toEqual([]);
+
+    // An Auflage of the closing decision is still owed after the last gate; «bis zum nächsten Gate» has no gate left.
+    const owed = gateDecision(staffed("skal"), "skal", "mit Auflagen", [
+      { id: "week", text: "Restmängel beheben", ownerRole: "BC", due: "1 Woche" },
+      { id: "gate", text: "Lessons learned", ownerRole: "PL", due: "bis zum nächsten Gate" },
+    ]);
+    const o = projectSummary(owed.state(), MODEL);
+    expect(o.finished).toBe(true);
+    expect(projectSignals(o, after(owed, 6))).toEqual([]);
+    expect(projectSignals(o, after(owed, 8))).toEqual(["auflagen-ueberfaellig"]);
+    expect(overdueConditions(o, after(owed, 400))).toBe(1);
     expect(projectListItem(done.state(), MODEL, viewer("anna"), after(done, 0)).gateStatusLabel).toBe(
       "Abgeschlossen",
     );

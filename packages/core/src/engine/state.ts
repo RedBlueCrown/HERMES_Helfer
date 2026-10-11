@@ -17,6 +17,7 @@ import type { Level, PhaseId, ProjectProfile, ProjectRole } from "../model/types
 import type {
   Actor,
   AgentAssessment,
+  AgentRiskBasis,
   ConditionSpec,
   Decision,
   DraftContent,
@@ -139,6 +140,8 @@ export interface RiskValues {
 export interface RiskAssessmentRecord extends RiskValues {
   note: string;
   producer: Producer;
+  /** For a proposal of the Risiko agent: its reason and the fact behind it. */
+  agentBasis?: AgentRiskBasis;
   at: string;
   by: ActorRef;
 }
@@ -500,7 +503,16 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
         recordedAt: e.at,
         recordedBy: ref(e.actor),
         ...values,
-        history: [{ ...values, note: "", producer: e.data.producer, at: e.at, by: ref(e.actor) }],
+        history: [
+          {
+            ...values,
+            note: "",
+            producer: e.data.producer,
+            ...(e.data.agentBasis ? { agentBasis: e.data.agentBasis } : {}),
+            at: e.at,
+            by: ref(e.actor),
+          },
+        ],
       };
       return;
     }
@@ -515,7 +527,14 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
         mitigation: e.data.mitigation,
       };
       Object.assign(r, values);
-      r.history.push({ ...values, note: e.data.note, producer: e.data.producer, at: e.at, by: ref(e.actor) });
+      r.history.push({
+        ...values,
+        note: e.data.note,
+        producer: e.data.producer,
+        ...(e.data.agentBasis ? { agentBasis: e.data.agentBasis } : {}),
+        at: e.at,
+        by: ref(e.actor),
+      });
       return;
     }
     default: {

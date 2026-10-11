@@ -97,6 +97,15 @@ export interface AgentAssessment {
   findings: Finding[];
 }
 
+/** Why the Risiko agent proposed a risk or an assessment, kept with the record (review F3). */
+export interface AgentRiskBasis {
+  /** The agent's reason, one sentence. */
+  reason: string;
+  /** The id of the fact it rested on, and the fact as the engine named it. */
+  trigger: string;
+  fact: string;
+}
+
 export type ProjectEvent =
   | {
       type: "ProjectCreated";
@@ -217,6 +226,8 @@ export type ProjectEvent =
         mitigation: string;
         /** "ai": proposed by the Risiko agent, reviewed and accepted by a person. */
         producer: Producer;
+        /** For a proposal of the Risiko agent: its reason and the fact behind it. */
+        agentBasis?: AgentRiskBasis;
       };
     }
   | {
@@ -253,6 +264,8 @@ export type ProjectEvent =
         note: string;
         /** "ai": proposed by the Risiko agent, accepted by a person. */
         producer: Producer;
+        /** For a proposal of the Risiko agent: its reason and the fact behind it. */
+        agentBasis?: AgentRiskBasis;
       };
     };
 

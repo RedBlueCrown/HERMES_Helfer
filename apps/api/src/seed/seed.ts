@@ -310,7 +310,7 @@ class Seeder {
     );
   }
 
-  /** A risk; `ai`: proposed by the Risiko agent (offline variant) and accepted by the PL. */
+  /** A risk; `ai`: proposed by the Risiko agent (offline variant) on this fact, and accepted by the PL. */
   async risk(
     projectId: string,
     by: Person,
@@ -321,7 +321,7 @@ class Seeder {
       impact: Level;
       ownerRole: ProjectRole;
       mitigation?: string;
-      ai?: boolean;
+      ai?: { trigger: string; fact: string };
     },
   ): Promise<string> {
     const s = (await this.repo.get(projectId))!;
@@ -343,6 +343,9 @@ class Seeder {
             producer: r.ai
               ? { kind: "ai", agent: "A12", provider: "mock", model: "mock (ohne KI-Modell)" }
               : { kind: "human" },
+            ...(r.ai
+              ? { agentBasis: { reason: "Typisches Risiko zu diesem Hinweis aus dem Vorhaben.", ...r.ai } }
+              : {}),
           },
         },
       ],
@@ -636,7 +639,7 @@ export async function seedDemo(repo: ProjectRepository, now = new Date()): Promi
     ownerRole: "PL",
     mitigation:
       "Liefertermin im Wartungsvertrag festhalten und einen Eskalationskontakt beim Hersteller bestimmen.",
-    ai: true,
+    ai: { trigger: "profil:lieferant", fact: "Ein externer Lieferant ist beteiligt." },
   });
   await seed.assessRisk(erp, vendor, jonas, { status: "in Bearbeitung" }, "Eskalationskontakt bestimmt.");
   await seed.risk(erp, nina, {

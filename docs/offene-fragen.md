@@ -384,7 +384,7 @@ Heute gelten diese Signale:
 | Auflagen überfällig | Eine Auflage ist nach ihrer Frist noch offen. | hoch |
 | Neuprüfung offen | Ein angenommener Change Request betrifft Personendaten; SchuBAn, ISDS und DSFA werden neu geprüft, das Gate bleibt bis dahin zu. | mittel |
 | Gate zurückgewiesen | Der letzte Gate-Entscheid der aktuellen Phase lautet «zurückgewiesen». | mittel |
-| Rollen unbesetzt | Eine Rolle, die in der aktuellen Phase entscheidet, hat im Vorhaben niemand. | mittel |
+| Rollen fehlen | Ein Entscheid der aktuellen Phase wartet auf eine Rolle, und niemand im Vorhaben darf ihn treffen: Niemand hat die Rolle, oder wer sie hat, darf hier nicht entscheiden (Funktionentrennung, Vier-Augen-Prinzip). | mittel |
 | Hohe Risiken | Mindestens ein offenes Risiko mit Eintritt mal Auswirkung 6 oder mehr (siehe F33). | mittel |
 | Status rot | Der letzte Statusbericht meldet Rot, oder ein roter Bericht ist noch nicht zur Kenntnis genommen (siehe F35). | hoch |
 | Besser als vorgeschlagen | Im letzten Statusbericht schätzt die Projektleitung ein Kriterium besser ein, als die App vorschlägt; die Begründung steht im Bericht (siehe F35). | mittel |
@@ -518,8 +518,10 @@ Eine unabhängige Prüfung des Codes hat gezeigt: Eine Projektleiterin konnte si
 2. Die Kontrollrollen vergibt und entzieht nur das **PMO**, die übrigen Rollen die Projektleitung. Passt das, oder vergibt bei euch jemand anderes diese Rollen, zum Beispiel die Linie oder die Informationssicherheit selbst?
 3. **Vier-Augen-Prinzip:** Wer einen Change Request erfasst, entscheidet ihn nicht und bestätigt auch die Neuprüfung nicht. Erfasst das einzige Mitglied des Projektausschusses einen Change Request, muss das PMO ein zweites Mitglied ergänzen. Ist das so gewollt, oder darf der Auftraggeber eigene Änderungswünsche selbst freigeben?
 4. In der Testumgebung ist die Funktionentrennung ausgeschaltet, damit eine Person alle Rollen ausprobieren kann. Die App zeigt das auf der Seite «Beteiligte und Rollen» an. Einverstanden?
+5. **Veto:** Ein Veto trifft nie die Projektleitung, auch wenn sie die Rolle hat. Das betrifft das ISDS-Konzept (ISM) und den Go-live-Check (Fachvertretung und Applikationsmanagement). Fachvertretung und Applikationsmanagement darf die Projektleitung sonst haben und vergeben. Sollen diese beiden Rollen ebenfalls nur durch das PMO vergeben werden?
+6. Kann ein Entscheid nicht getroffen werden, weil niemand die Rolle hat oder die einzige Person sie hier nicht ausüben darf, meldet die App «Rollen fehlen». Die Aufgabe «Rolle besetzen» geht bei Kontrollrollen an das PMO, sonst an die Projektleitung. Passt das?
 
-**Meine Empfehlung:** 1. so lassen, Architektur nicht dazunehmen (kleine Vorhaben haben oft keine eigene Architektin); 2. PMO; 3. so lassen, ein Stellvertreter im Projektausschuss ist ohnehin sinnvoll; 4. ja.
+**Meine Empfehlung:** 1. so lassen, Architektur nicht dazunehmen (kleine Vorhaben haben oft keine eigene Architektin); 2. PMO; 3. so lassen, ein Stellvertreter im Projektausschuss ist ohnehin sinnvoll; 4. ja; 5. Veto-Regel so, die beiden Rollen weiter durch die Projektleitung; 6. ja.
 
 **Antwort:**
 

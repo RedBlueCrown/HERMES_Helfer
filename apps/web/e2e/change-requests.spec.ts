@@ -27,6 +27,9 @@ test("A change request from the wish to the recheck: agent, Projektausschuss, IS
     );
   await form.getByRole("button", { name: "Mit dem Agenten ausarbeiten" }).click();
   await expect(form.getByText("Vom Agenten ausgearbeitet, bitte prüfen")).toBeVisible();
+  // A second run works from the same wish, not from the agent's first text.
+  await form.getByRole("button", { name: "Mit dem Agenten ausarbeiten" }).click();
+  await expect(form.getByText("Vom Agenten ausgearbeitet, bitte prüfen")).toBeVisible();
   await expect(form.getByRole("checkbox", { name: /Personendaten oder Datenumfang/ })).toBeChecked();
   await expect(form.getByText(/Agent: Der Wunsch nennt Daten/)).toBeVisible();
   await form.getByRole("spinbutton", { name: /Aufwand in Personentagen/ }).fill("5");
@@ -45,6 +48,9 @@ test("A change request from the wish to the recheck: agent, Projektausschuss, IS
     .click();
   const drawer = page.getByRole("dialog");
   await expect(drawer.getByRole("heading", { name: "CR-03 Adressexport für den Mahnversand" })).toBeVisible();
+  await expect(drawer).toContainText(
+    "Wunsch, wie erfasst: Die Debitorenbuchhaltung möchte die Adressen säumiger Kunden exportieren, um Mahnungen zu versenden.",
+  );
   await drawer
     .getByRole("textbox", { name: /Begründung/ })
     .fill("Mahnwesen ist gesetzlich nötig; Reserve reicht.");
@@ -74,4 +80,23 @@ test("A change request from the wish to the recheck: agent, Projektausschuss, IS
   await last.getByRole("textbox", { name: "Massnahme oder Notiz" }).fill("Export nur pseudonymisiert");
   await last.getByRole("button", { name: "Massnahme ergänzt" }).click();
   await expect(last.getByRole("region", { name: "Neuprüfung" })).toContainText("Neuprüfung abgeschlossen");
+});
+
+test("Closing the drawer stops the agent's request, and with it the model call on the server", async ({
+  page,
+}) => {
+  const register = await openRegister(page, "u-nina");
+  await register.getByRole("button", { name: "Neuer Change Request" }).click();
+  const form = page.getByRole("dialog");
+  await form.getByRole("textbox", { name: "Titel" }).fill("Abbruch prüfen");
+  await form
+    .getByRole("textbox", { name: /Wunsch/ })
+    .fill("Ein Wunsch, den niemand zu Ende ausarbeiten lässt.");
+  const stopped = page.waitForEvent("requestfailed", (r) => r.url().endsWith("/change-requests/draft"));
+  await form.getByRole("button", { name: "Mit dem Agenten ausarbeiten" }).click();
+  // Draft and review take the offline model twice 400 ms: the drawer closes while the agent works.
+  await expect(form.getByText("Der Change-Request-Agent arbeitet den Wunsch aus …")).toBeVisible();
+  await form.getByRole("button", { name: "Abbrechen" }).click();
+  expect((await stopped).failure()?.errorText).toMatch(/ABORTED/i);
+  await expect(register).not.toContainText("Abbruch prüfen");
 });

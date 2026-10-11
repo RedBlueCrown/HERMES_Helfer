@@ -37,7 +37,10 @@ export interface ProjectContext {
   phase: PhaseId;
   phaseLabel: string;
   profile: ProjectProfile;
-  /** Released results the requester may read, as background for the draft. */
+  /**
+   * Released results the requester may read, as background for the draft; a result's
+   * content only when every reader of the draft may read it, else CONFIDENTIAL_SUMMARY.
+   */
   releasedResults: { name: string; summary: string }[];
   /** Open risks of the register, the most serious first. */
   openRisks: RiskBrief[];
@@ -181,6 +184,8 @@ export interface CallContext {
   userId: string;
   /** Stops the call, for example when the person closed the request. */
   signal?: AbortSignal;
+  /** A draft in the background: nobody waits for the answer, so it may wait longer for a slot. */
+  background?: boolean;
 }
 
 export interface AiProvider {
@@ -212,13 +217,24 @@ export class AiProviderError extends Error {
       | "invalid_output"
       | "provider_error"
       | "busy"
+      | "own_limit"
       | "budget"
       | "aborted",
     message: string,
+    /** Tokens the model used before the call failed (an answer cut off or not matching the schema). */
+    readonly usage?: Usage,
   ) {
     super(message);
   }
 }
+
+/** Tokens of two calls together. */
+export const addUsage = (a: Usage, b?: Usage): Usage =>
+  b ? { inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens } : a;
+
+/** Tokens a failed call used, if the model answered at all: they count like any others. */
+export const failedUsage = (err: unknown): Usage | undefined =>
+  err instanceof AiProviderError ? err.usage : undefined;
 
 export const USER_FACING_REASON: Readonly<Record<AiProviderError["reason"], string>> = {
   rate_limited: "Hohe Auslastung des KI-Modells, bitte später erneut versuchen",
@@ -227,6 +243,8 @@ export const USER_FACING_REASON: Readonly<Record<AiProviderError["reason"], stri
   invalid_output: "Das KI-Modell hat keinen gültigen Entwurf geliefert",
   provider_error: "Das KI-Modell ist gerade nicht erreichbar",
   busy: "Das KI-Modell ist gerade ausgelastet, bitte in einer Minute erneut versuchen",
+  own_limit:
+    "Du hast schon mehrere Anfragen beim KI-Modell offen, zum Beispiel Entwürfe im Hintergrund; bitte warten, bis eine fertig ist",
   budget: "Dein Tageskontingent für das KI-Modell ist aufgebraucht; morgen steht es wieder zur Verfügung",
   aborted: "Abgebrochen",
 };

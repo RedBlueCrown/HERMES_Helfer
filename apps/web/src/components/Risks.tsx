@@ -50,7 +50,7 @@ import {
   type RiskStatus,
   type RiskTrend,
 } from "@hermes-helfer/core";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { projectPath, useApi, useProjectCommand, useRisks } from "../api/hooks";
 import type { RiskProposal, RiskRegisterView, RiskReviewResult, RiskView } from "../api/types";
 import { ErrorView, RichText, errorText, formatDate, useNotify } from "./ui";
@@ -543,8 +543,6 @@ export function RiskReviewDrawer({ code, open, onClose }: { code: string; open: 
 
 /** The fact a proposal rests on, as the engine named it. */
 function groundText(result: RiskReviewResult, trigger: string): string {
-  if (trigger === "profil") return "Vorhabensprofil";
-  if (trigger === "ergebnisse") return "Freigegebene Ergebnisse";
   return result.triggers.find((t) => t.id === trigger)?.text ?? trigger;
 }
 
@@ -569,14 +567,13 @@ function RiskReviewPanel({ code, onClose }: { code: string; onClose(): void }) {
   const [error, setError] = useState<string>();
   const [newRisks, setNewRisks] = useState<NewChoice[]>([]);
   const [re, setRe] = useState<ReChoice[]>([]);
-  const started = useRef(false);
 
-  // One model call per opening; the ref survives React's double effect in development.
+  // One model call per opening. Closing the drawer stops it, also on the server; React's double
+  // effect in development stops the first request before it is sent.
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
+    const controller = new AbortController();
     api
-      .post<RiskReviewResult>(`${projectPath(code)}/risks/review`)
+      .post<RiskReviewResult>(`${projectPath(code)}/risks/review`, undefined, { signal: controller.signal })
       .then((r) => {
         setResult(r);
         setNewRisks(r.newRisks.map((p) => ({ ...p, selected: false, done: false })));
@@ -590,7 +587,10 @@ function RiskReviewPanel({ code, onClose }: { code: string; onClose(): void }) {
           })),
         );
       })
-      .catch((err: unknown) => setError(errorText(err)));
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted) setError(errorText(err));
+      });
+    return () => controller.abort();
   }, [api, code]);
 
   const accept = useProjectCommand(code, async () => {
@@ -617,7 +617,6 @@ function RiskReviewPanel({ code, onClose }: { code: string; onClose(): void }) {
         status: p.current.status,
         ownerRole: p.current.ownerRole,
         mitigation: c.mitigation,
-        note: `Vorschlag des Risiko-Agenten: ${p.reason}`.slice(0, 2000),
         basedOn: p.current.version,
         proposal: { id: result.proposalId, item: i },
       });
@@ -674,7 +673,7 @@ function RiskReviewPanel({ code, onClose }: { code: string; onClose(): void }) {
                   </ul>
                 ) : (
                   <Caption1 className={s.muted}>
-                    Keine besonderen Hinweise; geprüft wurden Profil und Ergebnisse.
+                    Nichts im Vorhaben deutet auf ein Risiko hin, auf das sich ein Vorschlag stützen liesse.
                   </Caption1>
                 )}
               </section>
@@ -916,6 +915,12 @@ function RiskDetail({ code, risk, register }: { code: string; risk: RiskView; re
                 {h.score}), {h.status}, {h.ownerLabel}
                 {h.producer.kind === "ai" ? " · Vorschlag des Risiko-Agenten" : ""}
               </Caption1>
+              {h.agentBasis ? (
+                <Caption1 block className={s.muted}>
+                  Anlass: {h.agentBasis.fact || h.agentBasis.trigger} · Begründung des Agenten:{" "}
+                  {h.agentBasis.reason}
+                </Caption1>
+              ) : null}
               {h.note ? (
                 <Caption1 block className={s.muted}>
                   {h.note}

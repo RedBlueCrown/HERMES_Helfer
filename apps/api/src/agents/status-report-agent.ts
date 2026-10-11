@@ -24,22 +24,27 @@ import {
   type StatusReportTexts,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
-import { HttpError, assertCheck } from "../errors";
+import { assertCheck } from "../errors";
 import type { ProjectService, RequestContext } from "../projects/service";
 import { CRITIQUE_BUDGET_MS } from "./change-request-agent";
 import { checkStatusReport, mergeFindings, statusReportCritique } from "./kritiker";
-import { AiProviderError, USER_FACING_REASON, type AiProvider, type Usage } from "./provider";
+import { addUsage, failedUsage, type AiProvider, type Usage } from "./provider";
 import type { ProposalStore } from "./proposals";
-import { callFor, projectContext, recordAiRun, type Logger } from "./runner";
+import {
+  agentFailure,
+  callFor,
+  closedByPerson,
+  projectContext,
+  recordAiRun,
+  type AiRunRecord,
+  type Logger,
+} from "./runner";
 
 /** What the PL has entered so far: the colours and any text. */
 export interface StatusReportInputSoFar {
   criteria: Record<StatusCriterion, { ampel: Ampel; problem: string; measure: string }>;
   figures: StatusFigures;
 }
-
-const add = (a: Usage, b?: Usage): Usage =>
-  b ? { inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens } : a;
 
 /** The facts a status report rests on, as short German sentences. */
 export function statusFacts(s: ProjectState, model: HermesModel, figures: StatusFigures): string[] {
@@ -99,7 +104,7 @@ export class StatusReportAgent {
     const runId = randomUUID();
     const started = Date.now();
     let usage: Usage = { inputTokens: 0, outputTokens: 0 };
-    const record = (outcome: "completed" | "failed", findings: number) =>
+    const record = (outcome: AiRunRecord["outcome"], findings: number) =>
       recordAiRun(this.log, info, {
         runId,
         projectId: s.projectId,
@@ -132,7 +137,7 @@ export class StatusReportAgent {
         },
         callFor(ctx),
       );
-      usage = add(usage, drafted.usage);
+      usage = addUsage(usage, drafted.usage);
       // Only what the agent wrote, for the criteria that are not green: the proposal is the
       // agent's text alone, so the record can tell it from the project lead's. The web app keeps
       // the project lead's own text where the agent left a field empty.
@@ -164,9 +169,11 @@ export class StatusReportAgent {
             ]),
             callFor(ctx),
           );
-          usage = add(usage, critique.usage);
+          usage = addUsage(usage, critique.usage);
           review = critique.findings;
         } catch (err) {
+          if (closedByPerson(err)) throw err;
+          usage = addUsage(usage, failedUsage(err));
           this.log.warn({ err, runId }, "kritiker failed");
           review = [
             {
@@ -198,13 +205,14 @@ export class StatusReportAgent {
         producer,
       };
     } catch (err) {
-      this.log.error({ err, runId, projectId: s.projectId }, "status report draft failed");
-      record("failed", 0);
-      const reason = err instanceof AiProviderError ? USER_FACING_REASON[err.reason] : "Unerwarteter Fehler";
-      throw new HttpError(
-        503,
-        "ai_unavailable",
-        `${reason}. Den Statusbericht kannst du auch ohne den Agenten schreiben.`,
+      usage = addUsage(usage, failedUsage(err));
+      record(closedByPerson(err) ? "aborted" : "failed", 0);
+      throw agentFailure(
+        this.log,
+        err,
+        { runId, projectId: s.projectId },
+        "status report draft",
+        "Den Statusbericht kannst du auch ohne den Agenten schreiben.",
       );
     }
     record("completed", proposal.findings.length);

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef } from "react";
 import type { Api } from "./client";
 import type {
   ChangeRequestRegisterView,
@@ -25,6 +25,21 @@ export function useApi(): Api {
   const api = useContext(ApiContext);
   if (!api) throw new Error("useApi outside ApiContext");
   return api;
+}
+
+/**
+ * A signal that fires when the component closes: a request to an agent stops,
+ * and with it the model call on the server, which then costs nothing more (review F9).
+ * Created in an effect, so React's double effects in development leave it intact.
+ */
+export function useCloseSignal(): () => AbortSignal | undefined {
+  const ref = useRef<AbortController | undefined>(undefined);
+  useEffect(() => {
+    const controller = new AbortController();
+    ref.current = controller;
+    return () => controller.abort();
+  }, []);
+  return useCallback(() => ref.current?.signal, []);
 }
 
 const enc = encodeURIComponent;

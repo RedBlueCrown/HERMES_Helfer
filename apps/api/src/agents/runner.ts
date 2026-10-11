@@ -32,6 +32,8 @@ import { fitSections } from "./output";
 import {
   AiProviderError,
   USER_FACING_REASON,
+  addUsage,
+  failedUsage,
   type AiProvider,
   type CallContext,
   type ProjectContext,
@@ -62,13 +64,39 @@ export interface AiRunRecord {
   /** Skill id, "cr.entwurf" for the Change-Request agent or "risiko.pruefung" for the Risiko agent. */
   skillId: string;
   agent: AgentId;
-  outcome: "completed" | "failed";
+  /** "aborted": the person closed the request. */
+  outcome: "completed" | "failed" | "aborted";
   findings: number;
   durationMs: number;
   usage: Usage;
   requestedBy: string;
   channel: Channel;
   correlationId: string;
+}
+
+/** The person closed the request: nobody receives the answer, and it is no error. */
+export const closedByPerson = (err: unknown): boolean =>
+  err instanceof AiProviderError && err.reason === "aborted";
+
+/**
+ * The answer to an agent request that failed: 499 when the person closed it
+ * (information, not an error), else 503 with the reason and what the person can
+ * do without the agent.
+ */
+export function agentFailure(
+  log: Logger,
+  err: unknown,
+  context: Record<string, unknown>,
+  what: string,
+  instead: string,
+): HttpError {
+  if (closedByPerson(err)) {
+    log.info(context, `${what}: closed by the person`);
+    return new HttpError(499, "aborted", "Abgebrochen.");
+  }
+  log.error({ err, ...context }, `${what} failed`);
+  const reason = err instanceof AiProviderError ? USER_FACING_REASON[err.reason] : "Unerwarteter Fehler";
+  return new HttpError(503, "ai_unavailable", `${reason}. ${instead}`);
 }
 
 /**
@@ -104,10 +132,14 @@ export function recordAiRun(log: Logger, info: ProviderInfo, r: AiRunRecord): vo
 }
 
 /** The model call is for the person who asked; it stops when they close the request. */
-export const callFor = (ctx: RequestContext, withSignal = true): CallContext => ({
-  userId: ctx.viewer.userId,
-  ...(withSignal && ctx.signal ? { signal: ctx.signal } : {}),
-});
+/**
+ * The call context of a request: the model call stops when the person closes the
+ * request. A background draft goes on without them and may wait longer for a slot.
+ */
+export const callFor = (ctx: RequestContext, opts: { background?: boolean } = {}): CallContext =>
+  opts.background
+    ? { userId: ctx.viewer.userId, background: true }
+    : { userId: ctx.viewer.userId, ...(ctx.signal ? { signal: ctx.signal } : {}) };
 
 export const SYSTEM_ACTOR: Actor = { userId: "system", displayName: "System", roles: [], channel: "system" };
 
@@ -236,7 +268,7 @@ export class RunService {
     let usage = { inputTokens: 0, outputTokens: 0 };
     try {
       // The draft runs in the background: it continues when the person leaves the page.
-      const call = callFor(ctx, false);
+      const call = callFor(ctx, { background: true });
       const drafted = await this.provider.draft(
         // The draft is read by who may read the skill's results: the context follows them.
         {
@@ -253,14 +285,10 @@ export class RunService {
       try {
         const critique = await this.provider.critique(skillCritique(skill, deliverables, fitted.draft), call);
         content = critique.findings;
-        if (critique.usage) {
-          usage = {
-            inputTokens: usage.inputTokens + critique.usage.inputTokens,
-            outputTokens: usage.outputTokens + critique.usage.outputTokens,
-          };
-        }
+        usage = addUsage(usage, critique.usage);
       } catch (err) {
         this.log.warn({ err, runId }, "kritiker failed");
+        usage = addUsage(usage, failedUsage(err));
         content = [
           {
             severity: "hinweis",
@@ -285,6 +313,7 @@ export class RunService {
     } catch (err) {
       const reason = err instanceof AiProviderError ? USER_FACING_REASON[err.reason] : "Unerwarteter Fehler";
       this.log.error({ err, runId, projectId, skillId: skill.id }, "agent run failed");
+      usage = addUsage(usage, failedUsage(err));
       event = { type: "SkillRunFailed", data: { runId, skillId: skill.id, reason } };
     }
 

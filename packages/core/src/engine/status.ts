@@ -2,6 +2,7 @@
 // (agentStatus, delivStatus, gateState) and kept deterministic.
 
 import type { HermesModel } from "../model";
+import { roleConflict } from "../model/policy";
 import { PROJECT_ROLE_LABELS } from "../model/roles";
 import type {
   ApproverDef,
@@ -11,7 +12,7 @@ import type {
   ProjectRole,
   SkillDef,
 } from "../model/types";
-import { crLabel, openRechecks, pendingRecheckRoles } from "./change-requests";
+import { crLabel, openChangeRequests, openRechecks, pendingRecheckRoles } from "./change-requests";
 import { openParticipation, participantsFor } from "./participation";
 import { checklistKey, type ProjectState } from "./state";
 
@@ -99,19 +100,113 @@ export function mandatoryProgress(s: ProjectState, model: HermesModel, phase: Ph
   };
 }
 
-/** Roles that must decide in this phase but are held by no member (todo-later E15). */
-export function missingRoles(s: ProjectState, model: HermesModel, phase: PhaseId): ProjectRole[] {
-  const held = new Set(Object.values(s.members).flatMap((m) => m.roles));
-  const needed = new Set<ProjectRole>(model.phase(phase).gate.deciders);
-  for (const d of model.phase(phase).deliverables) {
+/** A decision that waits for a role. */
+interface PendingDecision {
+  role: ProjectRole;
+  /** What waits, for people: «Go-live-Readiness-Bericht» (Veto), Neuprüfung CR-03. */
+  what: string;
+  /** The project lead may not take it: a veto, the gate. */
+  notByPL: boolean;
+  /** The person who submitted the change request may not take it (four-eyes principle). */
+  notBy?: string;
+}
+
+/**
+ * Whether a member may take the decision. Under separation of duties a role
+ * does not count next to an incompatible one, the project lead casts no veto
+ * and decides no gate, and nobody decides or rechecks their own change
+ * request: the same rules the checks in permissions.ts apply to the person
+ * acting.
+ */
+function mayDecide(model: HermesModel, userId: string, roles: readonly ProjectRole[], d: PendingDecision) {
+  if (!roles.includes(d.role)) return false;
+  if (!model.policy.separationOfDuties) return true;
+  if (roleConflict(roles, d.role)) return false;
+  if (d.notByPL && roles.includes("PL")) return false;
+  return d.notBy !== userId;
+}
+
+function pendingDecisions(s: ProjectState, model: HermesModel, phase: PhaseId): PendingDecision[] {
+  const ph = model.phase(phase);
+  const out: PendingDecision[] = ph.gate.deciders.map((role) => ({
+    role,
+    what: `Gate «${ph.gate.name}»`,
+    notByPL: true,
+  }));
+  for (const d of ph.deliverables) {
     if (d.requirement !== "pflicht") continue;
-    for (const sid of d.skills) for (const a of pendingApprovers(s, model.skill(sid))) needed.add(a.role);
+    for (const sid of d.skills) {
+      const skill = model.skill(sid);
+      for (const a of pendingApprovers(s, skill)) {
+        out.push({
+          role: a.role,
+          what: `«${skill.outputDoc}»${skill.veto ? " (Veto)" : ""}`,
+          notByPL: skill.veto,
+        });
+      }
+    }
   }
   if (isPhaseCurrent(s, phase)) {
-    for (const c of openRechecks(s)) for (const r of pendingRecheckRoles(c)) needed.add(r);
+    for (const c of openChangeRequests(s)) {
+      out.push({
+        role: "PA",
+        what: `Entscheid ${crLabel(c.number)}`,
+        notByPL: false,
+        notBy: c.submittedBy.userId,
+      });
+    }
+    for (const c of openRechecks(s)) {
+      for (const role of pendingRecheckRoles(c)) {
+        out.push({
+          role,
+          what: `Neuprüfung ${crLabel(c.number)}`,
+          notByPL: false,
+          notBy: c.submittedBy.userId,
+        });
+      }
+    }
   }
-  return [...needed].filter((r) => !held.has(r));
+  return out;
 }
+
+/** A role a decision of the phase waits for, and nobody in the project may take it. */
+export interface MissingRole {
+  role: ProjectRole;
+  /** The decisions that wait for it. */
+  decisions: string[];
+  /** Members hold the role but may not take these decisions (separation of duties, four-eyes principle). */
+  held: boolean;
+}
+
+/**
+ * Roles a decision of this phase waits for, where no member may take it:
+ * nobody holds the role, or those who hold it may not decide here (todo-later
+ * E15, review N3). One more person with the role resolves it.
+ */
+export function missingRoleDetails(s: ProjectState, model: HermesModel, phase: PhaseId): MissingRole[] {
+  const members = Object.entries(s.members);
+  const out = new Map<ProjectRole, MissingRole>();
+  for (const d of pendingDecisions(s, model, phase)) {
+    if (members.some(([id, m]) => mayDecide(model, id, m.roles, d))) continue;
+    const entry = out.get(d.role) ?? {
+      role: d.role,
+      decisions: [],
+      held: members.some(([, m]) => m.roles.includes(d.role)),
+    };
+    if (!entry.decisions.includes(d.what)) entry.decisions.push(d.what);
+    out.set(d.role, entry);
+  }
+  return [...out.values()];
+}
+
+/** The roles of missingRoleDetails. */
+export function missingRoles(s: ProjectState, model: HermesModel, phase: PhaseId): ProjectRole[] {
+  return missingRoleDetails(s, model, phase).map((m) => m.role);
+}
+
+/** «Datenschutz (Neuprüfung CR-03)»: a missing role and what waits for it. */
+export const missingRoleText = (m: MissingRole) =>
+  `${PROJECT_ROLE_LABELS[m.role]} (${m.decisions.join(", ")})`;
 
 export function gateStatus(s: ProjectState, model: HermesModel, phase: PhaseId): GateStatus {
   if (s.passed.includes(phase)) return "passed";
@@ -193,14 +288,12 @@ export function gateCriteria(s: ProjectState, model: HermesModel, phase: PhaseId
       blocking: true,
     });
   }
-  const missing = missingRoles(s, model, phase);
+  const missing = missingRoleDetails(s, model, phase);
   out.push({
     id: "rollen",
     label: "Entscheidende Rollen besetzt",
     ok: missing.length === 0,
-    detail: missing.length
-      ? `fehlt: ${missing.map((r) => PROJECT_ROLE_LABELS[r]).join(", ")}`
-      : "alle besetzt",
+    detail: missing.length ? `fehlt: ${missing.map(missingRoleText).join("; ")}` : "alle besetzt",
     blocking: false,
   });
   const openConditions = Object.values(s.conditions).filter((c) => c.phase === phase && !c.doneAt);

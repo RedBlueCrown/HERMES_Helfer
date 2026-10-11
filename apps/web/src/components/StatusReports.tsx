@@ -45,7 +45,7 @@ import {
   type StatusFigures,
 } from "@hermes-helfer/core";
 import { Fragment, useState } from "react";
-import { projectPath, useApi, useProjectCommand, useStatusReports } from "../api/hooks";
+import { projectPath, useApi, useCloseSignal, useProjectCommand, useStatusReports } from "../api/hooks";
 import type { StatusReportProposal, StatusReportRegisterView, StatusReportView } from "../api/types";
 import {
   AmpelBadge,
@@ -415,6 +415,7 @@ function NewStatusReportForm({
 }) {
   const s = useStyles();
   const api = useApi();
+  const closeSignal = useCloseSignal();
   const notify = useNotify();
   const suggested = Object.fromEntries(register.suggestion.map((x) => [x.id, x])) as Record<
     StatusCriterion,
@@ -474,11 +475,13 @@ function NewStatusReportForm({
   const draft = async () => {
     setError(undefined);
     setDrafting(true);
+    const signal = closeSignal();
     try {
-      const p = await api.post<StatusReportProposal>(`${projectPath(code)}/status-reports/draft`, {
-        criteria: entries,
-        figures: figures(),
-      });
+      const p = await api.post<StatusReportProposal>(
+        `${projectPath(code)}/status-reports/draft`,
+        { criteria: entries, figures: figures() },
+        { signal },
+      );
       setOverview(p.overview);
       setOutlook(p.outlook);
       // What the agent left empty keeps the project lead's own text.
@@ -499,7 +502,7 @@ function NewStatusReportForm({
       setFindings(p.findings);
       setProposalId(p.proposalId);
     } catch (err) {
-      setError(errorText(err));
+      if (!signal?.aborted) setError(errorText(err));
     } finally {
       setDrafting(false);
     }

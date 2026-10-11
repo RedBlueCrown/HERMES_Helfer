@@ -47,7 +47,14 @@ import {
   type RecheckRole,
 } from "@hermes-helfer/core";
 import { useMemo, useState } from "react";
-import { projectPath, useApi, useChangeRequests, useProjectCommand, useReference } from "../api/hooks";
+import {
+  projectPath,
+  useApi,
+  useChangeRequests,
+  useCloseSignal,
+  useProjectCommand,
+  useReference,
+} from "../api/hooks";
 import type {
   ChangeRequestProposal,
   ChangeRequestRegisterView,
@@ -320,6 +327,7 @@ export function NewChangeRequestDrawer({
 function NewChangeRequestForm({ code, view, onClose }: { code: string; view: ProjectView; onClose(): void }) {
   const s = useStyles();
   const api = useApi();
+  const closeSignal = useCloseSignal();
   const notify = useNotify();
   const ref = useReference();
   const register = useChangeRequests(code);
@@ -328,6 +336,8 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
 
   const [title, setTitle] = useState("");
   const [requestedBy, setRequestedBy] = useState("");
+  /** The wish in the person's own words: the agent works from it, and it stays as typed. */
+  const [wish, setWish] = useState("");
   const [content, setContent] = useState<DraftContent>(() => emptyContent(sections));
   const [flags, setFlags] = useState<CrFlags>(NO_FLAGS);
   const [reasons, setReasons] = useState<Partial<Record<CrFlag, string>>>({});
@@ -340,6 +350,8 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
 
   // Sections arrive with the reference data; start from them once they are there.
   const current = content.sections.length ? content : emptyContent(sections);
+  // Without the agent, the wish is the summary.
+  const summary = current.summary.trim() ? current.summary : wish;
   const effortDays = Number(effort);
   const impact = useMemo(() => {
     if (!register.data || !(effortDays > 0)) return null;
@@ -358,7 +370,7 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
       requestedBy,
       effortDays,
       flags,
-      content: current,
+      content: { ...current, summary },
       ...(proposalId ? { proposalId } : {}),
     }),
   );
@@ -366,19 +378,20 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
   const draft = async () => {
     setError(undefined);
     setDrafting(true);
+    const signal = closeSignal();
     try {
-      const p = await api.post<ChangeRequestProposal>(`${projectPath(code)}/change-requests/draft`, {
-        title,
-        description: current.summary,
-        requestedBy,
-      });
+      const p = await api.post<ChangeRequestProposal>(
+        `${projectPath(code)}/change-requests/draft`,
+        { title, description: wish, requestedBy },
+        { signal },
+      );
       setContent(p.content);
       setFlags(Object.fromEntries(CR_FLAGS.map((f) => [f, p.flags[f].value])) as CrFlags);
       setReasons(Object.fromEntries(CR_FLAGS.map((f) => [f, p.flags[f].reason])));
       setFindings(p.findings);
       setProposalId(p.proposalId);
     } catch (err) {
-      setError(errorText(err));
+      if (!signal?.aborted) setError(errorText(err));
     } finally {
       setDrafting(false);
     }
@@ -387,8 +400,8 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
   const setSection = (i: number, body: string) =>
     setContent({ ...current, sections: current.sections.map((x, j) => (j === i ? { ...x, body } : x)) });
   // The same rules as the server (engine): title and summary long enough.
-  const incomplete = validateChangeRequest({ title, summary: current.summary }) !== null;
-  const canDraft = !incomplete && !drafting;
+  const incomplete = validateChangeRequest({ title, summary }) !== null;
+  const canDraft = validateChangeRequest({ title, summary: wish }) === null && !drafting;
 
   return (
     <>
@@ -433,13 +446,12 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
           <Field label="Beantragt von" hint="Stelle oder Rolle, z. B. Fachstelle Finanzen" required>
             <Input value={requestedBy} onChange={(_, d) => setRequestedBy(d.value)} maxLength={120} />
           </Field>
-          <Field label="Wunsch (Kurzbeschreibung)" required>
-            <Textarea
-              value={current.summary}
-              onChange={(_, d) => setContent({ ...current, summary: d.value })}
-              rows={3}
-              resize="vertical"
-            />
+          <Field
+            label="Wunsch in eigenen Worten"
+            hint="Der Agent arbeitet ihn aus; der Change Request hält ihn fest, wie du ihn geschrieben hast."
+            required
+          >
+            <Textarea value={wish} onChange={(_, d) => setWish(d.value)} rows={3} resize="vertical" />
           </Field>
           <div className={s.row}>
             <Button icon={<Sparkle16Regular />} disabled={!canDraft} onClick={() => void draft()}>
@@ -458,6 +470,15 @@ function NewChangeRequestForm({ code, view, onClose }: { code: string; view: Pro
 
           <section className={s.section} aria-label="Ausführliche Beschreibung">
             <Subtitle2 as="h3">Ausführliche Beschreibung</Subtitle2>
+            <Field label="Kurzbeschreibung" hint="Schreibt der Agent; ohne Agent gilt der Wunsch.">
+              <Textarea
+                value={current.summary}
+                onChange={(_, d) => setContent({ ...current, summary: d.value })}
+                placeholder={wish}
+                rows={2}
+                resize="vertical"
+              />
+            </Field>
             {current.sections.map((x, i) => (
               <Field key={x.heading} label={x.heading}>
                 <Textarea

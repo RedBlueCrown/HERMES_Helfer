@@ -15,19 +15,21 @@ import {
   type Producer,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
-import { HttpError, assertCheck } from "../errors";
+import { assertCheck } from "../errors";
 import type { ProjectService, RequestContext } from "../projects/service";
 import { changeRequestCritique, checkChangeRequest, mergeFindings } from "./kritiker";
 import { fitSections } from "./output";
-import {
-  AiProviderError,
-  USER_FACING_REASON,
-  type AiProvider,
-  type ChangeRequestIdea,
-  type Usage,
-} from "./provider";
+import { addUsage, failedUsage, type AiProvider, type ChangeRequestIdea, type Usage } from "./provider";
 import type { ProposalStore } from "./proposals";
-import { callFor, projectContext, recordAiRun, type Logger } from "./runner";
+import {
+  agentFailure,
+  callFor,
+  closedByPerson,
+  projectContext,
+  recordAiRun,
+  type AiRunRecord,
+  type Logger,
+} from "./runner";
 
 /** What the server keeps of a draft until the requester submits it (proposals.ts). */
 export interface ChangeRequestProposalContent {
@@ -43,9 +45,6 @@ export interface ChangeRequestProposalContent {
  * after a slow draft, the Kritiker's model review is left out (todo-later E30).
  */
 export const CRITIQUE_BUDGET_MS = 90_000;
-
-const add = (a: Usage, b?: Usage): Usage =>
-  b ? { inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens } : a;
 
 export class ChangeRequestAgent {
   constructor(
@@ -65,7 +64,7 @@ export class ChangeRequestAgent {
     const runId = randomUUID();
     const started = Date.now();
     let usage: Usage = { inputTokens: 0, outputTokens: 0 };
-    const record = (outcome: "completed" | "failed", findings: number) =>
+    const record = (outcome: AiRunRecord["outcome"], findings: number) =>
       recordAiRun(this.log, info, {
         runId,
         projectId: s.projectId,
@@ -92,7 +91,7 @@ export class ChangeRequestAgent {
         },
         callFor(ctx),
       );
-      usage = add(usage, drafted.usage);
+      usage = addUsage(usage, drafted.usage);
       // The form shows the five sections by heading; submitting needs each one (review F7).
       const fitted = fitSections(drafted.draft.content, CR_SECTIONS);
       const content = fitted.draft;
@@ -112,9 +111,11 @@ export class ChangeRequestAgent {
             changeRequestCritique(content, context.releasedResults),
             callFor(ctx),
           );
-          usage = add(usage, critique.usage);
+          usage = addUsage(usage, critique.usage);
           review = critique.findings;
         } catch (err) {
+          if (closedByPerson(err)) throw err;
+          usage = addUsage(usage, failedUsage(err));
           this.log.warn({ err, runId }, "kritiker failed");
           review = [
             {
@@ -148,13 +149,14 @@ export class ChangeRequestAgent {
       });
       proposal = { proposalId, content, flags, findings: kept.findings, producer };
     } catch (err) {
-      this.log.error({ err, runId, projectId: s.projectId }, "change request draft failed");
-      record("failed", 0);
-      const reason = err instanceof AiProviderError ? USER_FACING_REASON[err.reason] : "Unerwarteter Fehler";
-      throw new HttpError(
-        503,
-        "ai_unavailable",
-        `${reason}. Du kannst den Change Request auch ohne den Agenten ausfüllen.`,
+      usage = addUsage(usage, failedUsage(err));
+      record(closedByPerson(err) ? "aborted" : "failed", 0);
+      throw agentFailure(
+        this.log,
+        err,
+        { runId, projectId: s.projectId },
+        "change request draft",
+        "Du kannst den Change Request auch ohne den Agenten ausfüllen.",
       );
     }
     record("completed", proposal.findings.length);

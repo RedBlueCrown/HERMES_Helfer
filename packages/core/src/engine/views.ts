@@ -50,6 +50,7 @@ import { conditionDue, isConditionOverdue } from "./conditions";
 import { fingerprint } from "./fingerprint";
 import type {
   AgentAssessment,
+  AgentRiskBasis,
   Decision,
   DraftContent,
   Finding,
@@ -136,6 +137,7 @@ import {
   isPhaseCurrent,
   isPhaseFuture,
   mandatoryProgress,
+  missingRoleDetails,
   pendingApprovers,
   skillStatus,
   unmetPreconditions,
@@ -427,6 +429,8 @@ export interface RiskHistoryView {
   mitigation: string;
   note: string;
   producer: Producer;
+  /** For a proposal of the Risiko agent: its reason and the fact behind it. */
+  agentBasis?: AgentRiskBasis;
   at: string;
   by: ActorRef;
 }
@@ -861,13 +865,18 @@ function taskView(s: ProjectState, model: HermesModel, t: MyTask, now: Date): Ta
         participantId: t.participantId,
       };
     }
-    case "assign-role":
+    case "assign-role": {
+      const m = missingRoleDetails(s, model, s.phase).find((x) => x.role === t.role);
+      const what = `Es wartet: ${m?.decisions.join(", ") ?? "ein Entscheid"}.`;
       return {
         kind: t.kind,
         title: `Rolle besetzen: ${roleLabel(t.role)}`,
-        detail: "Niemand im Vorhaben hat diese Rolle, die für einen Entscheid nötig ist.",
+        detail: m?.held
+          ? `${what} Wer die Rolle hat, darf hier nicht entscheiden (Funktionentrennung oder eigener Change Request); es braucht eine weitere Person mit dieser Rolle.`
+          : `${what} Niemand im Vorhaben hat diese Rolle.`,
         role: t.role,
       };
+    }
     case "decide-cr": {
       const c = s.changeRequests[t.crId]!;
       return {
@@ -1225,6 +1234,7 @@ export function riskView(s: ProjectState, model: HermesModel, v: Viewer, r: Risk
       mitigation: h.mitigation,
       note: h.note,
       producer: h.producer,
+      ...(h.agentBasis ? { agentBasis: h.agentBasis } : {}),
       at: h.at,
       by: h.by,
     })),

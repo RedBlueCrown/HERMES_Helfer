@@ -142,7 +142,7 @@ export function riskReviewSystemPrompt(req: RiskReviewRequest): string {
     "- Ein Risiko ist ein mögliches künftiges Ereignis, das Termine, Kosten, Qualität, Sicherheit oder die Akzeptanz gefährdet. Ist ein Problem schon eingetreten, beschreibe die Folge, die sich noch abwenden lässt.",
     "- Schlage nur Risiken vor, die nicht schon im Risikoregister stehen, auch nicht mit anderen Worten.",
     `- Höchstens ${req.max} neue Risiken und ${req.max} neue Beurteilungen, die wichtigsten zuerst. Lieber weniger Vorschläge als unbegründete.`,
-    "- Stütze jeden Vorschlag auf einen Hinweis aus dem Projekt, das Vorhabensprofil oder freigegebene Ergebnisse. Nenne unter «trigger» die id des Hinweises («profil» für das Vorhabensprofil, «ergebnisse» für freigegebene Ergebnisse) und den Anlass in «reason» (ein Satz).",
+    "- Stütze jeden Vorschlag auf einen der Hinweise aus dem Projekt. Nenne unter «trigger» seine id und den Anlass in «reason» (ein Satz). Ohne passenden Hinweis kein Vorschlag.",
     "- Eintritt (probability) und Auswirkung (impact): niedrig, mittel oder hoch. Verantwortlich (ownerRole) ist die Rolle, die die Massnahme umsetzt.",
     "- Die Massnahme (mitigation) ist konkret und umsetzbar: wer macht was, in einem Satz.",
     "- Beurteile ein bestehendes Risiko nur neu, wenn die Hinweise eine andere Einschätzung begründen. Nenne es unter «risk» mit seiner Nummer (z. B. R-02); «mitigation» leer lassen, wenn die Massnahme gleich bleibt.",

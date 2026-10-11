@@ -5,7 +5,9 @@ import type { RecheckRole } from "../model/change-requests";
 import type { PhaseId, ProjectRole } from "../model/types";
 import { openChangeRequests, openRechecks, pendingRecheckRoles } from "./change-requests";
 import { openParticipation } from "./participation";
+import { CONTROL_ROLES } from "../model/policy";
 import {
+  assignableRoles,
   checkAcknowledgeStatusReport,
   checkConfirmChecklistItem,
   checkConfirmRecheck,
@@ -116,7 +118,14 @@ export function myTasks(s: ProjectState, model: HermesModel, v: Viewer, now: Dat
       for (const x of openParticipation(s, model, phase.id)) {
         out.push({ kind: "involve", phase: phase.id, participantId: x.id });
       }
-      for (const r of missingRoles(s, model, phase.id)) out.push({ kind: "assign-role", role: r });
+    }
+    // A decision waits for a role nobody may take. The project lead assigns the
+    // team roles; under separation of duties the PMO assigns the control roles.
+    const assignable = assignableRoles(s, model, v);
+    const pmo = v.globalRoles.includes("HH.PMO") && model.policy.separationOfDuties;
+    for (const r of missingRoles(s, model, phase.id)) {
+      if (!assignable.includes(r)) continue;
+      if (isPL || (pmo && CONTROL_ROLES.includes(r))) out.push({ kind: "assign-role", role: r });
     }
   }
   return out;

@@ -41,7 +41,6 @@ import {
   statusReportRegister,
   seesAllProjects,
   type GlobalRole,
-  type Producer,
   type ProjectRole,
   type StatusReportTexts,
   type Viewer,
@@ -50,8 +49,9 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { ChangeRequestAgent, ChangeRequestProposalContent } from "./agents/change-request-agent";
 import type { Orchestrator } from "./agents/orchestrator";
+import { SECTION_MAX } from "./agents/output";
 import type { ProviderInfo } from "./agents/provider";
-import { acceptedProducer, sameContent, type ProposalStore } from "./agents/proposals";
+import type { ProposalStore, StoredProposal } from "./agents/proposals";
 import type { RiskAgent, RiskReviewContent } from "./agents/risk-agent";
 import type { StatusReportAgent } from "./agents/status-report-agent";
 import type { RunService } from "./agents/runner";
@@ -121,7 +121,7 @@ const Draft = z
   .object({
     summary: z.string().max(4000),
     sections: z
-      .array(z.object({ heading: z.string().trim().min(1).max(200), body: z.string().max(30_000) }))
+      .array(z.object({ heading: z.string().trim().min(1).max(200), body: z.string().max(SECTION_MAX) }))
       .max(40),
     openPoints: z.array(z.string().max(500)).max(50).default([]),
   })
@@ -622,14 +622,15 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
 
   /**
    * Accepting an item of a risk review: the item once, by the person who asked the agent.
-   * `run` stores it; the item counts as accepted only if that succeeds.
+   * `run` stores it (the service records the agent, its reason and whether the person changed
+   * the item); the item counts as accepted only if that succeeds.
    */
   const acceptRiskItem = async <T>(
     req: FastifyRequest,
     code: string,
     ref: { id: string; item: number },
     pick: (c: RiskReviewContent) => { key: string; item: T | undefined },
-    run: (item: T, producer: (edited: boolean) => ReturnType<typeof acceptedProducer>) => Promise<unknown>,
+    run: (accepted: { proposal: StoredProposal<RiskReviewContent>; item: T }) => Promise<unknown>,
   ) => {
     const c = ctx(req);
     const s = await projects.requireProject(code, c.viewer);
@@ -640,7 +641,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       throw new HttpError(409, "invalid_state", "Dieser Vorschlag wurde bereits übernommen.");
     p.accepted.add(key);
     try {
-      return await run(item, (edited) => acceptedProducer(p, edited));
+      return await run({ proposal: p, item });
     } catch (err) {
       p.accepted.delete(key);
       throw err;
@@ -659,38 +660,15 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       req.body,
     );
     const { proposal, ...values } = body;
-    const record = (producer: Producer) => projects.recordRisk(code, ctx(req), { ...values, producer });
     const result = proposal
       ? await acceptRiskItem(
           req,
           code,
           proposal,
           (c) => ({ key: `neu:${proposal.item}`, item: c.newRisks[proposal.item] }),
-          (item, producer) =>
-            record(
-              producer(
-                !sameContent(
-                  [
-                    item.title,
-                    item.description,
-                    item.probability,
-                    item.impact,
-                    item.ownerRole,
-                    item.mitigation,
-                  ],
-                  [
-                    values.title,
-                    values.description,
-                    values.probability,
-                    values.impact,
-                    values.ownerRole,
-                    values.mitigation,
-                  ],
-                ),
-              ),
-            ),
+          (accepted) => projects.recordRisk(code, ctx(req), { ...values, accepted }),
         )
-      : await record({ kind: "human" });
+      : await projects.recordRisk(code, ctx(req), values);
     return reply.code(201).send(result);
   });
 
@@ -707,9 +685,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       req.body,
     );
     const { proposal, ...values } = body;
-    const assess = (producer: Producer) =>
-      projects.assessRisk(code, ctx(req), riskId, { ...values, producer });
-    if (!proposal) return assess({ kind: "human" });
+    if (!proposal) return projects.assessRisk(code, ctx(req), riskId, values);
     return acceptRiskItem(
       req,
       code,
@@ -718,15 +694,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
         const item = c.reassessments[proposal.item];
         return { key: `neu-beurteilt:${proposal.item}`, item: item?.riskId === riskId ? item : undefined };
       },
-      (item, producer) =>
-        assess(
-          producer(
-            !sameContent(
-              [item.probability, item.impact, item.mitigation || item.current.mitigation],
-              [values.probability, values.impact, values.mitigation],
-            ),
-          ),
-        ),
+      (accepted) => projects.assessRisk(code, ctx(req), riskId, { ...values, accepted }),
     );
   });
 

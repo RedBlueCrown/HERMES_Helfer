@@ -5,7 +5,6 @@
 
 import type { HermesModel } from "../model";
 import { RISK_SCORE_HIGH } from "../model/risks";
-import { PROJECT_ROLE_LABELS } from "../model/roles";
 import {
   AMPEL_LABELS,
   STATUS_CRITERIA,
@@ -28,7 +27,14 @@ import type { StatusEntry } from "./events";
 import { openParticipation } from "./participation";
 import { openRisks, riskLabel, riskScore } from "./risks";
 import type { ProjectState, StatusReportState } from "./state";
-import { gateStatus, isFinished, isPhaseCurrent, mandatoryProgress, missingRoles } from "./status";
+import {
+  gateStatus,
+  isFinished,
+  isPhaseCurrent,
+  mandatoryProgress,
+  missingRoleDetails,
+  missingRoleText,
+} from "./status";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RANK: Readonly<Record<Ampel, number>> = { gruen: 0, gelb: 1, rot: 2 };
@@ -185,9 +191,9 @@ export function suggestStatus(
 
   // Personalaufwand
   const personal: Line[] = [];
-  const missing = current ? missingRoles(s, model, phase.id) : [];
+  const missing = current ? missingRoleDetails(s, model, phase.id) : [];
   if (missing.length) {
-    personal.push(["gelb", `Unbesetzt: ${missing.map((r) => PROJECT_ROLE_LABELS[r]).join(", ")}.`]);
+    personal.push(["gelb", `Für offene Entscheide fehlt: ${missing.map(missingRoleText).join("; ")}.`]);
   }
   const involve = current ? openParticipation(s, model, phase.id) : [];
   if (involve.length) {

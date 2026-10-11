@@ -15,8 +15,12 @@ import {
   checkDecideSkill,
   checkRemoveRole,
   decisionRolesFor,
+  gateCriteria,
+  missingRoleDetails,
   myTasks,
   nextCrNumber,
+  projectSignals,
+  projectSummary,
   projectView,
   roleConflict,
   withPolicy,
@@ -216,6 +220,65 @@ describe("separation of duties", () => {
     expect(checkDecideSkill(s, MODEL, viewer("anna"), skill, role)).toMatchObject({ code: "forbidden" });
     expect(checkDecideSkill(s, MODEL, viewer("marco"), skill, role).ok).toBe(true);
     expect(decisionRolesFor(s, RELAXED, viewer("anna"), skill).map((a) => a.role)).toEqual(["ISM"]);
+  });
+
+  it("never lets the project lead cast a veto, whatever role they hold", () => {
+    const st = new Stream("einf")
+      .member("anna", "PL", "FACH", "APM")
+      .member("nina", "FACH")
+      .member("thomas", "PA")
+      .run("einf.go-live-check");
+    const s = st.state();
+    const skill = MODEL.skill("einf.go-live-check");
+    expect(decisionRolesFor(s, MODEL, viewer("anna"), skill)).toEqual([]);
+    expect(checkDecideSkill(s, MODEL, viewer("anna"), skill, "FACH")).toMatchObject({
+      code: "forbidden",
+      reason:
+        "«Go-live-Check» hat ein Vetorecht: Den Entscheid trifft eine andere Person als die Projektleitung (Funktionentrennung).",
+    });
+    expect(checkDecideSkill(s, MODEL, viewer("nina"), skill, "FACH").ok).toBe(true);
+    // Only the project lead holds APM: the role counts as missing, and the project lead fills it.
+    expect(missingRoleDetails(s, MODEL, "einf")).toEqual([
+      { role: "APM", decisions: ["«Go-live-Readiness-Bericht» (Veto)"], held: true },
+    ]);
+    expect(myTasks(s, MODEL, viewer("anna"))).toContainEqual({ kind: "assign-role", role: "APM" });
+    expect(decisionRolesFor(s, RELAXED, viewer("anna"), skill).map((a) => a.role)).toEqual(["FACH", "APM"]);
+  });
+
+  it("counts a role as missing when nobody may take a waiting decision, and asks the PMO for control roles", () => {
+    // Sandra, the only Datenschutz member, submitted the request: her part of the recheck needs another person.
+    const st = team();
+    submit(st, "cr-data", "sandra", true);
+    accept(st, "cr-data");
+    const s = st.state();
+    expect(missingRoleDetails(s, MODEL, "init")).toEqual([
+      { role: "DS", decisions: ["Neuprüfung CR-01"], held: true },
+    ]);
+    expect(projectSignals(projectSummary(s, MODEL), new Date())).toContain("rollen-fehlen");
+    expect(gateCriteria(s, MODEL, "init").find((c) => c.id === "rollen")).toMatchObject({
+      ok: false,
+      detail: "fehlt: Datenschutz (Neuprüfung CR-01)",
+    });
+    // Datenschutz is a control role: the PMO assigns it, so the PMO gets the task, not the project lead.
+    expect(myTasks(s, MODEL, viewer("anna")).some((t) => t.kind === "assign-role")).toBe(false);
+    const pmo = viewer("peter", "HH.PMO");
+    expect(myTasks(s, MODEL, pmo)).toContainEqual({ kind: "assign-role", role: "DS" });
+    expect(projectView(s, MODEL, pmo).myTasks.find((t) => t.kind === "assign-role")?.detail).toBe(
+      "Es wartet: Neuprüfung CR-01. Wer die Rolle hat, darf hier nicht entscheiden (Funktionentrennung oder eigener Change Request); es braucht eine weitere Person mit dieser Rolle.",
+    );
+
+    // The only member of the Projektausschuss submitted a request: another member decides it.
+    const solo = new Stream("init")
+      .member("anna", "PL")
+      .member("thomas", "PA")
+      .member("marco", "ISM")
+      .member("sandra", "DS");
+    submit(solo, "cr-own", "thomas");
+    expect(missingRoleDetails(solo.state(), MODEL, "init")).toEqual([
+      { role: "PA", decisions: ["Entscheid CR-01"], held: true },
+    ]);
+    // The test environment relaxes the rules, so nothing is missing there.
+    expect(missingRoleDetails(solo.state(), RELAXED, "init")).toEqual([]);
   });
 
   it("does not let the project lead decide the gate through a global role either", () => {

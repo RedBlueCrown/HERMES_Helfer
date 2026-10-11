@@ -1002,6 +1002,66 @@ describe("risks", () => {
     expect((await risks(server, "u-anna", "KPO")).items[0]).toMatchObject({ status: "geschlossen" });
   });
 
+  it("keeps the agent's reason and fact with an accepted proposal; accepting changes only the values", async () => {
+    server = await testServer();
+    const first = (await review(server, "u-anna", "KPO")).json() as RiskReviewResult;
+    const i = first.newRisks.findIndex((r) => r.trigger === "profil:lieferant");
+    const proposed = first.newRisks[i]!;
+    expect(
+      (
+        await record(server, "u-anna", "KPO", {
+          title: proposed.title,
+          description: proposed.description,
+          probability: proposed.probability,
+          impact: proposed.impact,
+          ownerRole: proposed.ownerRole,
+          mitigation: proposed.mitigation,
+          proposal: { id: first.proposalId, item: i },
+        })
+      ).statusCode,
+    ).toBe(201);
+    // The proposal expires after a day; the record keeps why the agent proposed the risk.
+    const [risk] = (await risks(server, "u-anna", "KPO")).items;
+    expect(risk!.producer).toMatchObject({ kind: "ai", agent: "A12", edited: false });
+    expect(risk!.history[0]!.agentBasis).toEqual({
+      reason: proposed.reason,
+      trigger: "profil:lieferant",
+      fact: "Ein externer Lieferant ist beteiligt.",
+    });
+
+    const again = (await review(server, "u-anna", "KPO")).json() as RiskReviewResult;
+    const re = again.reassessments[0]!;
+    const accept = (body: object) =>
+      server!.as("u-anna").post(`/api/projects/KPO/risks/${risk!.id}/assessment`, {
+        probability: re.probability,
+        impact: re.impact,
+        status: re.current.status,
+        ownerRole: re.current.ownerRole,
+        mitigation: re.mitigation || re.current.mitigation,
+        basedOn: re.current.version,
+        proposal: { id: again.proposalId, item: 0 },
+        ...body,
+      });
+    // Closing the risk or handing it over is the person's own assessment, not the agent's.
+    for (const body of [{ status: "geschlossen", note: "Erledigt." }, { ownerRole: "FACH" }]) {
+      const refused = await accept(body);
+      expect(refused.statusCode).toBe(422);
+      expect(refused.json().error.message).toMatch(/bleiben Status und Verantwortung/);
+    }
+    expect((await accept({ note: "Eigene Notiz" })).statusCode).toBe(200);
+    const assessed = (await risks(server, "u-anna", "KPO")).items[0]!;
+    expect(assessed.status).toBe(re.current.status);
+    expect(assessed.history.at(-1)).toMatchObject({
+      note: "",
+      producer: { kind: "ai", agent: "A12", edited: false },
+      agentBasis: { reason: re.reason, trigger: re.trigger },
+    });
+    const verlauf = (
+      await server.as("u-anna").get("/api/projects/KPO/events?category=risiko&limit=1")
+    ).json();
+    expect(verlauf.items[0].text).toContain(`(Vorschlag des Risiko-Agenten): ${re.reason}`);
+  });
+
   it("lets the PL or the responsible role assess and close a risk, always with a reason to close", async () => {
     server = await testServer();
     const reg = await risks(server, "u-nina", "ERP");

@@ -91,9 +91,10 @@ export const SIGNALS: Readonly<Record<SignalId, SignalDef>> = {
     description: "Der letzte Gate-Entscheid der aktuellen Phase lautet «zurückgewiesen».",
   },
   "rollen-fehlen": {
-    label: "Rollen unbesetzt",
+    label: "Rollen fehlen",
     level: "mittel",
-    description: "Eine Rolle, die in der aktuellen Phase entscheidet, hat niemand im Vorhaben.",
+    description:
+      "Ein Entscheid der aktuellen Phase wartet auf eine Rolle, und niemand im Vorhaben darf ihn treffen: Niemand hat die Rolle, oder wer sie hat, darf hier nicht entscheiden (Funktionentrennung, Vier-Augen-Prinzip).",
   },
   "status-abweichung": {
     label: "Besser als vorgeschlagen",
@@ -255,7 +256,8 @@ export function projectSignals(p: ProjectSummary, now: Date): SignalId[] {
     veto: !p.finished && p.gateStatus === "blocked",
     "status-rot": !p.finished && (p.status?.overall === "rot" || p.redUnacknowledged),
     "status-abweichung": !p.finished && p.statusDeviations > 0,
-    "auflagen-ueberfaellig": !p.finished && overdueConditions(p, now) > 0,
+    // Also after the last gate: an Auflage of the closing decision («1 Woche») is still owed.
+    "auflagen-ueberfaellig": overdueConditions(p, now) > 0,
     neupruefung: !p.finished && p.openRechecks > 0,
     "gate-zurueckgewiesen": !p.finished && p.gateRejected,
     "rollen-fehlen": !p.finished && p.missingRoles.length > 0,

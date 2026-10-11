@@ -5,6 +5,9 @@
 import type { DraftContent, Finding } from "@hermes-helfer/core";
 import { z } from "zod";
 
+/** The longest section body the API accepts in a draft (routes.ts) and asks of the model. */
+export const SECTION_MAX = 30_000;
+
 /** `s` cut to `max` characters, marked with an ellipsis; never splits a character. */
 export function cut(s: string, max: number): string {
   if (s.length <= max) return s;
@@ -72,8 +75,16 @@ export function fitSections(
       text: `Der Agent hat einen Abschnitt «${label || "ohne Titel"}» geschrieben, der nicht zur Vorlage gehört; der Text steht unter «${headings[previous]}».`,
     });
   }
-  return {
-    draft: { ...draft, sections: headings.map((heading, i) => ({ heading, body: bodies[i]!.join("\n\n") })) },
-    findings,
-  };
+  const sections = headings.map((heading, i) => {
+    // Sections joined from several parts can outgrow the limit each part kept.
+    const body = bodies[i]!.join("\n\n");
+    if (body.length <= SECTION_MAX) return { heading, body };
+    findings.push({
+      severity: "hinweis",
+      source: "checkliste",
+      text: `Der Abschnitt «${heading}» war zu lang und wurde gekürzt; bitte das Ende prüfen.`,
+    });
+    return { heading, body: cut(body, SECTION_MAX) };
+  });
+  return { draft: { ...draft, sections }, findings };
 }

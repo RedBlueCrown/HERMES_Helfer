@@ -22,7 +22,7 @@ import { isConditionOverdue } from "./conditions";
 import { openParticipation } from "./participation";
 import { MIN_REASON, MIN_TITLE } from "./decisions";
 import type { ProjectState, RiskState, RiskValues } from "./state";
-import { gateStatus, isFinished, isPhaseCurrent, missingRoles } from "./status";
+import { gateStatus, isFinished, isPhaseCurrent, missingRoleDetails } from "./status";
 
 export const riskLabel = (number: number) => `R-${String(number).padStart(2, "0")}`;
 
@@ -194,10 +194,13 @@ export function riskTriggers(s: ProjectState, model: HermesModel, now: Date): Ri
         text: `Der letzte Entscheid zum Gate «${phase.gate.name}» lautet «zurückgewiesen».`,
       });
     }
-    for (const role of missingRoles(s, model, phase.id)) {
+    for (const m of missingRoleDetails(s, model, phase.id)) {
+      const what = m.decisions.join(", ");
       out.push({
-        id: `rolle:${role}`,
-        text: `Niemand im Vorhaben hat die Rolle ${PROJECT_ROLE_LABELS[role]}, die in dieser Phase entscheidet.`,
+        id: `rolle:${m.role}`,
+        text: m.held
+          ? `Für ${what} fehlt eine Person mit der Rolle ${PROJECT_ROLE_LABELS[m.role]}, die entscheiden darf (Funktionentrennung oder eigener Change Request).`
+          : `Niemand im Vorhaben hat die Rolle ${PROJECT_ROLE_LABELS[m.role]}; es wartet: ${what}.`,
       });
     }
     const involve = openParticipation(s, model, phase.id);

@@ -55,8 +55,12 @@ const schema = z.object({
   AZURE_OPENAI_REGION_LABEL: z.string().default("EU"),
   /** Model calls at the same time, across all agents (agents/quota.ts). */
   AI_MAX_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(200).default(8),
+  /** Model calls at the same time for one person, background drafts included. */
+  AI_MAX_CONCURRENT_CALLS_PER_USER: z.coerce.number().int().min(1).max(200).default(3),
   /** How long a call waits for a free slot before the person is told the model is busy. */
   AI_QUEUE_WAIT_MS: z.coerce.number().int().min(0).max(120_000).default(30_000),
+  /** The same for a draft in the background, which nobody waits for. */
+  AI_BACKGROUND_QUEUE_WAIT_MS: z.coerce.number().int().min(0).max(3_600_000).default(600_000),
   /** Tokens per person and day (UTC), input and output; 0: no limit. */
   AI_DAILY_TOKENS_PER_USER: z.coerce.number().int().min(0).max(1_000_000_000).default(1_000_000),
   WEB_DIST_DIR: z.string().optional(),

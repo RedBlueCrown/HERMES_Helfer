@@ -176,7 +176,8 @@ export function describeEvent(e: StoredEvent, model: HermesModel, refs: EventRef
       return `${riskLabel(e.data.number)} «${e.data.title}» erfasst (Eintritt ${e.data.probability}, Auswirkung ${e.data.impact}, verantwortlich ${PROJECT_ROLE_LABELS[e.data.ownerRole]}${byAgent(e.data.producer, "; vom Risiko-Agenten vorgeschlagen")}).`;
     case "RiskAssessed": {
       const name = riskName(e.data.riskId);
-      const note = e.data.note ? `: ${e.data.note}` : ".";
+      const why = e.data.note || e.data.agentBasis?.reason;
+      const note = why ? `: ${why}` : ".";
       if (e.data.status === "geschlossen") return `${name} geschlossen${note}`;
       return `${name} neu beurteilt: Eintritt ${e.data.probability}, Auswirkung ${e.data.impact}, ${e.data.status}${byAgent(e.data.producer, " (Vorschlag des Risiko-Agenten)")}${note}`;
     }

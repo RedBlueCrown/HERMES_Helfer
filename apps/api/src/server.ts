@@ -77,7 +77,9 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     deps.provider,
     new AiQuota({
       maxConcurrent: config.AI_MAX_CONCURRENT_CALLS,
+      maxConcurrentPerUser: config.AI_MAX_CONCURRENT_CALLS_PER_USER,
       waitMs: config.AI_QUEUE_WAIT_MS,
+      backgroundWaitMs: config.AI_BACKGROUND_QUEUE_WAIT_MS,
       dailyTokensPerUser: config.AI_DAILY_TOKENS_PER_USER,
       now: () => now().getTime(),
     }),

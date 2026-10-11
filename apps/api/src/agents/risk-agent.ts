@@ -20,22 +20,50 @@ import {
   type ReassessmentProposal,
   type RiskProposal,
   type RiskReviewResult,
+  type RiskTrigger,
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
-import { HttpError, assertCheck } from "../errors";
+import { assertCheck } from "../errors";
 import type { ProjectService, RequestContext } from "../projects/service";
-import { AiProviderError, USER_FACING_REASON, type AiProvider, type Usage } from "./provider";
+import {
+  addUsage,
+  failedUsage,
+  type AiProvider,
+  type ProjectContext,
+  type RiskReview,
+  type Usage,
+} from "./provider";
 import type { ProposalStore } from "./proposals";
-import { callFor, projectContext, recordAiRun, type Logger } from "./runner";
+import {
+  CONFIDENTIAL_SUMMARY,
+  agentFailure,
+  callFor,
+  closedByPerson,
+  projectContext,
+  recordAiRun,
+  type AiRunRecord,
+  type Logger,
+} from "./runner";
 
 /** What the server keeps of a review until the PL accepts items of it (proposals.ts). */
 export interface RiskReviewContent {
   newRisks: RiskProposal[];
   reassessments: ReassessmentProposal[];
+  /** The facts the review rested on: an accepted item keeps its fact in the record. */
+  triggers: RiskTrigger[];
 }
 
-/** Besides the engine's triggers, a proposal may rest on the profile or on released results. */
-const OTHER_GROUNDS = ["profil", "ergebnisse"];
+/**
+ * What a proposal may rest on: the engine's facts, and the released results
+ * whose content the agent sees (a result known by name only grounds nothing).
+ * A proposal naming anything else is dropped (review F8).
+ */
+export function reviewGrounds(facts: readonly RiskTrigger[], context: ProjectContext): RiskTrigger[] {
+  const readable = context.releasedResults.filter((r) => r.summary !== CONFIDENTIAL_SUMMARY);
+  if (!readable.length) return [...facts];
+  const names = readable.map((r) => `«${r.name}»`).join(", ");
+  return [...facts, { id: "ergebnisse", text: `Freigegebene Ergebnisse: ${names}.` }];
+}
 
 const hint = (text: string): Finding => ({ severity: "hinweis", source: "checkliste", text });
 
@@ -54,11 +82,12 @@ export class RiskAgent {
     assertCheck(checkReviewRisks(s, model, ctx.viewer));
     const agent = model.agent("A12");
     const info = this.provider.info;
-    const triggers = riskTriggers(s, model, this.now());
+    const context = projectContext(s, model, ctx.viewer);
+    const triggers = reviewGrounds(riskTriggers(s, model, this.now()), context);
     const runId = randomUUID();
     const started = Date.now();
     let usage: Usage = { inputTokens: 0, outputTokens: 0 };
-    const record = (outcome: "completed" | "failed", findings: number) =>
+    const record = (outcome: AiRunRecord["outcome"], findings: number) =>
       recordAiRun(this.log, info, {
         runId,
         projectId: s.projectId,
@@ -75,21 +104,25 @@ export class RiskAgent {
 
     let result: RiskReviewResult;
     try {
-      const answer = await this.provider.reviewRisks(
-        {
-          agent,
-          project: projectContext(s, model, ctx.viewer),
-          triggers,
-          roles: PROJECT_ROLES.map((id) => ({ id, label: PROJECT_ROLE_LABELS[id] })),
-          max: RISK_PROPOSALS_MAX,
-        },
-        callFor(ctx),
-      );
-      if (answer.usage) usage = answer.usage;
-      const { review } = answer;
+      // Without a fact to rest on there is nothing to propose, and no model call.
+      let review: RiskReview = { newRisks: [], reassessments: [] };
+      if (triggers.length) {
+        const answer = await this.provider.reviewRisks(
+          {
+            agent,
+            project: context,
+            triggers,
+            roles: PROJECT_ROLES.map((id) => ({ id, label: PROJECT_ROLE_LABELS[id] })),
+            max: RISK_PROPOSALS_MAX,
+          },
+          callFor(ctx),
+        );
+        if (answer.usage) usage = answer.usage;
+        review = answer.review;
+      }
       const open = new Map(openRisks(s).map((r) => [riskLabel(r.number), r]));
       // Grounding: a proposal names one of the supplied facts; others are dropped.
-      const grounds = new Set([...triggers.map((t) => t.id), ...OTHER_GROUNDS]);
+      const grounds = new Set(triggers.map((t) => t.id));
 
       const newRisks: RiskProposal[] = [];
       for (const p of review.newRisks) {
@@ -151,17 +184,18 @@ export class RiskAgent {
         projectId: s.projectId,
         userId: ctx.viewer.userId,
         producer,
-        content: { newRisks, reassessments },
+        content: { newRisks, reassessments, triggers },
       });
       result = { proposalId, newRisks, reassessments, triggers, producer };
     } catch (err) {
-      this.log.error({ err, runId, projectId: s.projectId }, "risk review failed");
-      record("failed", 0);
-      const reason = err instanceof AiProviderError ? USER_FACING_REASON[err.reason] : "Unerwarteter Fehler";
-      throw new HttpError(
-        503,
-        "ai_unavailable",
-        `${reason}. Risiken kannst du auch ohne den Agenten erfassen.`,
+      usage = addUsage(usage, failedUsage(err));
+      record(closedByPerson(err) ? "aborted" : "failed", 0);
+      throw agentFailure(
+        this.log,
+        err,
+        { runId, projectId: s.projectId },
+        "risk review",
+        "Risiken kannst du auch ohne den Agenten erfassen.",
       );
     }
     record(

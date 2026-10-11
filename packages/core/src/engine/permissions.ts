@@ -67,6 +67,18 @@ function separated(s: ProjectState, model: HermesModel, v: Viewer, role: Project
   );
 }
 
+/**
+ * A veto is a control: under separation of duties the project lead never casts
+ * one, whatever other role they hold (ISDS: ISM; Go-live-Check: Fachstelle and
+ * APM; open question F37).
+ */
+function vetoSeparated(s: ProjectState, model: HermesModel, v: Viewer, skill: SkillDef): Check {
+  if (!sod(model) || !skill.veto || !isPL(s, v)) return OK;
+  return forbidden(
+    `«${skill.name}» hat ein Vetorecht: Den Entscheid trifft eine andere Person als die Projektleitung (Funktionentrennung).`,
+  );
+}
+
 /** Four-eyes principle: nobody decides or rechecks a change request they submitted. */
 const ownRequest = (model: HermesModel, v: Viewer, cr: ChangeRequestState) =>
   sod(model) && cr.submittedBy.userId === v.userId;
@@ -185,6 +197,7 @@ export function decisionRolesFor(
   skill: SkillDef,
 ): ApproverDef[] {
   const roles = rolesOf(s, v.userId);
+  if (!vetoSeparated(s, model, v, skill).ok) return [];
   return pendingApprovers(s, skill).filter(
     (a) => roles.includes(a.role) && separated(s, model, v, a.role).ok,
   );
@@ -202,6 +215,8 @@ export function checkDecideSkill(
   }
   const separate = separated(s, model, v, role);
   if (!separate.ok) return separate;
+  const veto = vetoSeparated(s, model, v, skill);
+  if (!veto.ok) return veto;
   if (!isPhaseCurrent(s, skill.phase)) return invalid("Der Schritt gehört nicht zur aktuellen Phase.");
   const st = skillStatus(s, model, skill);
   if (st !== "approval" && st !== "veto") return invalid(`Für «${skill.name}» ist kein Entscheid offen.`);
