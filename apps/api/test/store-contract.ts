@@ -245,10 +245,23 @@ export function templateStoreContract(store: () => TemplateStore): void {
   });
 
   it("numbers parallel uploads without gaps or duplicates", async () => {
-    const id = deliverable();
-    const added = await Promise.all([1, 2, 3, 4].map((n) => store().add(template(id, `Fassung ${n}`))));
-    expect(added.map((t) => t.version).sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
-    expect((await store().latest(id))?.version).toBe(4);
+    // Two deliverables at once, one of them new: parallel uploads wait, never fail.
+    const [a, b] = [deliverable(), deliverable()];
+    await store().add(template(b, "erste"));
+    const added = await Promise.all(
+      [1, 2, 3, 4, 5, 6].flatMap((n) => [
+        store().add(template(a, `Fassung ${n}`)),
+        store().add(template(b, `Fassung ${n}`)),
+      ]),
+    );
+    const versions = (id: string) =>
+      added
+        .filter((t) => t.deliverableId === id)
+        .map((t) => t.version)
+        .sort((x, y) => x - y);
+    expect(versions(a)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(versions(b)).toEqual([2, 3, 4, 5, 6, 7]);
+    expect((await store().latest(a))?.version).toBe(6);
   });
 
   it("refuses deliverable ids that are not safe as names", async () => {

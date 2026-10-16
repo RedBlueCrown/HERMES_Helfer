@@ -83,12 +83,25 @@ export class SqlTemplateStore implements TemplateStore {
       assertDeliverableId(t.deliverableId);
       const tx = new sql.Transaction(this.pool);
       try {
-        await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
-        // The range lock makes a parallel upload for the same deliverable wait for this one.
+        await tx.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
+        // One upload per deliverable at a time, across API instances: a parallel one
+        // waits for this transaction to end. Range locks instead (SERIALIZABLE with
+        // UPDLOCK) let two parallel uploads deadlock on the ledger table.
+        const lock = await new sql.Request(tx)
+          .input("resource", sql.NVarChar(255), `hh:templates:${t.deliverableId}`)
+          .query<{ result: number }>(
+            `DECLARE @result int;
+            EXEC @result = sp_getapplock @Resource = @resource, @LockMode = N'Exclusive',
+              @LockOwner = N'Transaction', @LockTimeout = 30000;
+            SELECT @result AS result;`,
+          );
+        if ((lock.recordset[0]?.result ?? -1) < 0) {
+          throw new StoreUnavailableError("Another upload of this template did not finish in time.");
+        }
         const head = await new sql.Request(tx)
           .input("d", sql.VarChar(64), t.deliverableId)
           .query<{ version: number }>(
-            "SELECT ISNULL(MAX(version), 0) AS version FROM hh.templates WITH (UPDLOCK, HOLDLOCK) WHERE deliverable_id = @d",
+            "SELECT ISNULL(MAX(version), 0) AS version FROM hh.templates WHERE deliverable_id = @d",
           );
         const row: Row = {
           deliverable_id: t.deliverableId,
