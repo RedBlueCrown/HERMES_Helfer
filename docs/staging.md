@@ -36,7 +36,7 @@ The agents that work in this environment:
    az cognitiveservices usage list -l swedencentral -o table
    ```
 
-   10,000 tokens per minute are enough to try it (`MODEL_CAPACITY=10`). If the model is missing or needs a registration, request it in the Azure AI Foundry portal (Management center → Quota), or choose another model (next section).
+   10,000 tokens per minute are enough to try it (`MODEL_CAPACITY=10`), but not with the organisation's Word templates: Azure counts each call's upper limit against the tokens per minute, and a draft along a template may write up to 32,000. For a demonstration, keep the default of 50. If the model is missing or needs a registration, request it in the Azure AI Foundry portal (Management center → Quota), or choose another model (next section).
 4. **A shell:** [Azure Cloud Shell](https://shell.azure.com) (Bash) has everything. Elsewhere you need the Azure CLI, `jq`, `git` and `curl`. No Docker: the image is built in the container registry.
 
 ### With a personal Microsoft account
@@ -124,7 +124,8 @@ Nine cases, three times each: about 30 model calls. The report lists every case,
 | `az acr build` fails | Some subscription types (free trial, student) cannot use ACR Tasks | The script prints the `docker build` and `docker push` commands; then run it with `SKIP_BUILD=1 TAG=…` |
 | Sign-in shows *AADSTS50105* | Your account has no app role | Assign a role (step 11); the script gives it to the person who runs it |
 | Drafts fail with «Das KI-Modell ist gerade nicht erreichbar» right after the first deployment | The app's permission on the model takes a few minutes to become effective | Wait 10 minutes and try again; the logs show the status code (401/403) |
-| Drafts fail with «… keinen gültigen Entwurf geliefert» | The answer was cut off at the token limit | `REASONING_EFFORT=low`, or raise `AZURE_OPENAI_MAX_COMPLETION_TOKENS` on the container app |
+| Drafts fail with «… keinen gültigen Entwurf geliefert» | The answer was cut off at the token limit | `REASONING_EFFORT=low`, or raise `AZURE_OPENAI_DRAFT_MAX_COMPLETION_TOKENS` (drafts of results, default 32,000) or `AZURE_OPENAI_MAX_COMPLETION_TOKENS` (all other calls, default 16,000) on the container app |
+| A draft along a template with many fields fails with a timeout | Drafts may take up to 10 minutes (`AZURE_OPENAI_DRAFT_TIMEOUT_MS`) | `REASONING_EFFORT=low` makes them faster; for a demonstration, let the agent draft long results such as the ISDS-Konzept beforehand |
 | The assistant answers «aus den festen Regeln» | The chat model call failed | As above; the logs show «chat model failed» |
 | «Vorlagen» refuses a file: «keine Felder zu erkennen» | The chapters are not in the style «Überschrift 1», or the labels above the empty paragraphs are not bold | Fix the template in Word and upload it again; every upload is a new version |
 | No «Als Word herunterladen» in a result's drawer | No template for this result yet, or the result is confidential for your roles | Upload the template under «Vorlagen»; take a role that may read the result |

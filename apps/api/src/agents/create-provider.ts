@@ -18,6 +18,8 @@ export function createProvider(config: Config, credential: () => Promise<TokenCr
       regionLabel: config.AZURE_OPENAI_REGION_LABEL,
       timeoutMs: config.AZURE_OPENAI_TIMEOUT_MS,
       maxCompletionTokens: config.AZURE_OPENAI_MAX_COMPLETION_TOKENS,
+      draftTimeoutMs: config.AZURE_OPENAI_DRAFT_TIMEOUT_MS,
+      draftMaxCompletionTokens: config.AZURE_OPENAI_DRAFT_MAX_COMPLETION_TOKENS,
       ...(config.AZURE_OPENAI_REASONING_EFFORT
         ? { reasoningEffort: config.AZURE_OPENAI_REASONING_EFFORT }
         : {}),

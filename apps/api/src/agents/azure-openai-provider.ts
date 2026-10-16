@@ -55,6 +55,13 @@ export interface AzureOpenAiConfig {
   timeoutMs?: number;
   /** Upper bound for reasoning and answer tokens per call (unbounded consumption, architecture §8.2). */
   maxCompletionTokens?: number;
+  /**
+   * Drafts of results: they follow templates with many fields (an ISDS-Konzept has
+   * 65) and run in the background, so they may write more and take longer. A
+   * deployment's quota counts each call's limit, so the other calls keep the smaller one.
+   */
+  draftMaxCompletionTokens?: number;
+  draftTimeoutMs?: number;
   /** Only for reasoning models such as the GPT-5 series. */
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
 }
@@ -318,7 +325,13 @@ export class AzureOpenAiProvider implements AiProvider {
     };
   }
 
-  private async call(deployment: string, body: Record<string, unknown>, signal?: AbortSignal) {
+  private async call(
+    deployment: string,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+    limits: { maxCompletionTokens?: number | undefined; timeoutMs?: number | undefined } = {},
+  ) {
+    const maxCompletionTokens = limits.maxCompletionTokens ?? this.cfg.maxCompletionTokens;
     const base = this.cfg.endpoint.replace(/\/$/, "");
     const v1 = this.cfg.apiVersion === "v1";
     const url = v1
@@ -327,10 +340,10 @@ export class AzureOpenAiProvider implements AiProvider {
     const payload = {
       ...(v1 ? { model: deployment } : {}),
       ...body,
-      ...(this.cfg.maxCompletionTokens ? { max_completion_tokens: this.cfg.maxCompletionTokens } : {}),
+      ...(maxCompletionTokens ? { max_completion_tokens: maxCompletionTokens } : {}),
       ...(this.cfg.reasoningEffort ? { reasoning_effort: this.cfg.reasoningEffort } : {}),
     };
-    const timeout = AbortSignal.timeout(this.cfg.timeoutMs ?? 180_000);
+    const timeout = AbortSignal.timeout(limits.timeoutMs ?? this.cfg.timeoutMs ?? 180_000);
     let res: Response;
     try {
       res = await this.fetchImpl(url, {
@@ -377,6 +390,7 @@ export class AzureOpenAiProvider implements AiProvider {
     schema: unknown,
     out: z.ZodType<T>,
     signal: AbortSignal | undefined,
+    limits?: { maxCompletionTokens?: number | undefined; timeoutMs?: number | undefined },
   ): Promise<{ value: T; usage?: Usage }> {
     const { message, usage } = await this.call(
       deployment,
@@ -388,6 +402,7 @@ export class AzureOpenAiProvider implements AiProvider {
         response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
       },
       signal,
+      limits,
     );
     let json: unknown;
     try {
@@ -411,6 +426,7 @@ export class AzureOpenAiProvider implements AiProvider {
       DRAFT_SCHEMA,
       DraftOut,
       ctx?.signal,
+      { maxCompletionTokens: this.cfg.draftMaxCompletionTokens, timeoutMs: this.cfg.draftTimeoutMs },
     );
     return { draft: value, ...(usage ? { usage } : {}) };
   }

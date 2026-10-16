@@ -666,6 +666,49 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     expect(body).not.toHaveProperty("reasoning_effort");
   });
 
+  it("lets drafts of results write more and take longer than the other calls", async () => {
+    const draft = { summary: "S", sections: [], openPoints: [] };
+    const bodies: { max_completion_tokens?: number; response_format: { json_schema: { name: string } } }[] =
+      [];
+    const fn = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as (typeof bodies)[number];
+      bodies.push(body);
+      const content = body.response_format.json_schema.name === "kritik" ? { findings: [] } : draft;
+      return new Response(
+        JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: JSON.stringify(content) } }],
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    const p = new AzureOpenAiProvider(
+      { ...cfg, timeoutMs: 5_000, draftMaxCompletionTokens: 32000, draftTimeoutMs: 600_000 },
+      async () => "tok",
+      fn,
+    );
+    await p.draft(req);
+    await p.critique({ key: "k", document: "D", sections: [], results: [], draft });
+    expect(bodies.map((b) => b.max_completion_tokens)).toEqual([32000, 16000]);
+    // A call within a request still gives up after its own, shorter wait.
+    const hanging = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal!.addEventListener("abort", () => reject(new DOMException("timed out", "TimeoutError")));
+      })) as unknown as typeof fetch;
+    const slow = new AzureOpenAiProvider(
+      { ...cfg, timeoutMs: 50, draftTimeoutMs: 400 },
+      async () => "tok",
+      hanging,
+    );
+    const drafting = slow.draft(req);
+    let draftDone = false;
+    drafting.catch(() => undefined).finally(() => (draftDone = true));
+    await expect(
+      slow.critique({ key: "k", document: "D", sections: [], results: [], draft }),
+    ).rejects.toMatchObject({ reason: "timeout" });
+    expect(draftDone).toBe(false);
+    await expect(drafting).rejects.toMatchObject({ reason: "timeout" });
+  });
+
   it("drafts a change request with its areas as structured output, never with effort or cost", async () => {
     const out = {
       summary: "S",
