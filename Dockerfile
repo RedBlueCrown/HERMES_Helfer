@@ -8,7 +8,7 @@
 # mcr.microsoft.com, pinned by digest (Dependabot proposes updates). The
 # runtime image has no shell and no package manager, and runs as nonroot.
 
-FROM mcr.microsoft.com/azurelinux/base/nodejs:24.21.0-1-azl3.0.20261005@sha256:c30e39a396fb0ad2c7bf2fe6b4e2fe1598a9b79f09831c07d763fe09927e8779 AS build
+FROM mcr.microsoft.com/azurelinux/base/nodejs:24.21.0-1-azl3.0.20261015@sha256:74d685815e58a5bce05088452adfccd3091368511236fbff1c7ad328b4a21b63 AS build
 WORKDIR /src
 # Dependencies first, so this layer is cached until a package file changes.
 COPY package.json package-lock.json ./
@@ -26,7 +26,7 @@ RUN npm run build \
   && rm -rf node_modules \
   && npm ci --omit=dev --workspace @hermes-helfer/api --no-audit --no-fund
 
-FROM mcr.microsoft.com/azurelinux/distroless/nodejs:24.21.0-1-nonroot-azl3.0.20261005@sha256:be12f1235ae675a4246ac2a276ac20aac8b573e70914f726c17b96615a573ced AS distroless
+FROM mcr.microsoft.com/azurelinux/distroless/nodejs:24.21.0-1-nonroot-azl3.0.20261015@sha256:c1f9ccc08d03674c7644bd395e82584e0d16ce65bbb15a26eae4ea02239eec57 AS distroless
 
 # The distroless image still contains npm and corepack, with their own bundled
 # dependencies. The app never uses them, so the runtime image leaves them out.
