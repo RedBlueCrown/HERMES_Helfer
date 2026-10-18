@@ -3,7 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 // End-to-end smoke test: starts the API (dev sign-in, mock model, demo data,
 // in memory) and the Vite dev server, then drives the app in Chromium. A second
 // pair runs as the test environment does (infra/test.bicepparam): no demo data,
-// separation of duties off, so one person can try every role.
+// separation of duties off, so one person can try every role, and the
+// Projektablage may be a private OneDrive.
 const api = (port: number, env: Record<string, string>) => ({
   command: "npx tsx src/main.ts",
   cwd: "../api",
@@ -55,7 +56,10 @@ export default defineConfig({
   webServer: [
     api(3001, { SEED_DEMO: "true", SEED_SYNTHETIC_PROJECTS: "40" }),
     web(5173, 3001),
-    api(3002, { SEPARATION_OF_DUTIES: "false" }),
+    api(3002, {
+      SEPARATION_OF_DUTIES: "false",
+      DOCUMENT_STORAGE_HOSTS: "*.sharepoint.com,onedrive.live.com,1drv.ms",
+    }),
     web(5174, 3002),
   ],
 });

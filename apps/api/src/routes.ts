@@ -14,6 +14,7 @@ import {
   GLOBAL_ROLE_LABELS,
   INCOMPATIBLE_ROLES,
   INVOLVEMENT_OPTIONS,
+  MAX_STORAGE_URL,
   MIN_SUMMARY,
   MIN_TITLE,
   PHASE_IDS,
@@ -452,6 +453,13 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const { code } = params(req, z.object({ code: Code }));
     const body = parse(z.object({ profile: Profile }), req.body);
     return projects.updateProfile(code, ctx(req), body.profile);
+  });
+
+  // The link to the project's folder (Projektablage); the engine checks its form and host.
+  app.put("/api/projects/:code/storage", async (req) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const body = parse(z.object({ url: z.string().max(MAX_STORAGE_URL * 2) }), req.body);
+    return projects.setDocumentStorage(code, ctx(req), body.url);
   });
 
   app.post("/api/projects/:code/members", async (req) => {

@@ -6,6 +6,19 @@ const flag = (byDefault: boolean) =>
     .default(byDefault ? "true" : "false")
     .transform((v) => v === "true");
 
+/** A host name, or «*.» and a domain for every host below it («*.sharepoint.com»). */
+const HOST_PATTERN = /^(?:\*\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+$/;
+
+const hostList = z
+  .string()
+  .transform((v) =>
+    v
+      .split(",")
+      .map((h) => h.trim().toLowerCase())
+      .filter(Boolean),
+  )
+  .pipe(z.array(z.string().regex(HOST_PATTERN, "Expected a host name or *.domain")).min(1));
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   HOST: z.string().default("127.0.0.1"),
@@ -38,6 +51,12 @@ const schema = z.object({
    * test environment, so that one person can try every role.
    */
   SEPARATION_OF_DUTIES: flag(true),
+  /**
+   * Where project files may be: the hosts a Projektablage link may point to,
+   * comma-separated. The default allows SharePoint and OneDrive for work; a
+   * test environment adds a private OneDrive (onedrive.live.com, 1drv.ms).
+   */
+  DOCUMENT_STORAGE_HOSTS: hostList.default(["*.sharepoint.com"]),
   SEED_DEMO: flag(false),
   SEED_SYNTHETIC_PROJECTS: z.coerce.number().int().min(0).max(5000).default(0),
   AI_PROVIDER: z.enum(["mock", "azure-openai"]).default("mock"),

@@ -6,6 +6,7 @@ import { PROJECT_ROLE_LABELS } from "../model/roles";
 import { crLabel, formatChf } from "./change-requests";
 import { findChecklist } from "./permissions";
 import { riskLabel } from "./risks";
+import { storageLinkHost } from "./storage";
 import { ampelLabel, deviatingCriteria, nonGreenSummary, reportOverall, reportTitle } from "./status-report";
 import type { StoredEvent } from "./events";
 import type { ProjectState } from "./state";
@@ -56,6 +57,7 @@ export function eventCategory(e: StoredEvent): EventCategory {
       return "rollen";
     case "ProjectCreated":
     case "ProfileUpdated":
+    case "DocumentStorageSet":
       return "vorhaben";
     case "ChangeRequestSubmitted":
     case "ChangeRequestWithdrawn":
@@ -113,6 +115,11 @@ export function describeEvent(e: StoredEvent, model: HermesModel, refs: EventRef
       return `${e.data.displayName} hat die Rolle ${PROJECT_ROLE_LABELS[e.data.role]} nicht mehr.`;
     case "ProfileUpdated":
       return "Vorhabensprofil geändert; die nötige Beteiligung wurde neu bestimmt.";
+    case "DocumentStorageSet": {
+      // The host only: the path of a folder may name people or content.
+      const host = storageLinkHost(e.data.url);
+      return e.data.url ? `Projektablage verknüpft${host ? ` (${host})` : ""}.` : "Projektablage entfernt.";
+    }
     case "SkillRunRequested":
       return `Entwurf angestossen: ${skillName(e.data.skillId)} → «${docName(e.data.skillId)}».`;
     case "SkillRunCompleted": {

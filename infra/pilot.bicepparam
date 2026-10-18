@@ -31,3 +31,7 @@ param chatModel = {
   capacity: 50
 }
 param aiRegionLabel = 'Sweden Central (regional)'
+
+// Where project files may be (F9): the organisation's SharePoint and OneDrive for work,
+// for example 'musterag.sharepoint.com,musterag-my.sharepoint.com'.
+param documentStorageHosts = '*.sharepoint.com'

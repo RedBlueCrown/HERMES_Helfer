@@ -32,6 +32,7 @@ import { commands, documentPath, projectPath, useApi, useDeliverable, useProject
 import type { ChecklistView, DeliverableDetailView, DocumentReport, SkillView } from "../api/types";
 import { DecisionForm, type DecisionValues } from "./DecisionForm";
 import { DraftEditor } from "./DraftEditor";
+import { StorageHint } from "./StorageLink";
 import {
   conditionDueText,
   DeliverableBadge,
@@ -417,6 +418,7 @@ function DocumentSection({
           Als Word herunterladen
         </Button>
       </div>
+      <StorageHint code={code} />
     </section>
   );
 }

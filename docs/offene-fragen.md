@@ -147,6 +147,7 @@ Der Projektausschuss entscheidet meist in einer Sitzung.
 1. Haben die über 300 Vorhaben schon eigene SharePoint-Sites oder Teams? Soll die App bestehende Sites **verknüpfen** oder **neue anlegen**?
 2. Wo ist heute die Liste aller Vorhaben (z. B. Excel, ein Portfolio-Tool)? Diese Liste würde ich als Ausgangsbestand importieren.
 3. Gibt es eine Projektnummer oder ein Projektkürzel (z. B. «P-2026-014»)?
+4. Unter welchen Adressen liegen die Projektablagen (z. B. `musterag.sharepoint.com`)? Als «Projektablage» eines Vorhabens nimmt der HERMES Helfer nur Links dorthin an. Bis zur Antwort sind es alle SharePoint-Adressen (`*.sharepoint.com`); in der Testumgebung zum Üben auch ein privates OneDrive.
 
 **Antwort:**
 

@@ -1,5 +1,6 @@
-// Separation of duties (Funktionentrennung, architecture §6.1). Controls only
-// work when someone other than the person controlled holds them.
+// Rules of the organisation that the checks apply. Separation of duties
+// (Funktionentrennung, architecture §6.1): controls only work when someone
+// other than the person controlled holds them. And where project files may be.
 
 import type { ProjectRole } from "./types";
 
@@ -11,9 +12,21 @@ export interface GovernancePolicy {
    * role (API setting SEPARATION_OF_DUTIES=false).
    */
   readonly separationOfDuties: boolean;
+  /**
+   * Where a project's files may be: the hosts a Projektablage link may point to
+   * (engine/storage.ts; API setting DOCUMENT_STORAGE_HOSTS). «*.example.com»
+   * allows every host below example.com.
+   */
+  readonly documentStorageHosts: readonly string[];
 }
 
-export const DEFAULT_POLICY: GovernancePolicy = { separationOfDuties: true };
+/** Microsoft 365 of an organisation: SharePoint sites and OneDrive for work (open question F9). */
+export const DEFAULT_STORAGE_HOSTS: readonly string[] = ["*.sharepoint.com"];
+
+export const DEFAULT_POLICY: GovernancePolicy = {
+  separationOfDuties: true,
+  documentStorageHosts: DEFAULT_STORAGE_HOSTS,
+};
 
 /** Roles that decide, approve or recheck. Under separation of duties the PMO assigns and removes them. */
 export const CONTROL_ROLES: readonly ProjectRole[] = ["PA", "ISM", "DS"];

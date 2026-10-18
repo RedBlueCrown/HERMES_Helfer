@@ -32,6 +32,7 @@ import {
   checkPublishStatusReport,
   checkReviewRisks,
   checkSetChangeReserve,
+  checkSetDocumentStorage,
   checkStartSkill,
   checkSubmitChangeRequest,
   checkUpdateProfile,
@@ -60,6 +61,7 @@ import {
   validateRisk,
   validateRiskAssessment,
   validateStatusReport,
+  validateStorageLink,
   validateWithdrawal,
   type Actor,
   type Channel,
@@ -322,6 +324,22 @@ export class ProjectService {
     return this.command(code, ctx, (s) => {
       assertCheck(checkUpdateProfile(s, this.model, ctx.viewer));
       return [{ type: "ProfileUpdated", data: { profile } }];
+    });
+  }
+
+  /** The link to the project's folder for its files (Projektablage); an empty link removes it. */
+  setDocumentStorage(code: string, ctx: RequestContext, url: string) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkSetDocumentStorage(s, this.model, ctx.viewer));
+      const link = url.trim();
+      const invalid = validateStorageLink(link, this.model.policy.documentStorageHosts);
+      if (invalid) throw unprocessable(invalid);
+      if (link === (s.storage?.url ?? "")) {
+        throw unprocessable(
+          link ? "Die Projektablage hat bereits diesen Link." : "Es ist keine Projektablage verknüpft.",
+        );
+      }
+      return [{ type: "DocumentStorageSet", data: { url: link } }];
     });
   }
 

@@ -25,7 +25,10 @@ export async function testServer(
   const store = new MemoryEventStore();
   const repo = new ProjectRepository(
     store,
-    withPolicy(MODEL, { separationOfDuties: config.SEPARATION_OF_DUTIES }),
+    withPolicy(MODEL, {
+      separationOfDuties: config.SEPARATION_OF_DUTIES,
+      documentStorageHosts: config.DOCUMENT_STORAGE_HOSTS,
+    }),
   );
   if (opts.seed !== false) await seedDemo(repo);
   const server = await buildServer({

@@ -25,6 +25,7 @@ import { DeliverableList, GatePanel, PhaseTimeline } from "../components/PhaseOv
 import { NewRiskDrawer, RiskDrawer, RiskReviewDrawer, RisksTab } from "../components/Risks";
 import { NewStatusReportDrawer, StatusReportTab } from "../components/StatusReports";
 import { ConditionsCard, MyTasksCard, NextStepCard, type Navigate } from "../components/SidePanels";
+import { StorageButtons } from "../components/StorageLink";
 import { AmpelBadge, ErrorView, formatDay } from "../components/ui";
 
 type TabId = "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "status" | "verlauf";
@@ -40,6 +41,7 @@ const useStyles = makeStyles({
   },
   title: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalXS },
   roles: { display: "flex", gap: tokens.spacingHorizontalXS, flexWrap: "wrap", alignItems: "center" },
+  actions: { display: "flex", gap: tokens.spacingHorizontalS, flexWrap: "wrap", alignItems: "center" },
   grid: {
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr) 340px",
@@ -139,9 +141,12 @@ export function ProjectPage() {
           </div>
           {v.description ? <Caption1 className={s.muted}>{v.description}</Caption1> : null}
         </div>
-        <Button appearance="primary" icon={<Chat20Regular />} onClick={() => setChatOpen(true)}>
-          Assistent fragen
-        </Button>
+        <div className={s.actions}>
+          <StorageButtons code={code} view={v} />
+          <Button appearance="primary" icon={<Chat20Regular />} onClick={() => setChatOpen(true)}>
+            Assistent fragen
+          </Button>
+        </div>
       </div>
 
       {v.myRoles.length === 0 ? (

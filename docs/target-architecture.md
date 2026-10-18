@@ -306,6 +306,15 @@ The organisation's Word templates give the drafts their structure, and a result 
 4. **Drafting.** The skill that writes the deliverable (its output has the deliverable's name, otherwise the last one) drafts the template's agent fields as its sections, «Kapitel › Feld», in the template's order; table cells get a short value. A skill that writes several deliverables with templates drafts the fields of all of them. The draft records the template versions it follows (`SkillRunCompleted.templates`), and the Kritiker checks the template's sections. Manual results get the same sections.
 5. **Document.** Whoever may read the result (need-to-know as for the content, §6) downloads it as a Word document from the result's drawer. The template is filled: facts, the sections of the draft the person may read, and empty fields for people; the layout, styles, headers and footers stay as they are, bullets use the template's list style, and the document properties name the status, the content version and the template version. A draft written before the template fills the fields whose labels match its headings, and the drawer names the sections that have no field. Each download leaves a `document_export` entry in the audit log (who, which result, template and content version, never the content), each upload a `template_uploaded` entry.
 
+### 5.10 Projektablage
+
+Each project can name the folder where its files are, the Projektablage: a link to a folder in SharePoint or OneDrive (`packages/core/src/engine/storage.ts`). The PL or the PMO records it in the project header (event `DocumentStorageSet`; an empty link removes it). Every member opens the folder from the header and from the Word section of a result's drawer. The app keeps only the link and neither reads nor writes the folder; what someone sees there is up to the folder's permissions.
+
+- **Where:** the engine accepts only `https` links to the hosts of the policy (`documentStorageHosts`, API setting `DOCUMENT_STORAGE_HOSTS`). By default these are SharePoint and OneDrive for work (`*.sharepoint.com`); the pilot names the organisation's own hosts (question F9), and the test environment also allows a private OneDrive for practice.
+- **Safe links only:** links with a user name or a port, and characters a browser reads differently from the check (spaces, backslashes, non-ASCII), are refused, so the folder the browser opens is on the host that was checked. The link opens in a new tab without the app's address (`noopener noreferrer`).
+- **What the record shows:** the Verlauf names the host, not the folder's path. Everyone who sees the project sees the link, and it stays in the Projektakte; the dialog therefore asks for the folder's own address instead of a sharing link «Jeder mit dem Link» (todo-later E38).
+- **Later:** filing released documents in the folder through Microsoft Graph (todo-later H23, Increment 3).
+
 ## 6. Identity and authorization
 
 - **Sign-in:** Entra ID with Conditional Access and MFA. Internal users only (D6).
@@ -336,6 +345,7 @@ The organisation's Word templates give the drafts their structure, and a result 
 | Publish a status report; take note of it | PL; PA |
 | Assign and remove roles | PL for the team roles, PMO for all roles (§6.1) |
 | Verify the audit chain | PL, PMO |
+| Link the Projektablage (§5.10) | PL, PMO |
 | Create a project | PMO |
 
 ### 6.1 Separation of duties (Funktionentrennung)

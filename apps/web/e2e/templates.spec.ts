@@ -67,4 +67,19 @@ test("PMO keeps a Word template; the PL drafts along it and downloads the docume
   for (const text of ["Kundenportal Self-Service", "Anna Keller", "Entwurf (KI)", "Nina Huber"]) {
     expect(xml).toContain(text);
   }
+
+  // The PL links the Projektablage (here only the organisation's SharePoint); the Word section points to it.
+  await d.getByRole("button", { name: "Schliessen" }).click();
+  await page.getByRole("button", { name: "Projektablage verknüpfen" }).click();
+  const storage = page.getByRole("dialog");
+  const link = storage.getByRole("textbox", { name: "Link zum Ordner" });
+  await link.fill("https://1drv.ms/f/c/4a2b3c4d5e6f7a8b/EjB4kLm");
+  await expect(storage).toContainText("Die Projektablage liegt auf: *.sharepoint.com.");
+  await link.fill("https://muster.sharepoint.com/sites/KPO/Freigegebene%20Dokumente");
+  await storage.getByRole("button", { name: "Speichern" }).click();
+  await expect(page.getByRole("link", { name: "Projektablage" })).toBeVisible();
+  await result.getByRole("button", { name: "Projektauftrag", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Word-Dokument" })).toContainText(
+    "Lege das heruntergeladene Dokument in der Projektablage ab (muster.sharepoint.com).",
+  );
 });

@@ -22,7 +22,10 @@ const getCredential = () =>
   }));
 
 const { events: store, templates } = await createStores(config, log, getCredential);
-const model = withPolicy(MODEL, { separationOfDuties: config.SEPARATION_OF_DUTIES });
+const model = withPolicy(MODEL, {
+  separationOfDuties: config.SEPARATION_OF_DUTIES,
+  documentStorageHosts: config.DOCUMENT_STORAGE_HOSTS,
+});
 const repo = new ProjectRepository(store, model, {
   // todo-later E11: alert ISM and SOC instead of only logging.
   onCorruptProject: (projectId, result) =>

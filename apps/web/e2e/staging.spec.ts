@@ -34,4 +34,23 @@ test("First steps in a new environment: the PMO creates a project and takes the 
   const kickoff = page.locator('[data-deliverable="kickoff"]');
   await kickoff.getByRole("button", { name: "Entwurf erstellen" }).click();
   await expect(kickoff).toContainText("Entwurf (KI)");
+
+  // For practice, the Projektablage is a folder in a private OneDrive.
+  const folder = "https://onedrive.live.com/?id=4A2B%21105&cid=4A2B3C4D5E6F7A8B";
+  await page.getByRole("button", { name: "Projektablage verknüpfen" }).click();
+  const storage = page.getByRole("dialog");
+  const link = storage.getByRole("textbox", { name: "Link zum Ordner" });
+  await link.fill("https://dropbox.example/ordner");
+  await expect(storage).toContainText("Links auf «dropbox.example» sind hier nicht vorgesehen.");
+  await expect(storage.getByRole("button", { name: "Speichern" })).toBeDisabled();
+  await link.fill(folder);
+  await shot(page, "16-projektablage");
+  await storage.getByRole("button", { name: "Speichern" }).click();
+  const open = page.getByRole("link", { name: "Projektablage" });
+  await expect(open).toHaveAttribute("href", folder);
+  await expect(open).toHaveAttribute("target", "_blank");
+  await expect(open).toHaveAttribute("rel", "noopener noreferrer");
+  await shot(page, "17-projektablage-verknuepft");
+  await page.getByRole("tab", { name: "Verlauf" }).click();
+  await expect(page.getByText("Projektablage verknüpft (onedrive.live.com).")).toBeVisible();
 });

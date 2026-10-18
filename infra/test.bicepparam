@@ -45,3 +45,7 @@ param aiRegionLabel = 'Sweden Central (regional)'
 // One person tries every role in the test environment (docs/staging.md). The pilot
 // keeps separation of duties on.
 param separationOfDuties = false
+
+// For practice, the Projektablage may also be a folder in a private OneDrive
+// (fictional files only). The pilot allows the organisation's SharePoint only.
+param documentStorageHosts = '*.sharepoint.com,onedrive.live.com,1drv.ms'

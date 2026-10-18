@@ -87,6 +87,25 @@ describe("configuration guards", () => {
     expect(loadConfig({ AUTH_MODE: "dev", ENTRA_API_SCOPE: "" }).ENTRA_API_SCOPE).toBeUndefined();
   });
 
+  it("allows the Projektablage on SharePoint by default, and only host names as other places", () => {
+    expect(loadConfig({ AUTH_MODE: "dev" }).DOCUMENT_STORAGE_HOSTS).toEqual(["*.sharepoint.com"]);
+    expect(
+      loadConfig({ AUTH_MODE: "dev", DOCUMENT_STORAGE_HOSTS: " Muster.SharePoint.com, 1drv.ms ," })
+        .DOCUMENT_STORAGE_HOSTS,
+    ).toEqual(["muster.sharepoint.com", "1drv.ms"]);
+    for (const hosts of [
+      "https://muster.sharepoint.com",
+      "*",
+      "*.com.",
+      "muster.sharepoint.com/sites",
+      ",",
+    ]) {
+      expect(() => loadConfig({ AUTH_MODE: "dev", DOCUMENT_STORAGE_HOSTS: hosts }), hosts).toThrow(
+        /DOCUMENT_STORAGE_HOSTS/,
+      );
+    }
+  });
+
   it("fails closed: Entra ID sign-in by default, never dev sign-in in Azure", () => {
     expect(() => loadConfig({})).toThrow(/ENTRA_TENANT_ID/);
     // An empty NODE_ENV becomes "development", but that does not switch on dev sign-in.

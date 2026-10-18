@@ -82,6 +82,7 @@ import {
   checkRelease,
   checkReviewRisks,
   checkSetChangeReserve,
+  checkSetDocumentStorage,
   checkStartSkill,
   checkSubmitChangeRequest,
   checkUpdateProfile,
@@ -147,6 +148,7 @@ import {
   type GateStatus,
   type SkillStatus,
 } from "./status";
+import { storageLinkHost } from "./storage";
 import { myTasks, nextStep, type MyTask, type NextStep } from "./tasks";
 
 // ---------- Labels ----------
@@ -344,6 +346,13 @@ export interface ProjectView {
   myRoles: ProjectRole[];
   profile: ProjectProfile;
   canEditProfile: Check;
+  /** The project's folder for its files (Projektablage); the app keeps only the link. */
+  storage: {
+    link?: { url: string; host: string; at: string; by: ActorRef };
+    canSet: Check;
+    /** Where a link may point: the organisation's setting, for example «*.sharepoint.com». */
+    hosts: readonly string[];
+  };
   phases: PhaseView[];
   members: MemberView[];
   conditions: ConditionView[];
@@ -1060,6 +1069,11 @@ export function projectView(
     myRoles: rolesOf(s, v.userId),
     profile: s.profile,
     canEditProfile: checkUpdateProfile(s, model, v),
+    storage: {
+      ...(s.storage ? { link: { ...s.storage, host: storageLinkHost(s.storage.url) ?? "" } } : {}),
+      canSet: checkSetDocumentStorage(s, model, v),
+      hosts: model.policy.documentStorageHosts,
+    },
     phases: model.phases.map((ph) => ({
       id: ph.id,
       label: ph.label,

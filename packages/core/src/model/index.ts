@@ -14,7 +14,7 @@ export interface HermesModel {
   readonly version: string;
   readonly phases: readonly PhaseDef[];
   readonly agents: readonly AgentDef[];
-  /** Rules of the organisation that the checks apply (separation of duties). */
+  /** Rules of the organisation that the checks apply (separation of duties, where project files may be). */
   readonly policy: GovernancePolicy;
   phase(id: PhaseId): PhaseDef;
   phaseIndex(id: PhaseId): number;
@@ -77,10 +77,10 @@ export function buildModel(
 
 export const MODEL: HermesModel = buildModel(PHASES, AGENTS, MODEL_VERSION);
 
-/** The same model under another policy (the API's SEPARATION_OF_DUTIES setting). */
-export const withPolicy = (model: HermesModel, policy: GovernancePolicy): HermesModel => ({
+/** The same model under another policy (the API's settings); rules not named stay as they are. */
+export const withPolicy = (model: HermesModel, policy: Partial<GovernancePolicy>): HermesModel => ({
   ...model,
-  policy,
+  policy: { ...model.policy, ...policy },
 });
 
 export { AGENTS } from "./agents";

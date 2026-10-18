@@ -60,6 +60,9 @@ param apiSize {
 @description('Separation of duties; off only in a test environment.')
 param separationOfDuties bool
 
+@description('The hosts a Projektablage link may point to, comma-separated.')
+param documentStorageHosts string
+
 var deployApp = !empty(image)
 var appName = 'ca-${name}-api'
 
@@ -156,6 +159,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = if (deployApp) {
               { name: 'AZURE_OPENAI_REASONING_EFFORT', value: ai.reasoningEffort }
               { name: 'TRUSTED_PROXIES', value: appsPrefix }
               { name: 'SEPARATION_OF_DUTIES', value: separationOfDuties ? 'true' : 'false' }
+              { name: 'DOCUMENT_STORAGE_HOSTS', value: documentStorageHosts }
             ]),
             e => !empty(e.value)
           )

@@ -83,6 +83,9 @@ param aiReasoningEffort string = ''
 @description('Separation of duties (architecture §6.1). Off only in a test environment, so that one person can try every role.')
 param separationOfDuties bool = true
 
+@description('Where project files may be: the hosts a Projektablage link may point to, comma-separated. "*.example.com" allows every host below example.com (open question F9).')
+param documentStorageHosts string = '*.sharepoint.com'
+
 var name = 'hh-${environmentName}'
 
 module identities 'modules/identities.bicep' = {
@@ -216,6 +219,7 @@ module apps 'modules/container-apps.bicep' = {
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     apiSize: apiSize
     separationOfDuties: separationOfDuties
+    documentStorageHosts: documentStorageHosts
   }
 }
 

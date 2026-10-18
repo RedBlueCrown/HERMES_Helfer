@@ -565,6 +565,56 @@ describe("roles and separation of duties", () => {
   });
 });
 
+describe("Projektablage", () => {
+  const SITE =
+    "https://muster.sharepoint.com/sites/KPO/Freigegebene%20Dokumente/Forms/AllItems.aspx?id=%2FKPO";
+  const ONEDRIVE = "https://1drv.ms/f/c/1a2b3c4d5e6f7a8b/EjB4kLmNoPq?e=AbC12d";
+  const link = (s: Server, user: string, url: string) => s.as(user).put("/api/projects/KPO/storage", { url });
+
+  it("is linked by the PL or the PMO to the organisation's SharePoint, and shown to every member", async () => {
+    server = await testServer();
+    expect((await link(server, "u-nina", SITE)).statusCode).toBe(403);
+    expect((await link(server, "u-rita", SITE)).statusCode).toBe(403);
+    const elsewhere = await link(server, "u-anna", ONEDRIVE);
+    expect(elsewhere.statusCode).toBe(422);
+    expect(elsewhere.json().error.message).toBe(
+      "Links auf «1drv.ms» sind hier nicht vorgesehen. Die Projektablage liegt auf: *.sharepoint.com.",
+    );
+    expect((await link(server, "u-anna", "javascript:alert(1)")).statusCode).toBe(422);
+    expect((await link(server, "u-anna", ` ${SITE} `)).statusCode).toBe(200);
+    expect((await link(server, "u-anna", SITE)).json().error.message).toBe(
+      "Die Projektablage hat bereits diesen Link.",
+    );
+    const v = await view(server, "u-nina", "KPO");
+    expect(v.storage).toMatchObject({
+      link: { url: SITE, host: "muster.sharepoint.com", by: { displayName: "Anna Keller" } },
+      canSet: { ok: false },
+      hosts: ["*.sharepoint.com"],
+    });
+
+    expect((await link(server, "u-peter", "")).statusCode).toBe(200);
+    expect((await view(server, "u-anna", "KPO")).storage.link).toBeUndefined();
+    const record = (
+      await server.as("u-anna").get("/api/projects/KPO/events?category=vorhaben&limit=2")
+    ).json();
+    expect(record.items.map((e: { text: string }) => e.text)).toEqual([
+      "Projektablage entfernt.",
+      "Projektablage verknüpft (muster.sharepoint.com).",
+    ]);
+  });
+
+  it("may be a private OneDrive where the environment allows it (test environment)", async () => {
+    server = await testServer({
+      env: { DOCUMENT_STORAGE_HOSTS: "*.sharepoint.com,onedrive.live.com,1drv.ms" },
+    });
+    expect((await link(server, "u-anna", ONEDRIVE)).statusCode).toBe(200);
+    expect((await view(server, "u-anna", "KPO")).storage).toMatchObject({
+      link: { url: ONEDRIVE, host: "1drv.ms" },
+      hosts: ["*.sharepoint.com", "onedrive.live.com", "1drv.ms"],
+    });
+  });
+});
+
 describe("change requests", () => {
   const register = async (s: Server, user: string) =>
     (await s.as(user).get("/api/projects/ERP/change-requests")).json() as ChangeRequestRegisterView;

@@ -221,6 +221,8 @@ export interface ProjectState {
   changeRequests: Record<string, ChangeRequestState>;
   /** Reserve for changes from the project order, in CHF; undefined until the PL records it. */
   changeReserveChf?: number;
+  /** The link to the project's folder for its files (Projektablage); undefined until someone records it. */
+  storage?: { url: string; at: string; by: ActorRef };
   risks: Record<string, RiskState>;
   statusReports: Record<string, StatusReportState>;
 }
@@ -271,6 +273,10 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
     }
     case "ProfileUpdated":
       s.profile = { ...e.data.profile };
+      return;
+    case "DocumentStorageSet":
+      if (e.data.url) s.storage = { url: e.data.url, at: e.at, by: ref(e.actor) };
+      else delete s.storage;
       return;
     case "SkillRunRequested": {
       s.runs[e.data.runId] = {

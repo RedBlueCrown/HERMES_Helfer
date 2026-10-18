@@ -128,6 +128,8 @@ export type ProjectEvent =
   | { type: "MemberRoleAssigned"; data: { userId: string; displayName: string; role: ProjectRole } }
   | { type: "MemberRoleRemoved"; data: { userId: string; displayName: string; role: ProjectRole } }
   | { type: "ProfileUpdated"; data: { profile: ProjectProfile } }
+  /** The link to the project's folder for its files (Projektablage, engine/storage.ts); empty: removed. */
+  | { type: "DocumentStorageSet"; data: { url: string } }
   | { type: "SkillRunRequested"; data: { runId: string; skillId: string } }
   | {
       type: "SkillRunCompleted";

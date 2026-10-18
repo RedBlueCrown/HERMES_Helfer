@@ -392,6 +392,15 @@ export function checkUpdateProfile(s: ProjectState, model: HermesModel, v: Viewe
   return OK;
 }
 
+/** The PL records where the project's files are (Projektablage); the PMO, which sets up the folders, too. */
+export function checkSetDocumentStorage(s: ProjectState, model: HermesModel, v: Viewer): Check {
+  if (!isPL(s, v) && !hasGlobal(v, "HH.PMO")) {
+    return forbidden("Die Projektablage verknüpfen die Projektleitung und das PMO.");
+  }
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
+  return OK;
+}
+
 // ---------- Change Requests ----------
 
 /** Anyone with a role in the project may submit a change request. */

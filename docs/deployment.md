@@ -47,7 +47,7 @@ Not yet included (todo-later H03): Front Door with WAF, API Management as AI gat
 
 ## Before you start
 
-- **Decisions:** region and processing (F3), model (F4), reachability and IP ranges (F25), groups per role (F26), database admins (F27).
+- **Decisions:** region and processing (F3), model (F4), reachability and IP ranges (F25), groups per role (F26), database admins (F27), and where project files are (F9: `documentStorageHosts` in [`infra/pilot.bicepparam`](../infra/pilot.bicepparam), for example your `…sharepoint.com` hosts).
 - **Rights:** Owner on the resource group (the templates create role assignments and locks). For step 3 an identity administrator with the role Application Administrator.
 - **Tools:** Azure CLI with Bicep (`az bicep install`). No local Docker needed; the image is built in the registry.
 - **Model quota:** the model must be offered as *Standard* (regional) in the region, with enough quota:
