@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HERMES Helfer agents: orchestrator and interactions",
+    "locale": "en",
+    "output": ".archify/architecture-hermes-agents-20261019-204512/hermes-helfer-agents.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/RedBlueCrown/HERMES_Helfer",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "ab716d815d52993d6fd601d69f2c0a043fa65aa9"
+    }
+  },
+  "components": [
+    {
+      "id": "person", "type": "external", "label": "Project lead · team", "sublabel": "asks · decides",
+      "pos": [40, 210], "size": [140, 62],
+      "sources": [{ "path": "packages/core/src/engine/permissions.ts", "line": 1, "end_line": 3, "label": "people decide" }]
+    },
+    {
+      "id": "web", "type": "frontend", "label": "Web app", "sublabel": "chat · buttons",
+      "pos": [240, 210], "size": [150, 62],
+      "sources": [
+        { "path": "apps/web/src/components/ChatPanel.tsx", "line": 65, "end_line": 90, "label": "chat" },
+        { "path": "apps/web/src/components/DeliverableDrawer.tsx", "line": 218, "end_line": 228, "label": "Entwurf erstellen" }
+      ]
+    },
+    {
+      "id": "a1", "type": "backend", "label": "A1 Delivery-Assistent", "sublabel": "orchestrator · 10 tools",
+      "pos": [470, 210], "size": [170, 62],
+      "sources": [
+        { "path": "apps/api/src/agents/orchestrator.ts", "line": 100, "end_line": 110, "label": "answers" },
+        { "path": "apps/api/src/agents/orchestrator.ts", "line": 155, "end_line": 223, "label": "tools" },
+        { "path": "apps/api/src/agents/orchestrator.ts", "line": 369, "end_line": 430, "label": "tool loop" }
+      ]
+    },
+    {
+      "id": "engine", "type": "security", "label": "HERMES engine", "sublabel": "facts · tasks · permissions",
+      "pos": [470, 60], "size": [170, 62],
+      "sources": [
+        { "path": "packages/core/src/engine/tasks.ts", "line": 147, "end_line": 187, "label": "next step" },
+        { "path": "packages/core/src/engine/views.ts", "line": 1052, "end_line": 1070, "label": "project view" },
+        { "path": "packages/core/src/engine/permissions.ts", "line": 1, "end_line": 3, "label": "checks" }
+      ]
+    },
+    {
+      "id": "record", "type": "database", "label": "Projektakte", "sublabel": "events in Azure SQL",
+      "pos": [770, 60], "size": [160, 62],
+      "sources": [
+        { "path": "apps/api/src/projects/service.ts", "line": 241, "end_line": 260, "label": "commands append" },
+        { "path": "apps/api/src/store/sql/migrations.ts", "line": 37, "end_line": 50, "label": "ledger table" }
+      ]
+    },
+    {
+      "id": "runner", "type": "backend", "label": "Draft runner", "sublabel": "background · per skill",
+      "pos": [770, 210], "size": [160, 62],
+      "sources": [
+        { "path": "apps/api/src/agents/runner.ts", "line": 214, "end_line": 258, "label": "start" },
+        { "path": "apps/api/src/agents/runner.ts", "line": 259, "end_line": 345, "label": "draft, check, record" }
+      ]
+    },
+    {
+      "id": "drafting", "type": "backend", "label": "A2–A8 drafting agents", "sublabel": "44 skills · template fields",
+      "pos": [680, 360], "size": [170, 62],
+      "sources": [
+        { "path": "packages/core/src/model/agents.ts", "line": 11, "end_line": 54, "label": "A2 to A8" },
+        { "path": "apps/api/src/agents/prompts.ts", "line": 33, "end_line": 51, "label": "draft prompt" },
+        { "path": "apps/api/src/documents/service.ts", "line": 207, "end_line": 235, "label": "template fields" }
+      ]
+    },
+    {
+      "id": "kritiker", "type": "security", "label": "A11 Kritiker", "sublabel": "checklist + model review",
+      "pos": [900, 360], "size": [160, 62],
+      "sources": [
+        { "path": "apps/api/src/agents/kritiker.ts", "line": 1, "end_line": 60, "label": "checks" },
+        { "path": "apps/api/src/agents/runner.ts", "line": 290, "end_line": 300, "label": "model review" }
+      ]
+    },
+    {
+      "id": "proposals", "type": "backend", "label": "A10 · A12 · A2", "sublabel": "CR · risks · status texts",
+      "pos": [240, 360], "size": [170, 62],
+      "sources": [
+        { "path": "apps/api/src/agents/change-request-agent.ts", "line": 1, "end_line": 4, "label": "A10 change request" },
+        { "path": "apps/api/src/agents/risk-agent.ts", "line": 1, "end_line": 4, "label": "A12 risks" },
+        { "path": "apps/api/src/agents/status-report-agent.ts", "line": 1, "end_line": 4, "label": "A2 status texts" }
+      ]
+    },
+    {
+      "id": "gate", "type": "security", "label": "Quota gate", "sublabel": "concurrency · tokens per day",
+      "pos": [790, 520], "size": [160, 62],
+      "sources": [
+        { "path": "apps/api/src/agents/quota.ts", "line": 157, "end_line": 183, "label": "every call" },
+        { "path": "apps/api/src/server.ts", "line": 79, "end_line": 91, "label": "shared quota" }
+      ]
+    },
+    {
+      "id": "model", "type": "cloud", "label": "Azure OpenAI", "sublabel": "gpt-5.1 · Sweden Central",
+      "pos": [790, 670], "size": [160, 62],
+      "sources": [
+        { "path": "apps/api/src/agents/azure-openai-provider.ts", "line": 336, "end_line": 380, "label": "model call" },
+        { "path": "infra/modules/ai.bicep", "line": 37, "end_line": 53, "label": "EU, private" }
+      ]
+    }
+  ],
+  "connections": [
+    { "from": "person", "to": "web", "label": "uses", "variant": "emphasis" },
+    { "from": "web", "to": "a1", "label": "question", "variant": "emphasis" },
+    { "from": "a1", "to": "runner", "label": "starts a draft", "variant": "emphasis" },
+    { "from": "a1", "to": "engine", "label": "read-only tools", "variant": "dashed" },
+    { "from": "runner", "to": "drafting", "label": "writes", "variant": "emphasis" },
+    { "from": "runner", "to": "kritiker", "label": "checks", "variant": "emphasis" },
+    { "from": "runner", "to": "record", "label": "draft + findings" },
+    { "from": "engine", "to": "record", "label": "appends events" },
+    { "from": "web", "to": "engine", "label": "decides · accepts", "variant": "security" },
+    { "from": "web", "to": "proposals", "label": "assist buttons" },
+    { "from": "drafting", "to": "gate", "label": "draft" },
+    { "from": "kritiker", "to": "gate", "label": "review" },
+    { "from": "a1", "to": "gate", "label": "chat + tools" },
+    { "from": "proposals", "to": "gate", "label": "proposal" },
+    { "from": "gate", "to": "model", "label": "private endpoint", "variant": "security" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "How the orchestrator works",
+      "items": [
+        "A1 lets the model understand the question and pick tools; up to four rounds",
+        "Nine read-only tools return the engine's facts: next step, tasks, gate, results, risks, status",
+        "The tenth tool starts a draft, only when the person asks; no tool can decide or release"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Drafting pipeline",
+      "items": [
+        "The runner hands a drafting agent the skill, the project's facts and the template's fields",
+        "The Kritiker checks every draft: checklist first, then the model",
+        "Draft and findings are recorded; a person releases or decides. «Entwurf erstellen» starts the same runner"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Proposals and limits",
+      "items": [
+        "A10 change requests, A12 risks and A2 status texts are proposals a person accepts",
+        "The Kritiker also checks the change request and the status texts",
+        "Every model call passes the quota gate; planned next: A9 Protokoll, A13 Wissen"
+      ]
+    }
+  ]
+}

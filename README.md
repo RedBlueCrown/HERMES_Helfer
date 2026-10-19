@@ -76,6 +76,7 @@ CI runs all of them on every push (`.github/workflows/ci.yml`), plus the event s
 ## Documents
 
 - [Target architecture and agent design](docs/target-architecture.md)
+- [The agents](docs/agents.md): which exist, how they are built and tested, the platform on Azure, and how to carry them into another version; with [diagrams](docs/diagrams/architecture.png)
 - [Trying HERMES Helfer in Azure](docs/staging.md): one command, then first steps with the agents
 - [Deploying the Azure pilot environment](docs/deployment.md)
 - [Working on HERMES Helfer](CONTRIBUTING.md): how to propose and review changes

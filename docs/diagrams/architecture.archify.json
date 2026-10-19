@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HERMES Helfer on Azure",
+    "locale": "en",
+    "output": ".archify/architecture-hermes-helfer-20261019-202631/hermes-helfer-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/RedBlueCrown/HERMES_Helfer",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "ab716d815d52993d6fd601d69f2c0a043fa65aa9"
+    }
+  },
+  "components": [
+    {
+      "id": "users", "type": "external", "label": "Project staff", "sublabel": "internal users",
+      "pos": [40, 236], "size": [128, 62],
+      "sources": [{ "path": "infra/entra.bicep", "line": 40, "end_line": 60, "label": "app roles HH.*" }]
+    },
+    {
+      "id": "web", "type": "frontend", "label": "Web app", "sublabel": "React · Fluent UI, in the browser",
+      "pos": [228, 236], "size": [170, 62],
+      "sources": [
+        { "path": "apps/web/src/App.tsx", "line": 53, "end_line": 66, "label": "pages" },
+        { "path": "apps/web/src/auth/auth.tsx", "line": 90, "end_line": 102, "label": "MSAL sign-in" }
+      ]
+    },
+    {
+      "id": "entra", "type": "security", "label": "Microsoft Entra ID", "sublabel": "sign-in · app roles",
+      "pos": [228, 66], "size": [170, 62],
+      "sources": [
+        { "path": "infra/entra.bicep", "line": 73, "end_line": 130, "label": "app registrations" },
+        { "path": "apps/api/src/auth.ts", "line": 37, "end_line": 55, "label": "token check" }
+      ]
+    },
+    {
+      "id": "onedrive", "type": "external", "label": "SharePoint / OneDrive", "sublabel": "Projektablage, link only",
+      "pos": [228, 406], "size": [170, 62],
+      "sources": [
+        { "path": "apps/web/src/components/StorageLink.tsx", "line": 44, "end_line": 50, "label": "opens the folder" },
+        { "path": "packages/core/src/engine/storage.ts", "line": 1, "end_line": 10, "label": "link rules" }
+      ]
+    },
+    {
+      "id": "api", "type": "backend", "label": "API · HERMES engine", "sublabel": "Fastify on Container Apps",
+      "pos": [520, 236], "size": [170, 62],
+      "sources": [
+        { "path": "apps/api/src/server.ts", "line": 59, "end_line": 75, "label": "server" },
+        { "path": "apps/api/src/server.ts", "line": 151, "end_line": 157, "label": "every call signed in" },
+        { "path": "infra/modules/container-apps.bicep", "line": 110, "end_line": 130, "label": "container app" }
+      ]
+    },
+    {
+      "id": "agents", "type": "backend", "label": "AI agents A1–A12", "sublabel": "orchestrator · Kritiker · quota",
+      "pos": [822, 236], "size": [170, 62],
+      "sources": [
+        { "path": "apps/api/src/agents/orchestrator.ts", "line": 88, "end_line": 110, "label": "Delivery-Assistent" },
+        { "path": "apps/api/src/agents/runner.ts", "line": 214, "end_line": 260, "label": "drafts" }
+      ]
+    },
+    {
+      "id": "openai", "type": "cloud", "label": "Azure OpenAI", "sublabel": "gpt-5.1 · Sweden Central",
+      "pos": [1124, 236], "size": [150, 62],
+      "sources": [
+        { "path": "infra/modules/ai.bicep", "line": 37, "end_line": 53, "label": "no public access" },
+        { "path": "infra/modules/ai.bicep", "line": 102, "end_line": 113, "label": "private endpoint" },
+        { "path": "apps/api/src/agents/azure-openai-provider.ts", "line": 336, "end_line": 355, "label": "model call" }
+      ]
+    },
+    {
+      "id": "monitor", "type": "cloud", "label": "Azure Monitor", "sublabel": "App Insights · Log Analytics",
+      "pos": [822, 66], "size": [170, 62],
+      "sources": [
+        { "path": "infra/modules/monitoring.bicep", "line": 16, "end_line": 41, "label": "workspace" },
+        { "path": "apps/api/src/agents/runner.ts", "line": 108, "end_line": 131, "label": "ai_run audit" },
+        { "path": "apps/api/src/telemetry.ts", "line": 26, "end_line": 45, "label": "OpenTelemetry" }
+      ]
+    },
+    {
+      "id": "sql", "type": "database", "label": "Azure SQL", "sublabel": "append-only ledger tables",
+      "pos": [520, 406], "size": [170, 62],
+      "sources": [
+        { "path": "apps/api/src/store/sql/migrations.ts", "line": 37, "end_line": 50, "label": "events table" },
+        { "path": "apps/api/src/store/sql/sql-event-store.ts", "line": 73, "end_line": 80, "label": "append" },
+        { "path": "infra/modules/sql.bicep", "line": 165, "end_line": 175, "label": "private endpoint" }
+      ]
+    },
+    {
+      "id": "digests", "type": "database", "label": "Ledger digests", "sublabel": "immutable blob storage",
+      "pos": [520, 576], "size": [170, 62],
+      "sources": [
+        { "path": "infra/modules/sql.bicep", "line": 107, "end_line": 116, "label": "digest upload" },
+        { "path": "infra/modules/storage.bicep", "line": 61, "end_line": 75, "label": "immutability" }
+      ]
+    },
+    {
+      "id": "jobs", "type": "backend", "label": "Container Apps jobs", "sublabel": "migrate · check agents",
+      "pos": [1124, 406], "size": [150, 62],
+      "sources": [
+        { "path": "infra/modules/container-apps.bicep", "line": 196, "end_line": 230, "label": "migration job" },
+        { "path": "infra/modules/container-apps.bicep", "line": 232, "end_line": 275, "label": "evaluation job" },
+        { "path": "scripts/check-agents.sh", "line": 1, "end_line": 13, "label": "check-agents" }
+      ]
+    }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Azure · Sweden Central (EU)", "wraps": ["api", "agents", "openai", "monitor", "sql", "digests", "jobs"], "pad": 22 },
+    { "kind": "security-group", "label": "virtual network · private endpoints", "wraps": ["api", "agents", "openai", "sql", "jobs"], "pad": 12 }
+  ],
+  "connections": [
+    { "from": "users", "to": "web", "label": "HTTPS", "variant": "emphasis" },
+    { "from": "web", "to": "api", "label": "REST + token", "variant": "emphasis" },
+    { "from": "api", "to": "agents", "label": "in-process calls", "variant": "emphasis" },
+    { "from": "agents", "to": "openai", "label": "private endpoint", "variant": "security" },
+    { "from": "web", "to": "entra", "label": "sign-in (MSAL)", "variant": "security" },
+    { "from": "api", "to": "entra", "label": "checks tokens", "variant": "security" },
+    { "from": "web", "to": "onedrive", "label": "opens folder link", "variant": "dashed" },
+    { "from": "api", "to": "sql", "label": "append events" },
+    { "from": "sql", "to": "digests", "label": "digests", "variant": "dashed" },
+    { "from": "agents", "to": "monitor", "label": "audit · traces", "variant": "dashed" },
+    { "from": "jobs", "to": "openai", "label": "evaluation", "variant": "dashed" },
+    { "from": "jobs", "to": "sql", "label": "migrations", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "What runs where",
+      "items": [
+        "The web app runs in the browser, signs in with Entra ID and calls the API with a token",
+        "One API container holds the REST API, the HERMES engine (rules, permissions, history) and the agents",
+        "Jobs apply database migrations and run the agent check (scripts/check-agents.sh)"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Security boundaries",
+      "items": [
+        "Model and database are reachable only through private endpoints",
+        "Managed identities everywhere: no keys or passwords",
+        "AI processing stays in Sweden Central (EU)"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Records",
+      "items": [
+        "Every change is an event in an append-only ledger table",
+        "Ledger digests go to immutable storage",
+        "Every agent run is audited: who, what, tokens; never the content"
+      ]
+    }
+  ]
+}
