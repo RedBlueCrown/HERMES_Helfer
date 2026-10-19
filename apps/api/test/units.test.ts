@@ -1008,4 +1008,37 @@ describe("Azure OpenAI provider (against a fake API)", () => {
     expect(res.toolCalls).toEqual([{ id: "t1", name: "meine_aufgaben", arguments: "{}" }]);
     expect(JSON.parse(calls[0]!.init.body as string).tools[0].function.name).toBe("meine_aufgaben");
   });
+
+  it("sends the tool results back in the form the API expects (second round of a chat)", async () => {
+    const { fn, calls } = fakeFetch(200, {
+      choices: [{ finish_reason: "stop", message: { content: "Als Nächstes: Kick-off." } }],
+    });
+    const p = new AzureOpenAiProvider(cfg, async () => "tok", fn);
+    const res = await p.chat(
+      [
+        { role: "system", content: "Regeln" },
+        { role: "user", content: "Was ist als Nächstes?" },
+        {
+          role: "assistant",
+          content: null,
+          toolCalls: [{ id: "t1", name: "naechster_schritt", arguments: "{}" }],
+        },
+        { role: "tool", toolCallId: "t1", content: '{"title":"Kick-off"}' },
+      ],
+      [{ name: "naechster_schritt", description: "x", parameters: { type: "object", properties: {} } }],
+    );
+    expect(res).toEqual({ content: "Als Nächstes: Kick-off.", toolCalls: [] });
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body.messages.slice(2)).toEqual([
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "t1", type: "function", function: { name: "naechster_schritt", arguments: "{}" } },
+        ],
+      },
+      { role: "tool", tool_call_id: "t1", content: '{"title":"Kick-off"}' },
+    ]);
+    expect(body).toMatchObject({ model: "c", tool_choice: "auto", max_completion_tokens: 16000 });
+  });
 });

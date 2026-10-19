@@ -31,6 +31,8 @@ export interface EvalCase {
   /** What the case is about, in German. */
   title: string;
   checks: readonly { name: string; level: CheckLevel }[];
+  /** Why the case cannot run with this model (the offline one has no chat); undefined: it can. */
+  skip?(provider: AiProvider): string | undefined;
   evaluate(provider: AiProvider): Promise<{ output: unknown; usage?: Usage; results: CheckResult[] }>;
 }
 
@@ -39,6 +41,7 @@ export function defineCase<T>(spec: {
   id: string;
   agent: AgentId;
   title: string;
+  skip?(provider: AiProvider): string | undefined;
   run(provider: AiProvider): Promise<{ output: T; usage?: Usage | undefined }>;
   checks: readonly EvalCheck<T>[];
 }): EvalCase {
@@ -47,6 +50,7 @@ export function defineCase<T>(spec: {
     agent: spec.agent,
     title: spec.title,
     checks: spec.checks.map(({ name, level }) => ({ name, level })),
+    ...(spec.skip ? { skip: spec.skip } : {}),
     async evaluate(provider) {
       const { output, usage } = await spec.run(provider);
       const results = spec.checks.map((c): CheckResult => {
@@ -93,6 +97,8 @@ export interface EvalReport {
   startedAt: string;
   repeat: number;
   runs: EvalRun[];
+  /** Cases this model cannot run, with the reason. */
+  skipped: { caseId: string; agent: AgentId; reason: string }[];
   summary: EvalSummary;
 }
 
@@ -126,7 +132,13 @@ export async function runEval(
   const now = opts.now ?? (() => new Date());
   const startedAt = now().toISOString();
   const runs: EvalRun[] = [];
+  const skipped: EvalReport["skipped"] = [];
   for (const c of cases) {
+    const skip = c.skip?.(provider);
+    if (skip) {
+      skipped.push({ caseId: c.id, agent: c.agent, reason: skip });
+      continue;
+    }
     for (let attempt = 1; attempt <= repeat; attempt++) {
       const started = Date.now();
       const base = { caseId: c.id, agent: c.agent, title: c.title, attempt };
@@ -150,7 +162,7 @@ export async function runEval(
       }
     }
   }
-  return { provider: provider.info, startedAt, repeat, runs, summary: summarize(runs) };
+  return { provider: provider.info, startedAt, repeat, runs, skipped, summary: summarize(runs) };
 }
 
 /** Passed: no call failed, no critical rule was broken, and the quality rate reaches `minQuality`. */
@@ -185,6 +197,8 @@ export function formatReport(report: EvalReport, minQuality: number): string {
       lines.push(`    ✗ ${c.name} [${c.level}]${c.detail ? `: ${c.detail}` : ""}`);
     }
   }
+  for (const s of report.skipped)
+    lines.push(`– ${s.agent.padEnd(4)} ${s.caseId}: übersprungen (${s.reason})`);
   const s = report.summary;
   const v = verdict(report, minQuality);
   lines.push(

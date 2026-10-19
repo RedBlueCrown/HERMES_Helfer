@@ -106,13 +106,13 @@ Example: `MODEL_CAPACITY=10 REASONING_EFFORT=low scripts/deploy-azure.sh`. To sw
 
 ## Check the agents with the evaluation set
 
-The evaluation sends fixed, fictional cases to the agents and checks every answer (architecture §5.8): critical rules that must always hold, for example that an instruction hidden in a wish is not followed or that no effort is estimated, and quality checks counted as a rate. The model is reachable only from the app's network, so the evaluation runs in the API's container, with its identity and settings:
+The evaluation sends fixed, fictional cases to the agents and checks every answer (architecture §5.8): critical rules that must always hold, for example that an instruction hidden in a wish is not followed, that no effort is estimated or that the Delivery-Assistent starts no draft and claims no decision unasked, and quality checks counted as a rate. It covers every agent that works today: the Delivery-Assistent (A1), the drafting agents (A2 to A8), Change Request (A10), Kritiker (A11) and Risiko (A12). The model is reachable only from the app's network, so the evaluation runs there as a job with the app's identity. It touches no project data. In Cloud Shell, from the folder `HERMES_Helfer`:
 
 ```bash
-az containerapp exec -g rg-hermes-helfer-test -n ca-hh-test-api --command "node dist/eval/main.js --repeat 3"
+scripts/check-agents.sh
 ```
 
-Nine cases, three times each: about 30 model calls. The report lists every case, the checks that failed and why, the tokens used, and ends with «Ergebnis: bestanden» or the reasons why not. Run it after each change of model, prompt or settings such as `REASONING_EFFORT`, and compare the rates with the run before. With `--case cr-anweisung` it runs a single case.
+Eighteen cases, about 20 model calls and five minutes. The report lists every case, the checks that failed and why, the tokens used, and ends with «Ergebnis: bestanden» or the reasons why not. If the assistant answered from its fixed rules instead of the model, the report names the model's error. Run it after each deployment and after each change of model, prompt or settings such as `REASONING_EFFORT`, and compare the rates with the run before.
 
 ## When something does not work
 
@@ -132,6 +132,7 @@ Nine cases, three times each: about 30 model calls. The report lists every case,
 | No «Als Word herunterladen» in a result's drawer | No template for this result yet, or the result is confidential for your roles | Upload the template under «Vorlagen»; take a role that may read the result |
 | «Projektablage»: «Links auf … sind hier nicht vorgesehen» | The link points elsewhere than SharePoint or, in the test environment, a private OneDrive | Open the folder in OneDrive or SharePoint and copy the address from the browser's address bar; it starts with `https://` |
 | The Word document has empty fields the agent should have filled | The draft was written before the template; the drawer names its sections without a field | Let the agent draft again (for the ISDS-Konzept after «Zurückweisen»), or copy the text in Word |
+| The assistant answers «… diese Antwort kommt aus den festen Regeln» | The model call for the chat failed | `scripts/check-agents.sh`: the cases «assistent-…» name the model's error |
 | The app does not become ready | Database or migration | `az containerapp logs show -g rg-hermes-helfer-test -n ca-hh-test-api --tail 50` |
 
 ## Costs and removing it

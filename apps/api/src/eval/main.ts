@@ -29,11 +29,13 @@ const { values } = parseArgs({
 });
 
 const provider = values.provider === "azure" ? "azure-openai" : values.provider;
-// Only the model's settings matter: the evaluation serves no requests, so it needs no sign-in.
+// Only the model's settings matter: the evaluation serves no requests and signs no one in,
+// so the API's other settings (and its guards for them) stay out, also in its container.
 // The offline model answers at once here; the API's latency only imitates the real one.
+const MODEL_SETTINGS = /^(AI_|AZURE_OPENAI_|MOCK_AI_)|^AZURE_CLIENT_ID$/;
 const config = loadConfig({
   MOCK_AI_LATENCY_MS: "0",
-  ...process.env,
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => MODEL_SETTINGS.test(k))),
   NODE_ENV: "development",
   AUTH_MODE: "dev",
   ...(provider ? { AI_PROVIDER: provider } : {}),

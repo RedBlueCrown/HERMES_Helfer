@@ -227,5 +227,6 @@ output appUrl string = apps.outputs.appUrl
 output registryName string = registry.outputs.name
 output registryLoginServer string = registry.outputs.loginServer
 output migrationJobName string = apps.outputs.migrationJobName
+output evalJobName string = apps.outputs.evalJobName
 output sqlServerName string = sql.outputs.serverName
 output digestStorageName string = storage.outputs.name

@@ -39,7 +39,15 @@ import {
   type SignalId,
   type SignalLevel,
 } from "@hermes-helfer/core";
-import { createContext, Fragment, useCallback, useContext, type ReactElement, type ReactNode } from "react";
+import {
+  Component,
+  createContext,
+  Fragment,
+  useCallback,
+  useContext,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { Link as RouterLink } from "react-router-dom";
 import { ApiError } from "../api/client";
 
@@ -239,7 +247,28 @@ export function RichText({ text }: { text: string }) {
 
 // ---------- Errors ----------
 
-/** Error page for a failed request (todo-later E01, E02, E04, E16). */
+/**
+ * A page that fails while it renders shows the error and a way back instead of
+ * an empty page. Keyed by the address, so another page starts afresh.
+ */
+export class PageErrorBoundary extends Component<{ children: ReactNode }, { error?: Error | undefined }> {
+  override state: { error?: Error | undefined } = {};
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
+  }
+
+  override render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <ErrorView
+        error={new Error(`Die Seite konnte nicht angezeigt werden (${this.state.error.message}).`)}
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+}
+
 export function ErrorView({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const e = error instanceof ApiError ? error : undefined;
   let title = "Etwas ist schiefgelaufen";

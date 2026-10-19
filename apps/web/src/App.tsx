@@ -9,12 +9,12 @@ import {
 } from "@fluentui/react-components";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { createApi } from "./api/client";
 import { ApiContext, useMe } from "./api/hooks";
 import { AuthProvider, useAuth } from "./auth/auth";
 import { AppHeader } from "./components/AppHeader";
-import { ErrorView, NotifyProvider } from "./components/ui";
+import { ErrorView, NotifyProvider, PageErrorBoundary } from "./components/ui";
 import { PortfolioPage } from "./pages/PortfolioPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
@@ -36,6 +36,7 @@ const useStyles = makeStyles({
 function Shell() {
   const s = useStyles();
   const me = useMe();
+  const { pathname } = useLocation();
   if (me.isPending) return <Spinner className={s.center} label="Anmeldung wird geprüft …" />;
   if (me.isError) {
     return (
@@ -48,20 +49,22 @@ function Shell() {
     <>
       <AppHeader />
       <main className={s.main}>
-        <Routes>
-          <Route path="/" element={<ProjectsPage />} />
-          <Route path="/portfolio" element={<PortfolioPage />} />
-          <Route path="/vorhaben/:code" element={<ProjectPage />} />
-          <Route path="/vorlagen" element={<TemplatesPage />} />
-          <Route
-            path="*"
-            element={
-              <MessageBar intent="warning">
-                <MessageBarBody>Diese Seite gibt es nicht.</MessageBarBody>
-              </MessageBar>
-            }
-          />
-        </Routes>
+        <PageErrorBoundary key={pathname}>
+          <Routes>
+            <Route path="/" element={<ProjectsPage />} />
+            <Route path="/portfolio" element={<PortfolioPage />} />
+            <Route path="/vorhaben/:code" element={<ProjectPage />} />
+            <Route path="/vorlagen" element={<TemplatesPage />} />
+            <Route
+              path="*"
+              element={
+                <MessageBar intent="warning">
+                  <MessageBarBody>Diese Seite gibt es nicht.</MessageBarBody>
+                </MessageBar>
+              }
+            />
+          </Routes>
+        </PageErrorBoundary>
       </main>
     </>
   );

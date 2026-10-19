@@ -229,5 +229,51 @@ resource migrationJob 'Microsoft.App/jobs@2025-01-01' = if (deployApp) {
   }
 }
 
+// The evaluation of the agents (docs/staging.md, scripts/check-agents.sh): fixed,
+// fictional cases against the model, from inside the network with the app's
+// identity, which may call the model. Started by hand; it touches no data.
+resource evalJob 'Microsoft.App/jobs@2025-01-01' = if (deployApp) {
+  name: 'caj-${name}-eval'
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${api.identityId}': {} }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      triggerType: 'Manual'
+      replicaTimeout: 1800
+      replicaRetryLimit: 0
+      manualTriggerConfig: { parallelism: 1, replicaCompletionCount: 1 }
+      registries: [{ server: registryServer, identity: api.identityId }]
+    }
+    template: {
+      containers: [
+        {
+          name: 'eval'
+          image: image
+          args: ['dist/eval/main.js', '--provider', 'azure']
+          resources: { cpu: json('0.5'), memory: '1Gi' }
+          env: filter(
+            [
+              { name: 'AZURE_CLIENT_ID', value: api.clientId }
+              { name: 'AZURE_OPENAI_ENDPOINT', value: ai.endpoint }
+              { name: 'AZURE_OPENAI_DEPLOYMENT_DRAFT', value: ai.draftDeployment }
+              { name: 'AZURE_OPENAI_DEPLOYMENT_CHAT', value: ai.chatDeployment }
+              { name: 'AZURE_OPENAI_REGION_LABEL', value: ai.regionLabel }
+              { name: 'AZURE_OPENAI_REASONING_EFFORT', value: ai.reasoningEffort }
+            ],
+            e => !empty(e.value)
+          )
+        }
+      ]
+    }
+  }
+}
+
 output appUrl string = 'https://${appName}.${environment.properties.defaultDomain}'
 output migrationJobName string = 'caj-${name}-migrate'
+output evalJobName string = 'caj-${name}-eval'

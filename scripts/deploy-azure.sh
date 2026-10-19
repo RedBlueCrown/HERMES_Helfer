@@ -228,5 +228,6 @@ Sign in with your account; you have the PMO role. Then (docs/staging.md):
 Other people need one of the app roles: Entra admin center → Enterprise applications →
 "HERMES Helfer API ($ENV_NAME)" → Users and groups.
 
+Check all agents against the model (about five minutes): ENV_NAME=$ENV_NAME scripts/check-agents.sh
 Logs and telemetry: Application Insights in $RG. Remove everything: ENV_NAME=$ENV_NAME scripts/destroy-azure.sh
 EOF

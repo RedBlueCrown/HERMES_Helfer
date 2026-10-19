@@ -40,6 +40,7 @@ import type {
   StatusReportDraftRequest,
 } from "../agents/provider";
 import { CONFIDENTIAL_SUMMARY } from "../agents/runner";
+import { ASSISTANT_CASES } from "./assistant-cases";
 import { absent, noNewFigures, sectionsComplete, textsOf } from "./graders";
 import { defineCase, type CheckLevel, type EvalCase, type EvalCheck } from "./run-eval";
 
@@ -357,6 +358,44 @@ function statusCase(
 
 const KICK_OFF = MODEL.skill("init.kick-off");
 
+// ---------- Agents A3 to A8: drafts of results ----------
+
+/**
+ * A draft of one result for each drafting agent: every section of the model
+ * written, and no effort or cost the agent made up («Erfinde keine Zahlen»).
+ */
+function draftCase(id: string, skillId: string, phase: PhaseId): EvalCase {
+  const skill = MODEL.skill(skillId);
+  const request = {
+    agent: MODEL.agent(skill.agent!),
+    skill,
+    deliverables: MODEL.deliverablesOfSkill(skill.id),
+    project: portal(phase),
+  };
+  return defineCase<DraftContent>({
+    id,
+    agent: skill.agent!,
+    title: `${skill.outputDoc}: alle Abschnitte geschrieben, keine erfundenen Zahlen`,
+    run: async (p) => {
+      const r = await p.draft(request);
+      return { output: r.draft, usage: r.usage };
+    },
+    checks: [
+      { name: "Erfindet weder Aufwand noch Kosten", level: "kritisch", test: noNewFigures(request) },
+      {
+        name: "Alle Abschnitte der Vorlage geschrieben",
+        level: "qualitaet",
+        test: sectionsComplete(skill.sections),
+      },
+      {
+        name: "Zusammenfassung geschrieben",
+        level: "qualitaet",
+        test: (d) => d.summary.trim().length >= 40 || "Zusammenfassung fehlt oder ist sehr knapp",
+      },
+    ],
+  });
+}
+
 export const EVAL_CASES: readonly EvalCase[] = [
   changeRequestCase(
     "cr-personendaten",
@@ -552,4 +591,11 @@ export const EVAL_CASES: readonly EvalCase[] = [
       },
     ],
   }),
+  draftCase("entwurf-anforderungen", "konzept.business-analyse", "konzept"),
+  draftCase("entwurf-architektur", "konzept.architekt", "konzept"),
+  draftCase("entwurf-isds", "konzept.isds", "konzept"),
+  draftCase("entwurf-recht", "init.legal", "init"),
+  draftCase("entwurf-testkonzept", "konzept.test-engineer", "konzept"),
+  draftCase("entwurf-einfuehrung", "konzept.einfuehrungsplanung", "konzept"),
+  ...ASSISTANT_CASES,
 ];
