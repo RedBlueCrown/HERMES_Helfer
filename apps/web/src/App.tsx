@@ -15,6 +15,7 @@ import { ApiContext, useMe } from "./api/hooks";
 import { AuthProvider, useAuth } from "./auth/auth";
 import { AppHeader } from "./components/AppHeader";
 import { ErrorView, NotifyProvider, PageErrorBoundary } from "./components/ui";
+import { KnowledgePage } from "./pages/KnowledgePage";
 import { PortfolioPage } from "./pages/PortfolioPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
@@ -55,6 +56,7 @@ function Shell() {
             <Route path="/portfolio" element={<PortfolioPage />} />
             <Route path="/vorhaben/:code" element={<ProjectPage />} />
             <Route path="/vorlagen" element={<TemplatesPage />} />
+            <Route path="/wissen" element={<KnowledgePage />} />
             <Route
               path="*"
               element={

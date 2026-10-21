@@ -8,7 +8,7 @@ Interactive versions, with every box linked to its code: [agents](diagrams/agent
 
 ## 1. Which agents exist
 
-The target architecture names 13 agents (`packages/core/src/model/agents.ts`). Eleven work today; two are planned.
+The target architecture names 13 agents (`packages/core/src/model/agents.ts`). All of them work today.
 
 | Agent | What it does | Started by | Code |
 |---|---|---|---|
@@ -18,7 +18,7 @@ The target architecture names 13 agents (`packages/core/src/model/agents.ts`). E
 | A11 Kritiker | Checks every draft: a deterministic checklist first, then the model's content review. Also checks change requests and status texts. | Automatically, after each draft | `kritiker.ts` |
 | A12 Risiko | Proposes new risks and new assessments, each resting on a fact the engine supplied. | «Risiken prüfen lassen» | `risk-agent.ts` |
 | A9 Protokoll | Turns the notes or the transcript of a meeting into decisions, action items (who, what, by when) and open questions. Each item carries its passage of the text, which code checks; items without one are dropped. A member accepts each item; open action items go to their owner's tasks. The text itself is not stored. | «Protokoll erfassen» in the tab «Protokolle» | `minutes-agent.ts` |
-| A13 Wissen | Planned: finding documents, lessons learned and responsibilities. | – | – |
+| A13 Wissen | Answers questions across the projects a person may read, from released results (lessons learned included), minutes, risks, gate decisions and roles. The search sees only what the person may read; the answer names its sources, code drops sources the model was not given, and without a source there is no answer. | Page «Wissen» | `knowledge-agent.ts`, `packages/core/src/engine/knowledge.ts` |
 
 Agents propose; people decide. Drafts and proposals are stored only when a person accepts or releases them, and every decision goes through the engine's permission checks (`packages/core/src/engine/permissions.ts`), for which no agent has a tool.
 
@@ -51,7 +51,7 @@ No agent framework: the agents are plain TypeScript in the API process (about 3,
 | Level | What | Where |
 |---|---|---|
 | Unit tests | Every agent against fake models: request formats for Azure (schemas, tool calls, the second round of a chat), parsing, limits, errors. | `apps/api/test`, in CI |
-| Evaluation set | 21 fixed, fictional cases for all twelve agents. Critical checks must hold every time (no hidden instruction followed, no effort estimated, the assistant answers with the model, starts no draft unasked and claims no decision); quality checks count as a rate (at least 80 %). | `apps/api/src/eval`: offline in CI; against the real model with `scripts/check-agents.sh` |
+| Evaluation set | 24 fixed, fictional cases for all thirteen agents. Critical checks must hold every time (no hidden instruction followed, no effort estimated, the assistant answers with the model, starts no draft unasked and claims no decision); quality checks count as a rate (at least 80 %). | `apps/api/src/eval`: offline in CI; against the real model with `scripts/check-agents.sh` |
 | End-to-end | The web app in a browser with the offline model: drafts, assistant, change requests, risks, status reports, templates. | `apps/web/e2e`, in CI |
 | Without Azure | The same cases against Claude on your computer, with a page to read, compare and rate the answers | [testing-agents.md](testing-agents.md) |
 

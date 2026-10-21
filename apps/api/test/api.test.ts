@@ -685,6 +685,7 @@ describe("change requests", () => {
         reviewRisks: (r) => mock.reviewRisks(r),
         draftStatusReport: (r) => mock.draftStatusReport(r),
         extractMinutes: (r) => mock.extractMinutes(r),
+        answerQuestion: (r) => mock.answerQuestion(r),
       },
     });
     const res = await server.as("u-nina").post("/api/projects/ERP/change-requests/draft", wish);
@@ -705,6 +706,7 @@ describe("change requests", () => {
         reviewRisks: (r) => mock.reviewRisks(r),
         draftStatusReport: (r) => mock.draftStatusReport(r),
         extractMinutes: (r) => mock.extractMinutes(r),
+        answerQuestion: (r) => mock.answerQuestion(r),
       },
     });
     const draft = (user: string) => server!.as(user).post("/api/projects/ERP/change-requests/draft", wish);
@@ -1223,6 +1225,7 @@ describe("risks", () => {
         },
         draftStatusReport: (r) => mock.draftStatusReport(r),
         extractMinutes: (r) => mock.extractMinutes(r),
+        answerQuestion: (r) => mock.answerQuestion(r),
       },
     });
     const res = await review(server, "u-anna", "KPO");
@@ -1473,6 +1476,7 @@ describe("what reaches the model and the logs (principle 3)", () => {
           note(c, r.project);
           return mock.extractMinutes(r, c);
         },
+        answerQuestion: (r, c) => mock.answerQuestion(r, c),
       },
     });
     // A released Datenschutz-Vorabklärung: restricted, need-to-know.

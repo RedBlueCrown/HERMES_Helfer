@@ -240,3 +240,20 @@ export const MinutesOut = z.object({
   ),
   questions: clampedList(QuotedOut, MINUTES_ITEMS_MAX),
 });
+
+export const KNOWLEDGE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["found", "answer", "citations"],
+  properties: {
+    found: { type: "boolean" },
+    answer: { type: "string" },
+    citations: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+export const KnowledgeOut = z.object({
+  found: z.boolean(),
+  answer: clampedText(3000),
+  citations: clampedList(clampedText(10), 20),
+});

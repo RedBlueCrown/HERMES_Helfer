@@ -73,6 +73,8 @@ export interface AiRunRecord {
   requestedBy: string;
   channel: Channel;
   correlationId: string;
+  /** Projects whose content reached the model, when that is not projectId alone (the Wissen agent). */
+  sourceProjects?: string[];
 }
 
 /** The person closed the request: nobody receives the answer, and it is no error. */
@@ -127,6 +129,7 @@ export function recordAiRun(log: Logger, info: ProviderInfo, r: AiRunRecord): vo
       requestedBy: r.requestedBy,
       channel: r.channel,
       correlationId: r.correlationId,
+      ...(r.sourceProjects ? { sourceProjects: r.sourceProjects } : {}),
     },
     "ai_run",
   );

@@ -80,6 +80,6 @@ export const AGENTS: readonly AgentDef[] = [
     id: "A13",
     name: "Wissen",
     description: "Findet Unterlagen, Lessons Learned und Zuständigkeiten.",
-    active: false,
+    active: true,
   },
 ];

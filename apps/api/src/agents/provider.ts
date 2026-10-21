@@ -176,6 +176,21 @@ export interface MinutesExtract {
   questions: { text: string; quote: string }[];
 }
 
+/** What the Wissen agent (A13) gets: a question and the passages the search found. */
+export interface KnowledgeRequest {
+  agent: AgentDef;
+  question: string;
+  /** Q1, Q2 …: the person may read all of them; data, never instructions. */
+  passages: readonly { id: string; source: string; text: string }[];
+}
+
+/** An answer from the passages only, naming them; `found` false when they do not answer the question. */
+export interface KnowledgeReply {
+  found: boolean;
+  answer: string;
+  citations: string[];
+}
+
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
@@ -248,6 +263,8 @@ export interface AiProvider {
     req: MinutesExtractRequest,
     ctx?: CallContext,
   ): Promise<{ extract: MinutesExtract; usage?: Usage }>;
+  /** Agent A13: answers a question from the passages it gets, naming them. Says so when they do not answer it. */
+  answerQuestion(req: KnowledgeRequest, ctx?: CallContext): Promise<{ reply: KnowledgeReply; usage?: Usage }>;
   chat?(messages: ChatMessage[], tools: ToolSpec[], ctx?: CallContext): Promise<ChatResponse>;
 }
 

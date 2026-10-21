@@ -19,6 +19,7 @@ import {
   MINUTES_ITEM_MAX,
   MINUTES_TEXT_MAX,
   MIN_SUMMARY,
+  QUESTION_MAX,
   MIN_TITLE,
   PHASE_IDS,
   PROJECT_ROLES,
@@ -55,6 +56,7 @@ import {
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { ChangeRequestAgent, ChangeRequestProposalContent } from "./agents/change-request-agent";
+import type { KnowledgeAgent } from "./agents/knowledge-agent";
 import type { MinutesAgent, MinutesProposalContent } from "./agents/minutes-agent";
 import type { Orchestrator } from "./agents/orchestrator";
 import { MAX_SECTIONS, SECTION_MAX } from "./agents/output";
@@ -88,6 +90,7 @@ export interface RouteDeps {
   riskAgent: RiskAgent;
   statusReportAgent: StatusReportAgent;
   minutesAgent: MinutesAgent;
+  knowledgeAgent: KnowledgeAgent;
   /** Agent proposals until a person accepts them; the source of AI provenance. */
   proposals: ProposalStore;
   /** The organisation's Word templates and the documents made from them. */
@@ -328,6 +331,25 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
     const found = queryProjects(items, q);
     return { items: found.slice(q.offset, q.offset + q.limit), total: found.length };
   });
+
+  // Agent A13 answers across the projects the person may read, naming its sources.
+  app.post(
+    "/api/knowledge/ask",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (req) => {
+      const body = parse(
+        z.object({
+          question: z
+            .string()
+            .trim()
+            .min(3, "Bitte eine Frage stellen.")
+            .max(QUESTION_MAX, `Höchstens ${QUESTION_MAX} Zeichen.`),
+        }),
+        req.body,
+      );
+      return deps.knowledgeAgent.ask(ctx(req), body.question);
+    },
+  );
 
   // Key figures across the projects the viewer may see (architecture §7).
   app.get("/api/portfolio", async (req) => {

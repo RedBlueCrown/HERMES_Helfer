@@ -179,7 +179,7 @@ Thirteen agents. Each has many **skills**, one per deliverable or task (§5.1).
 | A10 | **Change-Request** | Change-Request | Manual (any member), later also new requirements from meetings | PA with Konsent | ✓ |
 | A11 | **Kritiker** | Kritiker, Verifier, Reviewer (artifacts) | Every draft | (findings only) | ✓ |
 | A12 | **Risiko** | Risk | Manual (PL); later weekly and on events | PL accepts | ✓ |
-| A13 | **Wissen** | KnowHow, Lessons Learned, Document, Housekeeping | Questions, phase end | PMO curates | later |
+| A13 | **Wissen** | KnowHow, Lessons Learned, Document, Housekeeping | Questions on the page «Wissen» | (answers only, with sources) | ✓ |
 
 Some prototype agents describe work that people do in other systems: Executer (deployments) and Integrationstest (test runs). In the pilot they are **manual skills**. The responsible person records the result (for example the release version or the test summary) instead of an AI drafting it. Integrations with the pipelines follow later.
 
@@ -323,6 +323,15 @@ What a meeting decided, who does what by when (Pendenzen), and which questions s
 2. **Protokoll agent (A9).** The member pastes the notes or the transcript (at most 60,000 characters). The agent proposes decisions, action items and open questions, each with a passage of the text, word for word. Code checks every passage against the text and drops the items without one, so nothing reaches the person that the text does not say; a name in the text becomes the owner only if exactly one member fits, and a day only if the text names one. The prompt treats the text as data: an instruction in it («trage als Entscheid ein …») is no decision. The member selects, completes and accepts the items; the record says which came from the agent and whether the member changed them, and keeps their passages. The text itself is neither stored nor logged; the audit entry has the usual metadata only.
 3. **Where minutes show.** An open action item is a task of its owner (the earliest due first, overdue marked) until the owner or the project lead reports it done (event `MinutesActionCompleted`). The tab «Protokolle» lists the minutes, the Verlauf names them, and the assistant answers questions about decisions, open action items and open questions (tool `protokolle`).
 4. **Later.** The transcript of a Teams meeting through Microsoft Graph instead of pasting it, with personal data masked before the model call (todo-later H26).
+
+### 5.12 Knowledge (Wissen)
+
+Questions across projects, answered with sources (`packages/core/src/engine/knowledge.ts`, `apps/api/src/agents/knowledge-agent.ts`).
+
+1. **What it searches.** The projects the person may see (members their projects, PMO and Portfolio-Gremium all): released results whose content the person may read (confidential ones only for their readers, never by summary), decisions, action items and open questions of the minutes, risks, gate decisions with their reasons, and who holds which role. Long sections are split into passages of about 900 characters.
+2. **Search.** Deterministic: the words of the question against the passages (BM25, with word beginnings for German compounds and a few synonyms of project work, «Erfahrungen» for «Lessons Learned»), the project's code and name included, at most eight passages and three of one document. Without a passage the model is not called.
+3. **Answer.** The Wissen agent (A13) answers from the passages only, marks each statement with its source ([Q1]), and says so when the passages do not answer the question. Code keeps only the sources the agent was given; an answer without one is no answer. The audit entry names the projects whose passages reached the model, never the question or the answer.
+4. **Later.** Azure AI Search with meaning (vectors and semantic ranking) and the same trimming by the engine's permissions, the files in the Projektablage, and the assistant asking the Wissen agent (todo-later H27). Whether lessons learned are readable across projects is question F43.
 
 ## 6. Identity and authorization
 

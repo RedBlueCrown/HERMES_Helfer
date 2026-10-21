@@ -584,3 +584,29 @@ Das PMO lädt die Word-Vorlagen der Organisation im HERMES Helfer hoch, eine je 
 **Meine Empfehlung:** 1. ja, mit einem Hinweis, dass Änderungen am Entwurf verloren gehen; 2. für den Pilot das PMO allein, jede Version bleibt gespeichert; 3. Projektmanagementplan, Studie, Testkonzept.
 
 **Antwort:**
+
+---
+
+## Teil M: Protokolle und Wissen
+
+Der Protokoll-Agent (A9) hält aus Notizen oder einem Transkript Entscheide, Pendenzen und offene Fragen fest, jeden Eintrag mit der Stelle im Text; ein Mitglied übernimmt sie. Der Wissen-Agent (A13) beantwortet Fragen über alle Vorhaben, die eine Person lesen darf, und nennt die Quellen (Beschreibung in [`target-architecture.md`](target-architecture.md), Abschnitte 5.11 und 5.12).
+
+### F42 · Protokolle
+
+1. Heute erfasst jedes Mitglied eines Vorhabens Protokolle, und eine offene Pendenz melden die verantwortliche Person oder die Projektleitung als erledigt. Passt das, oder soll die Projektleitung Protokolle bestätigen?
+2. Der Text der Besprechung wird nicht gespeichert, nur die übernommenen Einträge mit ihrer Stelle im Text. Genügt das, oder soll das ganze Protokoll als Dokument in die Projektablage?
+3. Sollen Transkripte aus Teams-Besprechungen direkt übernommen werden (Microsoft Graph)? Das braucht die Zustimmung der Teilnehmenden zur Aufzeichnung und eine Regel für Personendaten im Transkript.
+
+**Meine Empfehlung:** 1. wie heute; 2. wie heute für den Pilot, später das Protokoll als Word-Dokument aus einer Vorlage; 3. ja, ab Increment 3, mit der Zustimmung in der Besprechung und dem Maskieren von Personendaten vor dem Aufruf des Modells.
+
+**Antwort:**
+
+### F43 · Wer sieht das Wissen anderer Vorhaben?
+
+1. Heute findet der Wissen-Agent nur in Vorhaben, in denen die Person eine Rolle hat (PMO und Portfolio-Gremium in allen), und vertrauliche Ergebnisse nur für die Rollen, die sie lesen dürfen. Lessons Learned anderer Vorhaben sieht ein Mitglied also nicht. Sollen Lessons Learned (und welche weiteren Ergebnisse) für alle Mitarbeitenden lesbar sein, sobald sie freigegeben sind?
+2. Wer pflegt das Wissen: Soll das PMO veraltete Einträge ausblenden können?
+
+**Meine Empfehlung:** 1. Lessons Learned der Projektschlussbeurteilung für alle Mitarbeitenden, alles andere wie heute; 2. ja, das PMO, mit Begründung im Verlauf.
+
+**Antwort:**
+

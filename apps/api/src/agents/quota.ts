@@ -182,4 +182,6 @@ export class QuotaProvider implements AiProvider {
     this.quota.run(ctx, () => this.inner.draftStatusReport(req, ctx));
   extractMinutes: AiProvider["extractMinutes"] = (req, ctx) =>
     this.quota.run(ctx, () => this.inner.extractMinutes(req, ctx));
+  answerQuestion: AiProvider["answerQuestion"] = (req, ctx) =>
+    this.quota.run(ctx, () => this.inner.answerQuestion(req, ctx));
 }

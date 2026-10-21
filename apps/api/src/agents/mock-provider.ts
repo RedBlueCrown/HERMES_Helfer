@@ -17,6 +17,8 @@ import {
   type ChangeRequestDraftRequest,
   type CritiqueRequest,
   type DraftRequest,
+  type KnowledgeReply,
+  type KnowledgeRequest,
   type MinutesExtract,
   type MinutesExtractRequest,
   type ProposedReassessment,
@@ -391,6 +393,22 @@ export function mockMinutes(req: MinutesExtractRequest): MinutesExtract {
   };
 }
 
+/**
+ * Without a model: the first passage the search found, quoted with its id; nothing
+ * found without passages. The real model weighs and combines them.
+ */
+export function mockKnowledge(req: KnowledgeRequest): KnowledgeReply {
+  const first = req.passages[0];
+  if (!first)
+    return { found: false, answer: "Dazu habe ich in den Unterlagen nichts gefunden.", citations: [] };
+  const sentence = /^.{0,400}?[.!?](?=\s|$)/s.exec(first.text)?.[0] ?? first.text.slice(0, 400);
+  return {
+    found: true,
+    answer: `Testmodus ohne KI-Modell, die beste Fundstelle: ${first.source}: «${sentence.trim()}» [${first.id}]`,
+    citations: [first.id],
+  };
+}
+
 export class MockProvider implements AiProvider {
   readonly info: ProviderInfo = {
     provider: "mock",
@@ -446,5 +464,10 @@ export class MockProvider implements AiProvider {
   async extractMinutes(req: MinutesExtractRequest, ctx?: CallContext) {
     await this.wait(ctx);
     return { extract: mockMinutes(req) };
+  }
+
+  async answerQuestion(req: KnowledgeRequest, ctx?: CallContext) {
+    await this.wait(ctx);
+    return { reply: mockKnowledge(req) };
   }
 }

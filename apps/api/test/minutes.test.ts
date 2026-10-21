@@ -62,6 +62,7 @@ describe("Protokoll agent (A9) and minutes", () => {
       draftChangeRequest: (r, c) => mock.draftChangeRequest(r, c),
       reviewRisks: (r, c) => mock.reviewRisks(r, c),
       draftStatusReport: (r, c) => mock.draftStatusReport(r, c),
+      answerQuestion: (r, c) => mock.answerQuestion(r, c),
       extractMinutes: async () => ({
         extract: {
           decisions: [

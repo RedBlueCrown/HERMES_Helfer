@@ -35,6 +35,12 @@ const useStyles = makeStyles({
     position: "sticky",
     top: 0,
     zIndex: 10,
+    // On a phone the header scrolls by itself instead of widening the page.
+    overflowX: "auto",
+    "@media (max-width: 640px)": {
+      gap: tokens.spacingHorizontalS,
+      padding: `0 ${tokens.spacingHorizontalM}`,
+    },
   },
   brand: {
     display: "flex",
@@ -44,12 +50,18 @@ const useStyles = makeStyles({
     color: "inherit",
   },
   logo: { width: "28px", height: "28px" },
-  brandText: { display: "flex", flexDirection: "column", lineHeight: 1.1 },
+  brandText: {
+    display: "flex",
+    flexDirection: "column",
+    lineHeight: 1.1,
+    "@media (max-width: 640px)": { display: "none" },
+  },
   nav: {
     display: "flex",
     alignSelf: "stretch",
     gap: tokens.spacingHorizontalXS,
     marginLeft: tokens.spacingHorizontalL,
+    "@media (max-width: 640px)": { marginLeft: 0 },
   },
   navLink: {
     display: "flex",
@@ -58,6 +70,8 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground2,
     textDecoration: "none",
     borderBottom: "3px solid transparent",
+    whiteSpace: "nowrap",
+    "@media (max-width: 640px)": { padding: `0 ${tokens.spacingHorizontalS}` },
     ":hover": { color: tokens.colorNeutralForeground1, backgroundColor: tokens.colorNeutralBackground1Hover },
     ":focus-visible": { outline: `2px solid ${tokens.colorStrokeFocus2}`, outlineOffset: "-2px" },
   },
@@ -97,6 +111,9 @@ export function AppHeader() {
           className={({ isActive }) => mergeClasses(s.navLink, isActive && s.navActive)}
         >
           Portfolio
+        </NavLink>
+        <NavLink to="/wissen" className={({ isActive }) => mergeClasses(s.navLink, isActive && s.navActive)}>
+          Wissen
         </NavLink>
         {me.data?.can.manageTemplates ? (
           <NavLink

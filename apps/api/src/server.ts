@@ -6,6 +6,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { resolve, sep } from "node:path";
 import { ChangeRequestAgent } from "./agents/change-request-agent";
+import { KnowledgeAgent } from "./agents/knowledge-agent";
 import { MinutesAgent } from "./agents/minutes-agent";
 import { RiskAgent } from "./agents/risk-agent";
 import { ProposalStore } from "./agents/proposals";
@@ -98,6 +99,7 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
   const riskAgent = new RiskAgent(projects, provider, app.log, proposals, now);
   const statusReportAgent = new StatusReportAgent(projects, provider, app.log, proposals, now);
   const minutesAgent = new MinutesAgent(projects, provider, app.log, proposals);
+  const knowledgeAgent = new KnowledgeAgent(deps.repo, provider, app.log);
 
   const production = config.NODE_ENV === "production";
   await app.register(helmet, {
@@ -210,6 +212,7 @@ export async function buildServer(deps: ServerDeps): Promise<Server> {
     riskAgent,
     statusReportAgent,
     minutesAgent,
+    knowledgeAgent,
     proposals,
     documents,
     authenticator: deps.authenticator,
