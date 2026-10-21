@@ -59,7 +59,7 @@ const schema = z.object({
   DOCUMENT_STORAGE_HOSTS: hostList.default(["*.sharepoint.com"]),
   SEED_DEMO: flag(false),
   SEED_SYNTHETIC_PROJECTS: z.coerce.number().int().min(0).max(5000).default(0),
-  AI_PROVIDER: z.enum(["mock", "azure-openai"]).default("mock"),
+  AI_PROVIDER: z.enum(["mock", "azure-openai", "anthropic"]).default("mock"),
   MOCK_AI_LATENCY_MS: z.coerce.number().int().min(0).max(60_000).default(1200),
   AZURE_OPENAI_ENDPOINT: z.url().optional(),
   AZURE_OPENAI_DEPLOYMENT_DRAFT: z.string().optional(),
@@ -76,6 +76,18 @@ const schema = z.object({
   /** Drafts of results run in the background, not within a request: they may take longer. */
   AZURE_OPENAI_DRAFT_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(1_800_000).default(600_000),
   AZURE_OPENAI_REGION_LABEL: z.string().default("EU"),
+  /**
+   * Claude through the Claude API (AI_PROVIDER=anthropic): only for tests with fictional
+   * data on a developer's machine, as the API processes data outside the EU (refused below).
+   * The key comes from the environment, never from a file in the repository.
+   */
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL_DRAFT: z.string().default("claude-opus-5-5"),
+  ANTHROPIC_MODEL_CHAT: z.string().default("claude-opus-5-5"),
+  /** How much the model thinks before it answers; unset: the model's default. */
+  ANTHROPIC_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+  ANTHROPIC_MAX_TOKENS: z.coerce.number().int().min(1024).max(128_000).default(16_000),
+  ANTHROPIC_DRAFT_MAX_TOKENS: z.coerce.number().int().min(1024).max(128_000).default(32_000),
   /** Model calls at the same time, across all agents (agents/quota.ts). */
   AI_MAX_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(200).default(8),
   /** Model calls at the same time for one person, background drafts included. */
@@ -103,6 +115,10 @@ export function withoutEmpty(env: Record<string, string | undefined>): Record<st
   );
 }
 
+/** Container Apps and App Service set these. */
+export const runsInAzure = (env: Record<string, string | undefined>): boolean =>
+  Boolean(env.CONTAINER_APP_NAME || env.CONTAINER_APP_JOB_NAME || env.WEBSITE_SITE_NAME);
+
 /** Reads and checks the configuration. Refuses unsafe combinations (todo-later E18). */
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const c = schema.parse(withoutEmpty(env));
@@ -112,6 +128,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (c.NODE_ENV === "production") {
     if (c.AUTH_MODE === "dev") refuse("AUTH_MODE=dev is not allowed with NODE_ENV=production.");
     if (c.AI_PROVIDER === "mock") refuse("AI_PROVIDER=mock is not allowed with NODE_ENV=production.");
+    if (c.AI_PROVIDER === "anthropic")
+      refuse("AI_PROVIDER=anthropic is not allowed with NODE_ENV=production.");
     if (c.STORE !== "sql") refuse("NODE_ENV=production needs STORE=sql.");
     if (c.SQL_AUTH !== "entra") refuse("NODE_ENV=production needs SQL_AUTH=entra (no database passwords).");
     if (c.SQL_TRUST_SERVER_CERTIFICATE) {
@@ -121,9 +139,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       refuse("Demo data (SEED_DEMO, SEED_SYNTHETIC_PROJECTS) is not allowed with NODE_ENV=production.");
     }
   }
-  // Container Apps and App Service set these; dev sign-in never runs there, whatever NODE_ENV says.
-  const inAzure = Boolean(env.CONTAINER_APP_NAME || env.CONTAINER_APP_JOB_NAME || env.WEBSITE_SITE_NAME);
+  // Dev sign-in never runs in Azure, whatever NODE_ENV says.
+  const inAzure = runsInAzure(env);
   if (c.AUTH_MODE === "dev" && inAzure) refuse("AUTH_MODE=dev is not allowed in Azure.");
+  if (c.AI_PROVIDER === "anthropic") {
+    // The Claude API processes data in the USA or globally (decision D3: only the EU), so
+    // it may see fictional data only: a developer's machine with demo projects in memory.
+    if (inAzure) refuse("AI_PROVIDER=anthropic is not allowed in Azure.");
+    if (c.STORE !== "memory") refuse("AI_PROVIDER=anthropic needs STORE=memory (tests with fictional data).");
+    if (!c.ANTHROPIC_API_KEY) refuse("AI_PROVIDER=anthropic needs ANTHROPIC_API_KEY in the environment.");
+  }
   if (c.AUTH_MODE === "entra" && (!c.ENTRA_TENANT_ID || !c.ENTRA_API_CLIENT_ID || !c.ENTRA_WEB_CLIENT_ID)) {
     refuse("AUTH_MODE=entra needs ENTRA_TENANT_ID, ENTRA_API_CLIENT_ID and ENTRA_WEB_CLIENT_ID.");
   }

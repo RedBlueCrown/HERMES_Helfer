@@ -7,6 +7,10 @@
 #
 #   scripts/check-agents.sh
 #
+# Besides the report in the console it saves eval-azure-<time>.json (the
+# model's answers) and eval-azure-<time>.html (a page to read, compare and rate
+# them) in the current folder: in Cloud Shell, «Manage files» → «Download».
+#
 # Optional settings (environment variables), as for scripts/deploy-azure.sh:
 #   ENV_NAME=test
 #   RESOURCE_GROUP=rg-hermes-helfer-test
@@ -37,9 +41,32 @@ for _ in $(seq 1 120); do
 done
 
 echo
-az containerapp job logs show -g "$RG" -n "$JOB" --execution "$EXECUTION" --container eval \
-  --tail 300 --format text 2>/dev/null ||
+LOGS=$(az containerapp job logs show -g "$RG" -n "$JOB" --execution "$EXECUTION" --container eval \
+  --tail 300 --format text 2>/dev/null) || LOGS=""
+if [ -n "$LOGS" ]; then
+  grep -v "EVAL-" <<<"$LOGS" || true
+else
   echo "The report is in the Azure portal: Container App Job $JOB → Execution history → $EXECUTION → Console logs."
+fi
+echo
+
+# The job prints the report file and the page compressed into its log, in lines
+# «EVAL-JSON i/n <base64>»; put each file together again.
+extract() {
+  local parts total
+  parts=$(grep -oE "EVAL-$1 [0-9]+/[0-9]+ [A-Za-z0-9+/=]+" <<<"$LOGS" | sort -u | sort -t' ' -k2,2n) || return 1
+  total=$(head -n1 <<<"$parts" | cut -d' ' -f2 | cut -d/ -f2)
+  [ -n "$total" ] && [ "$(wc -l <<<"$parts")" -eq "$total" ] || return 1
+  cut -d' ' -f3 <<<"$parts" | tr -d '\n' | base64 -d | gunzip >"$2"
+}
+STAMP=$(date -u +%Y%m%d-%H%M)
+if [ -n "$LOGS" ] && extract JSON "eval-azure-$STAMP.json" && extract HTML "eval-azure-$STAMP.html"; then
+  echo "Saved: eval-azure-$STAMP.html (answers and checks, to read and rate) and eval-azure-$STAMP.json."
+  echo "In Cloud Shell: «Manage files» → «Download» → $(pwd)/eval-azure-$STAMP.html"
+else
+  rm -f "eval-azure-$STAMP.json" "eval-azure-$STAMP.html"
+  echo "The answers could not be saved as files (the log was incomplete); the report above is complete."
+fi
 echo
 case "$status" in
   Succeeded) echo "All agents passed the check." ;;

@@ -3,12 +3,17 @@
 // and the evaluation of the agents into dist/eval/main.js: in Azure the model is
 // reachable only from the app's network, so the evaluation runs in its container.
 // The workspace package @hermes-helfer/core is bundled in; npm dependencies stay
-// external and come from node_modules.
+// external and come from node_modules. So does the Claude SDK, a development
+// dependency for tests on a developer's machine: it is loaded only with
+// AI_PROVIDER=anthropic, which Azure refuses, and the image does not contain it.
 import { build } from "esbuild";
 import { readFileSync } from "node:fs";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
-const external = Object.keys(pkg.dependencies).filter((d) => !d.startsWith("@hermes-helfer/"));
+const external = [
+  ...Object.keys(pkg.dependencies).filter((d) => !d.startsWith("@hermes-helfer/")),
+  "@anthropic-ai/sdk",
+];
 
 await build({
   entryPoints: ["src/main.ts", "src/migrate.ts", "src/telemetry.ts", "src/eval/main.ts"],

@@ -10,6 +10,7 @@ import {
 } from "../src/agents/provider";
 import { EVAL_CASES } from "../src/eval/cases";
 import { figures, noNewFigures } from "../src/eval/graders";
+import { reportHtml } from "../src/eval/html-report";
 import { formatReport, runEval, verdict, type EvalReport } from "../src/eval/run-eval";
 
 const criticalFailures = (report: EvalReport) =>
@@ -220,5 +221,37 @@ describe("evaluation of the Delivery-Assistent (A1)", () => {
     expect(result.detail).toBe(
       "Antwort aus den Regeln (provider_error: Azure OpenAI 400 invalid_request_error: tools)",
     );
+  });
+});
+
+describe("evaluation as a page (--html)", () => {
+  it("shows every case per model, escapes the model's text and marks critical failures apart", async () => {
+    const offline = await runEval(new MockProvider(0), EVAL_CASES);
+    const hostile: EvalReport = {
+      ...offline,
+      provider: { ...offline.provider, model: "<b>fremd</b>" },
+      runs: offline.runs.map((r, i) =>
+        i === 0
+          ? {
+              ...r,
+              output: { summary: '<script>alert("x")</script>', sections: [], openPoints: [] },
+              results: [
+                { name: "Regel", level: "kritisch", passed: false, detail: "<img src=x onerror=alert(1)>" },
+              ],
+            }
+          : r,
+      ),
+    };
+    const html = reportHtml([offline, hostile], 0.8);
+    for (const c of offline.runs) expect(html).toContain(`id="${c.caseId}"`);
+    expect(html).not.toContain('<script>alert("x")</script>');
+    expect(html).not.toContain("<img src=x");
+    expect(html).not.toContain("<b>fremd</b>");
+    expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
+    // The broken critical rule shows as ✗; the offline model's quality misses as ~, never as ✗.
+    expect(html).toContain('title="kritische Prüfung verletzt oder Fehler">✗');
+    expect(html).toContain('title="Qualitätsprüfung nicht erfüllt">~');
+    // Cases the offline model cannot run (the assistant) are named as skipped.
+    expect(html).toContain("übersprungen: das Modell hat keinen Chat");
   });
 });

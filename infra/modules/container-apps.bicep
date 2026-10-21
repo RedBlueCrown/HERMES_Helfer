@@ -255,7 +255,7 @@ resource evalJob 'Microsoft.App/jobs@2025-01-01' = if (deployApp) {
         {
           name: 'eval'
           image: image
-          args: ['dist/eval/main.js', '--provider', 'azure']
+          args: ['dist/eval/main.js', '--provider', 'azure', '--print-files']
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: filter(
             [

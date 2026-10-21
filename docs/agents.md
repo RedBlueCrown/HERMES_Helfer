@@ -1,6 +1,6 @@
 # The agents of HERMES Helfer
 
-How the agents are built, how they are tested, which platform suits them on Azure, and how to carry them into another version of HERMES Helfer. Status: 19 October 2026.
+How the agents are built, how they are tested, which platform suits them on Azure, and how to carry them into another version of HERMES Helfer. Status: 21 October 2026.
 
 ![The agents and their interactions](diagrams/agents.png)
 
@@ -21,6 +21,19 @@ The target architecture names 13 agents (`packages/core/src/model/agents.ts`). E
 
 Agents propose; people decide. Drafts and proposals are stored only when a person accepts or releases them, and every decision goes through the engine's permission checks (`packages/core/src/engine/permissions.ts`), for which no agent has a tool.
 
+### How the assistant keeps track of the other agents
+
+A1 is not an orchestrator that watches the other agents. The engine is the orchestrator, and each project's history is the shared memory:
+
+1. Each agent does one job and returns a result; agents never talk to each other.
+2. Every result is written into the project's history as an event, with which agent and model produced it: a draft with the Kritiker's findings (`SkillRunCompleted`), a failed run (`SkillRunFailed`), and, once a person accepts them, a change request, risks or a status report.
+3. From the history the engine computes the current state: the next step, each person's open tasks, gate readiness, the status of every result.
+4. A1's read tools return exactly that state, with the asking person's permissions. When someone asks «Ist das Testkonzept fertig?», A1 looks it up again; it keeps nothing of its own that could go stale.
+
+There is no scratchpad and no file per project. Each project's history is a stream of events in Azure SQL (a ledger table, hash-chained). The API keeps every project's current state in memory, fetches only new events, and writes under a lock per project. The agents never get the history, only a small, bounded context of one project (`ProjectContext`), so a call costs the same with 10 or 1,000 projects. At scale the limit is the model's quota, which all projects share. Today the API runs as one instance with the quota gate, proposals and background drafts in memory. Several instances need a shared quota (API Management AI gateway, todo-later H03), a shared proposal store (E10) and a durable queue for drafts (H02); the data model stays as it is.
+
+What A1 cannot do today: it starts drafts, but not the risk review, a change request or a status report, and it does not plan several steps or report back when a background draft is done. Both can be added without an LLM deciding the process: tools for every agent behind the same permission checks, and plans that a person confirms and the engine carries out.
+
 ## 2. How they are programmed
 
 No agent framework: the agents are plain TypeScript in the API process (about 3,700 lines in `apps/api/src/agents`, the offline model included), and they call Azure OpenAI directly over its REST API (`azure-openai-provider.ts`, no SDK). Neither Microsoft Agent Framework nor Copilot Studio nor LangChain is involved.
@@ -39,20 +52,35 @@ No agent framework: the agents are plain TypeScript in the API process (about 3,
 | Unit tests | Every agent against fake models: request formats for Azure (schemas, tool calls, the second round of a chat), parsing, limits, errors. | `apps/api/test`, in CI |
 | Evaluation set | 18 fixed, fictional cases for all eleven agents. Critical checks must hold every time (no hidden instruction followed, no effort estimated, the assistant answers with the model, starts no draft unasked and claims no decision); quality checks count as a rate (at least 80 %). | `apps/api/src/eval`: offline in CI; against the real model with `scripts/check-agents.sh` |
 | End-to-end | The web app in a browser with the offline model: drafts, assistant, change requests, risks, status reports, templates. | `apps/web/e2e`, in CI |
+| Without Azure | The same cases against Claude on your computer, with a page to read, compare and rate the answers | [testing-agents.md](testing-agents.md) |
 
 In Azure, `scripts/check-agents.sh` starts the job `caj-hh-<env>-eval`: it runs inside the app's network with the app's identity, prints the report and names the model's error when the assistant had to fall back to its rules. Run it after each deployment and after each change of model, prompt or setting; with `--repeat 3` locally (`npm run eval -w @hermes-helfer/api -- --provider azure --repeat 3`) the rates become more reliable.
 
 ## 4. Which platform on Azure
 
-**Recommendation: keep the agents as code in TypeScript on Azure OpenAI, and add Microsoft Foundry for evaluation and monitoring only.** Direct calls are the shortest path to the model; the tools run in the API under the person's permissions; the history and audit stay in the organisation's database; nothing leaves the EU deployment. The options, as of 19 October 2026:
+**Recommendation: keep the engine as the orchestrator and the agents as code, on a model deployed in the EU. In Java, that means Spring AI 2.0 or the official openai-java client on Azure OpenAI. Microsoft Foundry is optional, for evaluation and tracing; Copilot Studio fits later as a front end in Teams.** The HERMES method fixes the flow: phases, results, gates, roles, approvals, separation of duties. That flow belongs in code that is tested and audited, not in a model that decides what happens next. The agents themselves are single calls with a fixed answer form, plus one tool loop; they need a good model client, not an agent framework. The options, as of 21 October 2026:
 
-| Option | State | Fit for HERMES Helfer |
-|---|---|---|
-| **Code-first TypeScript + Azure OpenAI** (today) | Stable | **Best**: fewest hops, full control over permissions, data and costs |
-| Microsoft Agent Framework | 1.0 for .NET and Python since April 2026, Go in preview; **no TypeScript SDK and none planned** | Poor: would need a second service in Python or .NET next to the TypeScript app |
-| Foundry Agent Service | Generally available (new runtime on the Responses API, March 2026); JavaScript SDK `@azure/ai-projects`; private networking with own storage in the "standard setup"; Sweden Central supported | Possible, little gain: one more hop and state held by the service. Its web search tools send queries outside the EU boundary. Its "workflows" retire on 1 December 2026 in favour of Agent Framework |
-| Copilot Studio | Low-code, part of Power Platform | **Excluded**: Power Platform is ruled out, and access would run through a second identity layer instead of the engine |
-| OpenAI Agents SDK for TypeScript | 0.20, not yet 1.0; works with Azure OpenAI through your own client | Optional for A1's tool loop; its tracing is on by default and sends traces to OpenAI, so turn it off (`OPENAI_AGENTS_DISABLE_TRACING=1`) |
+| Option | Java | Data in the EU only | Fit for HERMES Helfer |
+|---|---|---|---|
+| **Code-first** (today: TypeScript; in Java: Spring AI 2.0 GA or openai-java, both with Entra ID, tool calling and structured outputs) | Yes | Yes (Azure OpenAI in Sweden Central, regional) | **Best**: fewest hops, permissions and audit stay in the engine |
+| LangChain4j 1.22 (Azure with managed identity, strict schemas) | Yes | Yes | Good as a client; its multi-agent module is still experimental |
+| Microsoft Agent Framework | **No**: .NET and Python 1.0 (April 2026), Go | Yes | Poor for a Java app: a second service in another language. Its strength (an LLM manager, hand-offs, group chats) is what a governance process should not hand to a model |
+| Foundry Agent Service | Java SDK `azure-ai-agents` / `azure-ai-projects` 2.x (GA March 2026; minor versions still change preview parts) | Depends on the tools | Possible, little gain: state and tools at the service, permission trimming only partly. Workflows (preview) retire on 1 December 2026; the classic service on 31 March 2027 |
+| Copilot Studio | Through connectors | Only if every environment is in the EU and «Move data across regions» is off; where the model runs is unconfirmed | **As a front end**: A1 in Teams, calling HERMES Helfer with the person's identity (on-behalf-of). Not as the place of the engine or the drafting agents: the rules would live twice. Agent evaluation is GA (test sets, graders, CI API; runs use Copilot Credits) |
+| Claude as the model | Spring AI and LangChain4j have Claude modules | **No** through the Claude API (USA or worldwide) or Microsoft Foundry (Global or US Data Zone). EU only through Amazon Bedrock or Google Vertex AI | For tests with fictional data ([testing-agents.md](testing-agents.md)) |
+
+If the other HERMES Helfer is written in Java, port the agents as code:
+
+| Agent | In Java |
+|---|---|
+| A1 | Tool calling over the engine's read model, under the person's identity |
+| A2–A8, A10 | One call each with a strict JSON schema, then a parser that shortens instead of refusing |
+| A11 | The checklist in code, then the model's review as JSON |
+| A12 | Every proposal names the id of a fact the engine supplied |
+| A9 | Transcript from Microsoft Graph, each item with a verbatim quote that code checks, a person accepts each item |
+| A13 | Azure AI Search, filtered by the projects the engine allows the person to read, every statement with its source |
+
+The prompts, schemas and evaluation cases carry over as they are.
 
 What would make the agents faster and better, each to be measured with the evaluation set before and after:
 
@@ -60,10 +88,10 @@ What would make the agents faster and better, each to be measured with the evalu
 2. **Effort and model per agent**: `REASONING_EFFORT=low` for drafts and the Kritiker; a smaller, faster model for the chat and the Kritiker if the evaluation keeps passing.
 3. **Streaming the assistant's answer**, so the first words appear at once (todo-later E30).
 4. **The Responses API for the assistant** (stateless, `store: false`): recommended by OpenAI for new tool-calling code and available in Sweden Central. Not urgent: Chat Completions keeps working.
-5. **Foundry evaluations and tracing**: OpenTelemetry spans of the model calls to Application Insights (content capture off), Foundry's agent evaluators (task adherence, tool call accuracy) on the evaluation cases, red-teaming before a release. From TypeScript through `@azure/ai-projects`.
-6. Optionally **promptfoo** in CI (TypeScript, Azure with Entra ID); keep its grading on your own Azure model and set `PROMPTFOO_DISABLE_TELEMETRY=1`.
+5. **Foundry evaluations and tracing**: OpenTelemetry spans of the model calls to Application Insights (content capture off), Foundry's agent evaluators (task adherence, tool call accuracy) on the evaluation cases, red-teaming before a release.
+6. Optionally **promptfoo** in CI; keep its grading on your own Azure model and set `PROMPTFOO_DISABLE_TELEMETRY=1`.
 
-Note: some of these facts come from search extracts because the Microsoft documentation sites were not reachable from the research environment; check the sources below before a purchase or architecture decision. Reports that newer models (gpt-5.4 and later) reject tools together with reasoning on Chat Completions are unverified: run the evaluation set before changing the model.
+Note: some facts on Copilot Studio and Foundry come from search extracts, because the Microsoft documentation sites were not reachable from the research environment; check the sources below before a purchase or architecture decision. Reports that newer models (gpt-5.4 and later) reject tools together with reasoning on Chat Completions are unverified: run the evaluation set before changing the model.
 
 ## 5. Carrying the agents into another HERMES Helfer
 
@@ -83,11 +111,14 @@ A clean hand-over is an npm package `@hermes-helfer/agents`: prompts, schemas, t
 
 ## Sources
 
-Read on 19 October 2026 unless dated.
+Read between 19 and 21 October 2026 unless dated.
 
 - Microsoft Agent Framework 1.0: https://devblogs.microsoft.com/agent-framework/microsoft-agent-framework-version-1-0/ (3 April 2026); https://github.com/microsoft/agent-framework; no JavaScript SDK planned: https://github.com/microsoft/agent-framework/issues/1216 (2 June 2026)
 - Foundry Agent Service: https://devblogs.microsoft.com/foundry/foundry-agent-service-ga/ (16 March 2026); regions: https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/limits-quotas-regions; virtual networks: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/virtual-networks; web search tools: https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/web-overview; workflows retiring: https://learn.microsoft.com/en-us/azure/foundry/agents/concepts/workflow; JavaScript SDK: https://github.com/Azure/azure-sdk-for-js/blob/main/sdk/ai/ai-projects/CHANGELOG.md
-- Copilot Studio data residency: https://learn.microsoft.com/en-us/microsoft-copilot-studio/geo-data-residency
+- Copilot Studio data residency: https://learn.microsoft.com/en-us/microsoft-copilot-studio/geo-data-residency; moving data across regions: https://learn.microsoft.com/en-us/power-platform/admin/geographical-availability-copilot; on-behalf-of connectors: https://learn.microsoft.com/en-us/microsoft-copilot-studio/advanced-custom-connector-on-behalf-of; agent evaluation GA: https://techcommunity.microsoft.com/blog/copilot-studio-blog/agent-evaluation-in-microsoft-copilot-studio-is-now-generally-available/4507392 (31 March 2026)
+- Java: Foundry SDK https://github.com/Azure/azure-sdk-for-java/tree/main/sdk/ai/azure-ai-agents and https://repo1.maven.org/maven2/com/azure/azure-ai-agents/; Spring AI 2.0 https://spring.io/blog/2026/06/12/spring-ai-2-0-0-GA-available-now/ (12 June 2026); LangChain4j https://github.com/langchain4j/langchain4j; openai-java https://github.com/openai/openai-java; Semantic Kernel for Java https://repo1.maven.org/maven2/com/microsoft/semantic-kernel/semantickernel-api/
+- Claude data residency: https://platform.claude.com/docs/en/manage-claude/data-residency; in Microsoft Foundry: https://platform.claude.com/docs/en/build-with-claude/claude-in-microsoft-foundry; on Bedrock: https://platform.claude.com/docs/en/build-with-claude/claude-on-amazon-bedrock; on Vertex AI: https://platform.claude.com/docs/en/build-with-claude/claude-on-vertex-ai
+- Foundry Agent Service retirements: https://learn.microsoft.com/en-us/azure/foundry-classic/agents/whats-new
 - OpenAI Agents SDK for TypeScript, tracing: https://github.com/openai/openai-agents-js/blob/main/docs/src/content/docs/guides/tracing.mdx
 - Foundry evaluators: https://learn.microsoft.com/en-us/azure/foundry/concepts/built-in-evaluators; tracing for any framework: https://devblogs.microsoft.com/foundry/build-2026-from-observability-to-roi-for-ai-agents-on-any-framework/ (3 June 2026)
 - promptfoo with Azure: https://promptfoo.dev/docs/providers/azure

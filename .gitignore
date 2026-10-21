@@ -9,5 +9,10 @@ playwright-report/
 .env.*
 !.env.example
 .DS_Store
-# Reports of the agents' evaluation hold the model's answers (npm run eval -- --out).
+# Reports of the agents' evaluation hold the model's answers (npm run eval -- --out, --html).
 eval-report*.json
+eval-azure-*
+apps/api/*.json
+!apps/api/package.json
+!apps/api/tsconfig.json
+apps/api/*.html

@@ -33,7 +33,7 @@ const repo = new ProjectRepository(store, model, {
 });
 await repo.load();
 
-const provider = createProvider(config, getCredential);
+const provider = await createProvider(config, getCredential);
 
 const authenticator =
   config.AUTH_MODE === "dev"

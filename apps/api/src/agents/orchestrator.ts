@@ -405,7 +405,12 @@ export class Orchestrator {
           suggestions: DEFAULT_SUGGESTIONS,
         };
       }
-      messages.push({ role: "assistant", content: res.content, toolCalls: res.toolCalls });
+      messages.push({
+        role: "assistant",
+        content: res.content,
+        toolCalls: res.toolCalls,
+        ...(res.turn !== undefined ? { turn: res.turn } : {}),
+      });
       for (const call of res.toolCalls) {
         used.push(call.name);
         let out: unknown;

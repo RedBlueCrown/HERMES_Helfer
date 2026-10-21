@@ -21,7 +21,7 @@ import type {
 } from "@hermes-helfer/core";
 
 export interface ProviderInfo {
-  provider: "mock" | "azure-openai";
+  provider: "mock" | "azure-openai" | "anthropic";
   /** Model or deployment names, for provenance. */
   model: string;
   /** Where the model processes data, shown to users. */
@@ -162,7 +162,13 @@ export interface Usage {
 
 export type ChatMessage =
   | { role: "system" | "user"; content: string }
-  | { role: "assistant"; content: string | null; toolCalls?: ToolCall[] }
+  | {
+      role: "assistant";
+      content: string | null;
+      toolCalls?: ToolCall[];
+      /** The model's own record of its turn (ChatResponse.turn), passed back unchanged. */
+      turn?: unknown;
+    }
   | { role: "tool"; toolCallId: string; content: string };
 
 export interface ToolCall {
@@ -183,6 +189,11 @@ export interface ChatResponse {
   content: string | null;
   toolCalls: ToolCall[];
   usage?: Usage;
+  /**
+   * The turn as the model wrote it, its reasoning included, for models that need it
+   * back in the next round of tools (Claude). Only the adapter that made it reads it.
+   */
+  turn?: unknown;
 }
 
 /** Whom a model call is for, and when to stop it (quota.ts). */
