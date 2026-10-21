@@ -101,14 +101,15 @@ The agents depend on the rest of the app through a few narrow points. A version 
 | What the agents need | In this repository | In another app |
 |---|---|---|
 | The project's facts | `ProjectContext` (`provider.ts`): code, name, description, phase, profile, released results with summaries (confidential ones by name only, need-to-know), open risks | Built from its own data model |
-| A place for results | Events (`SkillRunCompleted`, `ChangeRequestSubmitted`, `RiskRecorded`, `RiskAssessed`, `StatusReportPublished`) through `ProjectService` | Its own storage, written only after a person accepts |
+| What A13 may search | `knowledgePassages` (`packages/core/src/engine/knowledge.ts`): passages of everything the person may read, across projects | Built from its own data and permissions; nothing the person may not read |
+| A place for results | Events (`SkillRunCompleted`, `ChangeRequestSubmitted`, `RiskRecorded`, `RiskAssessed`, `StatusReportPublished`, `MinutesRecorded`) through `ProjectService` | Its own storage, written only after a person accepts |
 | Who may do what | `permissions.ts` in the engine | Its own role checks; agents never get a decision |
 | A1's tools | The engine's views (`views.ts`, `tasks.ts`) | The same eleven tools against its own read model; «entwurf_anstossen» behind its permission check |
-| The model | `AiProvider` with the Azure OpenAI adapter, quota gate and offline model | Copied as it is; settings `AZURE_OPENAI_*`, a managed identity with the role «Cognitive Services OpenAI User» |
+| The model | `AiProvider` with the adapters for Azure OpenAI and Claude, the quota gate and the offline model; the answer schemas in `schemas.ts` | Copied as it is; settings `AZURE_OPENAI_*`, a managed identity with the role «Cognitive Services OpenAI User» |
 
-Files to take: `packages/core` (the HERMES model and engine, if the other app does not already have its own), `apps/api/src/agents`, `apps/api/src/eval`, optionally `apps/api/src/documents` (Word templates), with their tests in `apps/api/test` (`eval.test.ts`, the provider tests in `units.test.ts`).
+Files to take: `packages/core` (the HERMES model and engine, if the other app does not already have its own), `apps/api/src/agents`, `apps/api/src/eval`, optionally `apps/api/src/documents` (Word templates), with their tests in `apps/api/test` (`eval.test.ts`, `minutes.test.ts`, `knowledge.test.ts`, `anthropic-provider.test.ts`, the Azure provider tests in `units.test.ts`).
 
-A clean hand-over is an npm package `@hermes-helfer/agents`: prompts, schemas, tool interfaces, the model adapter, the quota gate and the evaluation set, with the five points above as interfaces the other app implements. The next step is to look at the other app's code and cut the package along its data model; then its own CI runs the unit tests and the offline evaluation, and `scripts/check-agents.sh` (or `npm run eval -- --provider azure`) checks the agents against its model.
+A clean hand-over is an npm package `@hermes-helfer/agents`: prompts, schemas, tool interfaces, the model adapter, the quota gate and the evaluation set, with the six points above as interfaces the other app implements. The next step is to look at the other app's code and cut the package along its data model; then its own CI runs the unit tests and the offline evaluation, and `scripts/check-agents.sh` (or `npm run eval -- --provider azure`) checks the agents against its model.
 
 ## Sources
 
