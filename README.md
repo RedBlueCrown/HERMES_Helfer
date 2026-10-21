@@ -2,7 +2,7 @@
 
 Leads projects of Firma Muster AG through the HERMES project management method. AI agents draft deliverables and check their quality. People release results and make every decision, and the app records each step in a tamper-evident project record (Projektakte).
 
-Status: **Increment 1** (local vertical slice) is done. **Increment 2** (Azure pilot) is built and tested in CI: event store on Azure SQL with a ledger table, container image, telemetry, Bicep templates and Entra ID registrations. The first deployment to Azure is open ([deployment steps](docs/deployment.md), [roadmap](docs/target-architecture.md#10-increments)). Built ahead of their increments: the portfolio view ([description](docs/target-architecture.md#71-portfolio-view-first-version)), Change Requests with their agent ([description](docs/target-architecture.md#55-change-requests-first-feature-of-increment-4)) the risk register with the Risiko agent ([description](docs/target-architecture.md#56-risks-second-feature-of-increment-4)), the status report ([description](docs/target-architecture.md#57-status-report)) and results as Word documents in the organisation's templates ([description](docs/target-architecture.md#59-word-templates-and-documents)).
+Status: **Increment 1** (local vertical slice) is done. **Increment 2** (Azure pilot) is built and tested in CI: event store on Azure SQL with a ledger table, container image, telemetry, Bicep templates and Entra ID registrations. The first deployment to Azure is open ([deployment steps](docs/deployment.md), [roadmap](docs/target-architecture.md#10-increments)). Built ahead of their increments: the portfolio view ([description](docs/target-architecture.md#71-portfolio-view-first-version)), Change Requests with their agent ([description](docs/target-architecture.md#55-change-requests-first-feature-of-increment-4)) the risk register with the Risiko agent ([description](docs/target-architecture.md#56-risks-second-feature-of-increment-4)), the status report ([description](docs/target-architecture.md#57-status-report)) results as Word documents in the organisation's templates ([description](docs/target-architecture.md#59-word-templates-and-documents)), minutes with the Protokoll agent ([description](docs/target-architecture.md#511-minutes-protokolle)) and answers across projects with the Wissen agent ([description](docs/target-architecture.md#512-knowledge-wissen)).
 
 ## Try it locally
 
@@ -49,6 +49,9 @@ Then start the API with `STORE=sql SQL_SERVER=localhost SQL_DATABASE=hermes SQL_
 11. Open **Beteiligte und Rollen** as project lead: you assign the team roles; Projektausschuss, ISM and Datenschutz are assigned by the PMO (Peter Graf) and never to the project lead, and nobody decides their own change request ([separation of duties](docs/target-architecture.md#61-separation-of-duties-funktionentrennung)). Locally with `SEPARATION_OF_DUTIES=false`, as in the Azure test environment, one person can try every role.
 12. Open **Vorlagen** as Peter Graf (PMO) and upload a Word template for a result, for example the Projektauftrag: the app shows the fields it found and who fills each (the agent, the app or a person). As Anna Keller in the Kundenportal, let the agent draft the Projektauftrag along the template and download it with «Als Word herunterladen» ([description](docs/target-architecture.md#59-word-templates-and-documents)). The organisation's templates are not in the repository.
 13. In a project, link the **Projektablage** as project lead or PMO: the folder with the project's files in SharePoint (in the Azure test environment also a private OneDrive). Everyone in the project opens it from the header; the app keeps only the link ([description](docs/target-architecture.md#510-projektablage)).
+14. Open **Protokolle** in a project: paste the notes of a meeting and let the Protokoll agent propose decisions, action items and open questions, each with its passage of the text; accept what fits. An action item lands on its owner's tasks ([description](docs/target-architecture.md#511-minutes-protokolle); the CRM project has an example).
+15. Open **Wissen** and ask across your projects, for example «Was wurde zur Migration entschieden?»: the Wissen agent answers from what you may read and names its sources ([description](docs/target-architecture.md#512-knowledge-wissen)).
+16. Test the agents without Azure, with Claude on your computer, and compare models side by side on a page with every answer: [testing-agents.md](docs/testing-agents.md).
 
 ## Repository layout
 
@@ -77,6 +80,7 @@ CI runs all of them on every push (`.github/workflows/ci.yml`), plus the event s
 
 - [Target architecture and agent design](docs/target-architecture.md)
 - [The agents](docs/agents.md): which exist, how they are built and tested, the platform on Azure, and how to carry them into another version; with [diagrams](docs/diagrams/architecture.png)
+- [Testing the agents](docs/testing-agents.md): offline, with Claude on your computer, or in Azure, with a page to read, compare and rate the answers
 - [Trying HERMES Helfer in Azure](docs/staging.md): one command, then first steps with the agents
 - [Deploying the Azure pilot environment](docs/deployment.md)
 - [Working on HERMES Helfer](CONTRIBUTING.md): how to propose and review changes
