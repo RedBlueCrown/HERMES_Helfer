@@ -181,6 +181,34 @@ export interface StatusReportState {
   acknowledgements: { at: string; by: ActorRef; note: string }[];
 }
 
+export interface MinutesItemState {
+  id: string;
+  text: string;
+  quote?: string;
+}
+
+export interface MinutesActionState extends MinutesItemState {
+  ownerId?: string;
+  ownerName?: string;
+  due?: string;
+  doneAt?: string;
+  doneBy?: ActorRef;
+  note?: string;
+}
+
+export interface MinutesState {
+  id: string;
+  number: number;
+  title: string;
+  heldOn: string;
+  decisions: MinutesItemState[];
+  actions: MinutesActionState[];
+  questions: MinutesItemState[];
+  producer: Producer;
+  recordedAt: string;
+  recordedBy: ActorRef;
+}
+
 export interface GateDecisionRecord {
   decision: Decision;
   reason: string;
@@ -225,6 +253,7 @@ export interface ProjectState {
   storage?: { url: string; at: string; by: ActorRef };
   risks: Record<string, RiskState>;
   statusReports: Record<string, StatusReportState>;
+  minutes: Record<string, MinutesState>;
 }
 
 export const participationKey = (phase: PhaseId, participantId: string) => `${phase}:${participantId}`;
@@ -495,6 +524,30 @@ function apply(s: ProjectState, e: StoredEvent, model: HermesModel): void {
         note: e.data.note,
       });
       return;
+    case "MinutesRecorded": {
+      s.minutes[e.data.minutesId] = {
+        id: e.data.minutesId,
+        number: e.data.number,
+        title: e.data.title,
+        heldOn: e.data.heldOn,
+        decisions: e.data.decisions.map((x) => ({ ...x })),
+        actions: e.data.actions.map((x) => ({ ...x })),
+        questions: e.data.questions.map((x) => ({ ...x })),
+        producer: e.data.producer,
+        recordedAt: e.at,
+        recordedBy: ref(e.actor),
+      };
+      return;
+    }
+    case "MinutesActionCompleted": {
+      const a = s.minutes[e.data.minutesId]?.actions.find((x) => x.id === e.data.actionId);
+      if (a) {
+        a.doneAt = e.at;
+        a.doneBy = ref(e.actor);
+        a.note = e.data.note;
+      }
+      return;
+    }
     case "RiskRecorded": {
       const values: RiskValues = {
         probability: e.data.probability,
@@ -584,6 +637,7 @@ export function foldEvents(events: readonly StoredEvent[], model: HermesModel): 
     changeRequests: {},
     risks: {},
     statusReports: {},
+    minutes: {},
   };
   for (let i = 1; i < events.length; i++) {
     const e = events[i]!;

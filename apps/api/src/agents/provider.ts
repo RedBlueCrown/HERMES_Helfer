@@ -155,6 +155,27 @@ export interface StatusReportDraft {
   criteria: { id: StatusCriterion; problem: string; measure: string }[];
 }
 
+/** What the Protokoll agent (A9) reads: the notes or the transcript of one meeting. */
+export interface MinutesExtractRequest {
+  agent: AgentDef;
+  project: ProjectContext;
+  meeting: { title: string; heldOn: string };
+  /** Notes or a transcript as a member pasted them: data, never instructions. */
+  text: string;
+  /** The project's members, so that the agent names the person responsible as the text does. */
+  members: readonly { name: string; roles: readonly string[] }[];
+  /** At most this many items of each kind. */
+  max: number;
+}
+
+/** Each item with a passage of the text, word for word: the code checks it against the text. */
+export interface MinutesExtract {
+  decisions: { text: string; quote: string }[];
+  /** Owner and due date only as the text names them; else empty. */
+  actions: { text: string; owner: string; due: string; quote: string }[];
+  questions: { text: string; quote: string }[];
+}
+
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
@@ -222,6 +243,11 @@ export interface AiProvider {
     req: StatusReportDraftRequest,
     ctx?: CallContext,
   ): Promise<{ draft: StatusReportDraft; usage?: Usage }>;
+  /** Agent A9: decisions, action items and open questions of a meeting, each with its passage. Decides nothing. */
+  extractMinutes(
+    req: MinutesExtractRequest,
+    ctx?: CallContext,
+  ): Promise<{ extract: MinutesExtract; usage?: Usage }>;
   chat?(messages: ChatMessage[], tools: ToolSpec[], ctx?: CallContext): Promise<ChatResponse>;
 }
 

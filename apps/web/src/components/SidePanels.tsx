@@ -42,7 +42,9 @@ const useStyles = makeStyles({
 export interface Navigate {
   openDeliverable(id: string): void;
   openGate(): void;
-  showTab(tab: "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "status" | "verlauf"): void;
+  showTab(
+    tab: "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "status" | "protokolle" | "verlauf",
+  ): void;
   openChangeRequest(id: string): void;
   openRisk(id: string): void;
   newStatusReport(): void;
@@ -108,6 +110,8 @@ function taskAction(t: TaskView, nav: Navigate): (() => void) | undefined {
       return () => nav.newStatusReport();
     case "acknowledge-report":
       return () => nav.showTab("status");
+    case "minutes-action":
+      return () => nav.showTab("protokolle");
     case "condition":
       return undefined;
   }

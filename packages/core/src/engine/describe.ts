@@ -4,6 +4,7 @@ import type { HermesModel } from "../model";
 import { PARTICIPANT_CATALOG } from "../model/participation";
 import { PROJECT_ROLE_LABELS } from "../model/roles";
 import { crLabel, formatChf } from "./change-requests";
+import { formatDay, minutesLabel } from "./minutes";
 import { findChecklist } from "./permissions";
 import { riskLabel } from "./risks";
 import { storageLinkHost } from "./storage";
@@ -20,7 +21,8 @@ export type EventCategory =
   | "vorhaben"
   | "aenderung"
   | "risiko"
-  | "status";
+  | "status"
+  | "protokoll";
 
 export const EVENT_CATEGORIES: readonly EventCategory[] = [
   "entscheid",
@@ -32,6 +34,7 @@ export const EVENT_CATEGORIES: readonly EventCategory[] = [
   "aenderung",
   "risiko",
   "status",
+  "protokoll",
 ];
 
 export function eventCategory(e: StoredEvent): EventCategory {
@@ -71,6 +74,9 @@ export function eventCategory(e: StoredEvent): EventCategory {
     case "StatusReportPublished":
     case "StatusReportAcknowledged":
       return "status";
+    case "MinutesRecorded":
+    case "MinutesActionCompleted":
+      return "protokoll";
   }
 }
 
@@ -82,6 +88,8 @@ export interface EventRefs {
   crNumbers?: ReadonlyMap<string, number>;
   riskNumbers?: ReadonlyMap<string, number>;
   reportNumbers?: ReadonlyMap<string, number>;
+  /** Minutes by id: their number and the texts of their action items. */
+  minutes?: ReadonlyMap<string, { number: number; actions: ReadonlyMap<string, string> }>;
 }
 
 export function eventRefs(s: ProjectState): EventRefs {
@@ -89,6 +97,12 @@ export function eventRefs(s: ProjectState): EventRefs {
     crNumbers: new Map(Object.values(s.changeRequests).map((c) => [c.id, c.number])),
     riskNumbers: new Map(Object.values(s.risks).map((r) => [r.id, r.number])),
     reportNumbers: new Map(Object.values(s.statusReports).map((r) => [r.id, r.number])),
+    minutes: new Map(
+      Object.values(s.minutes).map((m) => [
+        m.id,
+        { number: m.number, actions: new Map(m.actions.map((a) => [a.id, a.text])) },
+      ]),
+    ),
   };
 }
 
@@ -178,6 +192,20 @@ export function describeEvent(e: StoredEvent, model: HermesModel, refs: EventRef
     case "StatusReportAcknowledged": {
       const n = refs.reportNumbers?.get(e.data.reportId);
       return `${n ? reportTitle(n) : "Statusbericht"} vom Projektausschuss zur Kenntnis genommen${withReason(e.data.note)}`;
+    }
+    case "MinutesRecorded": {
+      const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+      const items = [
+        count(e.data.decisions.length, "Entscheid", "Entscheide"),
+        count(e.data.actions.length, "Pendenz", "Pendenzen"),
+        count(e.data.questions.length, "offene Frage", "offene Fragen"),
+      ].join(", ");
+      return `${minutesLabel(e.data.number)} «${e.data.title}» vom ${formatDay(e.data.heldOn)} erfasst: ${items}${byAgent(e.data.producer, " (Vorschlag des Protokoll-Agenten)")}.`;
+    }
+    case "MinutesActionCompleted": {
+      const m = refs.minutes?.get(e.data.minutesId);
+      const text = m?.actions.get(e.data.actionId);
+      return `Pendenz${text ? ` «${text}»` : ""}${m ? ` aus ${minutesLabel(m.number)}` : ""} erledigt${withReason(e.data.note)}`;
     }
     case "RiskRecorded":
       return `${riskLabel(e.data.number)} «${e.data.title}» erfasst (Eintritt ${e.data.probability}, Auswirkung ${e.data.impact}, verantwortlich ${PROJECT_ROLE_LABELS[e.data.ownerRole]}${byAgent(e.data.producer, "; vom Risiko-Agenten vorgeschlagen")}).`;

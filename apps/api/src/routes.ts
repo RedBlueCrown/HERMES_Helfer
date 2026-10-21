@@ -15,6 +15,9 @@ import {
   INCOMPATIBLE_ROLES,
   INVOLVEMENT_OPTIONS,
   MAX_STORAGE_URL,
+  MINUTES_ITEMS_MAX,
+  MINUTES_ITEM_MAX,
+  MINUTES_TEXT_MAX,
   MIN_SUMMARY,
   MIN_TITLE,
   PHASE_IDS,
@@ -36,6 +39,8 @@ import {
   deliverableDetailView,
   eventCategory,
   eventRefs,
+  isIsoDay,
+  minutesRegister,
   portfolioOverview,
   projectView,
   riskRegister,
@@ -50,6 +55,7 @@ import {
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { ChangeRequestAgent, ChangeRequestProposalContent } from "./agents/change-request-agent";
+import type { MinutesAgent, MinutesProposalContent } from "./agents/minutes-agent";
 import type { Orchestrator } from "./agents/orchestrator";
 import { MAX_SECTIONS, SECTION_MAX } from "./agents/output";
 import type { ProviderInfo } from "./agents/provider";
@@ -81,6 +87,7 @@ export interface RouteDeps {
   changeRequestAgent: ChangeRequestAgent;
   riskAgent: RiskAgent;
   statusReportAgent: StatusReportAgent;
+  minutesAgent: MinutesAgent;
   /** Agent proposals until a person accepts them; the source of AI provenance. */
   proposals: ProposalStore;
   /** The organisation's Word templates and the documents made from them. */
@@ -161,7 +168,8 @@ const StatusCriteriaBody = z.record(
 const IsoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Datum im Format JJJJ-MM-TT")
-  .refine((d) => new Date(`${d}T00:00:00Z`).toISOString().startsWith(d), "Dieses Datum gibt es nicht.");
+  // Zod runs this check also when the format is wrong; then only the format counts.
+  .refine((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d) || isIsoDay(d), "Dieses Datum gibt es nicht.");
 /** The fingerprint of the basis a person saw (engine/fingerprint.ts). */
 const BasisVersion = z.string().regex(/^[0-9a-f]{8}$/, "Bitte die Ansicht neu laden.");
 const StatusFiguresBody = z
@@ -725,6 +733,90 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps): void {
       },
       (accepted) => projects.assessRisk(code, ctx(req), riskId, { ...values, accepted }),
     );
+  });
+
+  // ---------- Minutes ----------
+
+  app.get("/api/projects/:code/minutes", async (req) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const c = ctx(req);
+    return minutesRegister(await projects.requireProject(code, c.viewer), model, c.viewer, deps.now());
+  });
+
+  const Meeting = {
+    title: Title.min(MIN_TITLE, `Bitte die Besprechung benennen (mindestens ${MIN_TITLE} Zeichen).`),
+    heldOn: IsoDate,
+  };
+
+  // Agent A9 proposes the items of the minutes from the notes; nothing is stored until a member records them.
+  app.post(
+    "/api/projects/:code/minutes/extract",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (req) => {
+      const { code } = params(req, z.object({ code: Code }));
+      const body = parse(
+        z.object({
+          ...Meeting,
+          text: z
+            .string()
+            .trim()
+            .min(20, "Bitte die Notizen oder das Transkript einfügen.")
+            .max(
+              MINUTES_TEXT_MAX,
+              `Höchstens ${MINUTES_TEXT_MAX.toLocaleString("de-CH")} Zeichen; bitte kürzen oder in Teilen auswerten.`,
+            ),
+        }),
+        req.body,
+      );
+      return deps.minutesAgent.propose(code, ctx(req), body);
+    },
+  );
+
+  const MinutesItemBody = z.object({
+    text: z.string().max(MINUTES_ITEM_MAX),
+    /** The agent's item this one was taken from (its index in the proposal). */
+    source: z.number().int().min(0).max(MINUTES_ITEMS_MAX).optional(),
+  });
+  app.post("/api/projects/:code/minutes", async (req, reply) => {
+    const { code } = params(req, z.object({ code: Code }));
+    const body = parse(
+      z.object({
+        ...Meeting,
+        decisions: z.array(MinutesItemBody).max(MINUTES_ITEMS_MAX).default([]),
+        actions: z
+          .array(
+            MinutesItemBody.extend({
+              ownerId: z.string().max(200).optional(),
+              ownerName: z.string().trim().max(120).optional(),
+              due: z.union([IsoDate, z.literal("")]).optional(),
+            }),
+          )
+          .max(MINUTES_ITEMS_MAX)
+          .default([]),
+        questions: z.array(MinutesItemBody).max(MINUTES_ITEMS_MAX).default([]),
+        proposalId: z.uuid().optional(),
+      }),
+      req.body,
+    );
+    const c = ctx(req);
+    const s = await projects.requireProject(code, c.viewer);
+    const proposal = body.proposalId
+      ? deps.proposals.claim<MinutesProposalContent>(body.proposalId, "minutes", s.projectId, c.viewer.userId)
+      : undefined;
+    const { proposalId: _, ...input } = body;
+    const result = await withProposal(proposal, () =>
+      projects.recordMinutes(code, c, { ...input, ...(proposal ? { proposal } : {}) }),
+    );
+    return reply.code(201).send(result);
+  });
+
+  app.post("/api/projects/:code/minutes/:minutesId/actions/:actionId/done", async (req) => {
+    const { code, minutesId, actionId } = params(
+      req,
+      z.object({ code: Code, minutesId: z.uuid(), actionId: z.uuid() }),
+    );
+    const body = parse(z.object({ note: z.string().max(1000).default("") }), req.body);
+    return projects.completeMinutesAction(code, ctx(req), minutesId, actionId, body.note);
   });
 
   // ---------- Status reports ----------

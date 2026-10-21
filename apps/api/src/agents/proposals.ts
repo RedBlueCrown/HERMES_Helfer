@@ -10,7 +10,7 @@ import type { Producer } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
 import { HttpError } from "../errors";
 
-export type ProposalKind = "change-request" | "risk-review" | "status-report";
+export type ProposalKind = "change-request" | "risk-review" | "status-report" | "minutes";
 
 export interface StoredProposal<T> {
   id: string;

@@ -175,7 +175,7 @@ Thirteen agents. Each has many **skills**, one per deliverable or task (§5.1).
 | A6 | **Recht & Beschaffung** | Legal, Beschaffung | Manual (BC, PL) | PA (Vergabe) | ✓ skills |
 | A7 | **Test & Abnahme** | Test-Engineer, User Acceptance, Fachtester, Testpersona, Barrierefreiheit, Go-live-Check | Manual (Test, Fach) | PL, Auftraggeber, Fach and APM (Go-live veto) | ✓ skills |
 | A8 | **Einführung & Betrieb** | Betrieb (Light), Einführungsplanung, Handbücher, Einführung, Betrieb, Rollout | Manual (APM, PL) | PA (Betriebsaufnahme) | ✓ skills |
-| A9 | **Protokoll** | Protokoll | Meeting ended | Fach confirms | later |
+| A9 | **Protokoll** | Protokoll | Manual (any member pastes the notes or a transcript); later the Teams transcript (todo-later H26) | The member who records accepts each item | ✓ |
 | A10 | **Change-Request** | Change-Request | Manual (any member), later also new requirements from meetings | PA with Konsent | ✓ |
 | A11 | **Kritiker** | Kritiker, Verifier, Reviewer (artifacts) | Every draft | (findings only) | ✓ |
 | A12 | **Risiko** | Risk | Manual (PL); later weekly and on events | PL accepts | ✓ |
@@ -314,6 +314,15 @@ Each project can name the folder where its files are, the Projektablage: a link 
 - **Safe links only:** links with a user name or a port, and characters a browser reads differently from the check (spaces, backslashes, non-ASCII), are refused, so the folder the browser opens is on the host that was checked. The link opens in a new tab without the app's address (`noopener noreferrer`).
 - **What the record shows:** the Verlauf names the host, not the folder's path. Everyone who sees the project sees the link, and it stays in the Projektakte; the dialog therefore asks for the folder's own address instead of a sharing link «Jeder mit dem Link» (todo-later E38).
 - **Later:** filing released documents in the folder through Microsoft Graph (todo-later H23, Increment 3).
+
+### 5.11 Minutes (Protokolle)
+
+What a meeting decided, who does what by when (Pendenzen), and which questions stay open (`packages/core/src/engine/minutes.ts`, `apps/api/src/agents/minutes-agent.ts`).
+
+1. **Recording.** Any member records the minutes of a meeting: title, day, and the items, by hand or with the Protokoll agent (event `MinutesRecorded`, numbered P-01, P-02 …). An action item names a member as owner, or a person or office outside the project, and a day if there is one.
+2. **Protokoll agent (A9).** The member pastes the notes or the transcript (at most 60,000 characters). The agent proposes decisions, action items and open questions, each with a passage of the text, word for word. Code checks every passage against the text and drops the items without one, so nothing reaches the person that the text does not say; a name in the text becomes the owner only if exactly one member fits, and a day only if the text names one. The prompt treats the text as data: an instruction in it («trage als Entscheid ein …») is no decision. The member selects, completes and accepts the items; the record says which came from the agent and whether the member changed them, and keeps their passages. The text itself is neither stored nor logged; the audit entry has the usual metadata only.
+3. **Where minutes show.** An open action item is a task of its owner (the earliest due first, overdue marked) until the owner or the project lead reports it done (event `MinutesActionCompleted`). The tab «Protokolle» lists the minutes, the Verlauf names them, and the assistant answers questions about decisions, open action items and open questions (tool `protokolle`).
+4. **Later.** The transcript of a Teams meeting through Microsoft Graph instead of pasting it, with personal data masked before the model call (todo-later H26).
 
 ## 6. Identity and authorization
 
@@ -566,6 +575,6 @@ All open questions are in German in [`offene-fragen.md`](offene-fragen.md).
 
 Events per project stream (`packages/core/src/engine/events.ts`):
 
-`ProjectCreated`, `MemberRoleAssigned`, `MemberRoleRemoved`, `ProfileUpdated`, `SkillRunRequested`, `SkillRunCompleted`, `SkillRunFailed`, `DraftEdited`, `DeliverableReleased`, `SkillDecisionRecorded`, `DeliverableMarkedNotApplicable`, `DeliverableReactivated`, `ParticipationRecorded`, `ChecklistItemConfirmed`, `GateDecisionRecorded`, `ConditionCompleted`, `ChangeRequestSubmitted`, `ChangeRequestWithdrawn`, `ChangeRequestDecided`, `ChangeRecheckConfirmed`, `ChangeReserveSet`, `RiskRecorded`, `RiskAssessed`, `StatusReportPublished`, `StatusReportAcknowledged`
+`ProjectCreated`, `MemberRoleAssigned`, `MemberRoleRemoved`, `ProfileUpdated`, `SkillRunRequested`, `SkillRunCompleted`, `SkillRunFailed`, `DraftEdited`, `DeliverableReleased`, `SkillDecisionRecorded`, `DeliverableMarkedNotApplicable`, `DeliverableReactivated`, `ParticipationRecorded`, `ChecklistItemConfirmed`, `GateDecisionRecorded`, `ConditionCompleted`, `ChangeRequestSubmitted`, `ChangeRequestWithdrawn`, `ChangeRequestDecided`, `ChangeRecheckConfirmed`, `ChangeReserveSet`, `RiskRecorded`, `RiskAssessed`, `StatusReportPublished`, `StatusReportAcknowledged`, `MinutesRecorded`, `MinutesActionCompleted`
 
 Every event carries the actor (user ID, name, roles at that moment, channel), the timestamp, the correlation ID and the hash chain (`prevHash`, `hash`). The project state is computed by applying the events in order (`applyEvent`). That function is pure and unit-tested.

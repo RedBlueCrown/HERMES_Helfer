@@ -54,7 +54,7 @@ export const AGENTS: readonly AgentDef[] = [
     id: "A9",
     name: "Protokoll",
     description: "Leitet aus Besprechungen Entscheide, Aufgaben und offene Fragen ab.",
-    active: false,
+    active: true,
   },
   {
     id: "A10",

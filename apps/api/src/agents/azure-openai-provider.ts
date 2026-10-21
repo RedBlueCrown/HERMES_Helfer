@@ -16,6 +16,8 @@ import {
   type ChatResponse,
   type CritiqueRequest,
   type DraftRequest,
+  type MinutesExtract,
+  type MinutesExtractRequest,
   type ProviderInfo,
   type RiskReview,
   type RiskReviewRequest,
@@ -31,6 +33,8 @@ import {
   critiqueUserPrompt,
   draftSystemPrompt,
   draftUserPrompt,
+  minutesSystemPrompt,
+  minutesUserPrompt,
   riskReviewSystemPrompt,
   riskReviewUserPrompt,
   statusReportSystemPrompt,
@@ -43,6 +47,8 @@ import {
   CritiqueOut,
   DRAFT_SCHEMA,
   DraftOut,
+  MINUTES_SCHEMA,
+  MinutesOut,
   RiskReviewOut,
   STATUS_REPORT_SCHEMA,
   StatusReportOut,
@@ -284,6 +290,22 @@ export class AzureOpenAiProvider implements AiProvider {
       ctx?.signal,
     );
     return { draft: value, ...(usage ? { usage } : {}) };
+  }
+
+  async extractMinutes(
+    req: MinutesExtractRequest,
+    ctx?: CallContext,
+  ): Promise<{ extract: MinutesExtract; usage?: Usage }> {
+    const { value, usage } = await this.structured(
+      this.cfg.draftDeployment,
+      minutesSystemPrompt(req),
+      minutesUserPrompt(req),
+      "protokoll",
+      MINUTES_SCHEMA,
+      MinutesOut,
+      ctx?.signal,
+    );
+    return { extract: value, ...(usage ? { usage } : {}) };
   }
 
   async critique(req: CritiqueRequest, ctx?: CallContext): Promise<{ findings: Finding[]; usage?: Usage }> {

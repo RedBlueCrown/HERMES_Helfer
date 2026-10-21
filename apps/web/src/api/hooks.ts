@@ -9,6 +9,7 @@ import type {
   DevUserInfo,
   EventPage,
   Me,
+  MinutesRegisterView,
   Portfolio,
   ProjectPage,
   ProjectView,
@@ -179,6 +180,14 @@ export function useRisks(code: string) {
   });
 }
 
+export function useMinutes(code: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["minutes", code],
+    queryFn: () => api.get<MinutesRegisterView>(`${projectPath(code)}/minutes`),
+  });
+}
+
 export function useStatusReports(code: string) {
   const api = useApi();
   return useQuery({
@@ -212,6 +221,7 @@ export function useProjectCommand<TVars>(code: string, run: (api: Api, vars: TVa
         qc.invalidateQueries({ queryKey: ["change-requests", code] }),
         qc.invalidateQueries({ queryKey: ["risks", code] }),
         qc.invalidateQueries({ queryKey: ["status-reports", code] }),
+        qc.invalidateQueries({ queryKey: ["minutes", code] }),
         qc.invalidateQueries({ queryKey: ["projects"] }),
         qc.invalidateQueries({ queryKey: ["portfolio"] }),
       ]);

@@ -113,6 +113,24 @@ export interface AgentRiskBasis {
   fact: string;
 }
 
+/** An item of meeting minutes; the quote is the passage of the notes or transcript it rests on. */
+export interface MinutesItem {
+  id: string;
+  text: string;
+  /** Only for items the Protokoll agent proposed: its evidence, checked against the text. */
+  quote?: string;
+}
+
+/** An action item (Pendenz): who does what by when. */
+export interface MinutesAction extends MinutesItem {
+  /** A member of the project; absent for someone outside it. */
+  ownerId?: string;
+  /** The member's name when recorded, or the name of someone outside the project. */
+  ownerName?: string;
+  /** YYYY-MM-DD */
+  due?: string;
+}
+
 export type ProjectEvent =
   | {
       type: "ProjectCreated";
@@ -268,6 +286,24 @@ export type ProjectEvent =
       };
     }
   | { type: "StatusReportAcknowledged"; data: { reportId: string; note: string } }
+  | {
+      /** Minutes of a meeting: decisions, action items and open questions. The notes themselves are not kept. */
+      type: "MinutesRecorded";
+      data: {
+        minutesId: string;
+        /** Running number in the project: P-01, P-02 … */
+        number: number;
+        title: string;
+        /** Day of the meeting, YYYY-MM-DD. */
+        heldOn: string;
+        decisions: MinutesItem[];
+        actions: MinutesAction[];
+        questions: MinutesItem[];
+        /** "ai": proposed by the Protokoll agent, checked and accepted by a person. */
+        producer: Producer;
+      };
+    }
+  | { type: "MinutesActionCompleted"; data: { minutesId: string; actionId: string; note: string } }
   | {
       /** A new assessment: the current values, not a difference. Closing is status «geschlossen». */
       type: "RiskAssessed";

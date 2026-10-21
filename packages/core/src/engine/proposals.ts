@@ -79,6 +79,35 @@ export interface StatusReportProposal extends StatusReportTexts {
   producer: Producer;
 }
 
+/** An item of meeting minutes as the Protokoll agent proposes it, with its passage of the text. */
+export interface ProposedMinutesItem {
+  text: string;
+  quote: string;
+}
+
+export interface ProposedMinutesAction extends ProposedMinutesItem {
+  /** The member the text names, if exactly one fits. */
+  ownerId?: string;
+  /** The name as the text gives it (or the member's name); empty when the text names no one. */
+  ownerName: string;
+  /** YYYY-MM-DD, only when the text names a day. */
+  due?: string;
+}
+
+export interface MinutesProposal {
+  /** Recording with this id records the items taken from it as proposed by the agent. */
+  proposalId: string;
+  title: string;
+  heldOn: string;
+  decisions: ProposedMinutesItem[];
+  actions: ProposedMinutesAction[];
+  questions: ProposedMinutesItem[];
+  /** Items the agent proposed without a passage of the text: dropped. */
+  dropped: number;
+  findings: Finding[];
+  producer: Producer;
+}
+
 export interface ChangeRequestProposal {
   /** Submitting with this id records the request as drafted by the agent. */
   proposalId: string;

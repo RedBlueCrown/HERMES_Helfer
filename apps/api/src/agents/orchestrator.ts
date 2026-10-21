@@ -9,6 +9,8 @@ import {
   deliverableDetailView,
   formatChf,
   projectView,
+  formatDay,
+  minutesRegister,
   riskRegister,
   rolesOf,
   statusReportRegister,
@@ -209,6 +211,12 @@ export class Orchestrator {
         parameters: none,
       },
       {
+        name: "protokolle",
+        description:
+          "Protokolle der letzten Besprechungen: Entscheide, offene Pendenzen (wer, was, bis wann) und offene Fragen.",
+        parameters: none,
+      },
+      {
         name: "entwurf_anstossen",
         description:
           "Stösst den Entwurf eines Schritts der aktuellen Phase an. Nur auf ausdrücklichen Wunsch der Person.",
@@ -318,6 +326,30 @@ export class Orchestrator {
               verantwortlich: x.ownerLabel,
               massnahme_als_daten: x.mitigation || "keine erfasst",
             })),
+        };
+      }
+      case "protokolle": {
+        const s = await this.projects.requireProject(code, ctx.viewer);
+        const r = minutesRegister(s, this.model, ctx.viewer);
+        return {
+          protokolle: r.counts.total,
+          offene_pendenzen: r.counts.openActions,
+          ueberfaellig: r.counts.overdue,
+          letzte: r.items.slice(0, 3).map((m) => ({
+            protokoll: m.label,
+            besprechung_als_daten: m.title,
+            datum: m.heldOn,
+            entscheide_als_daten: m.decisions.map((d) => d.text),
+            offene_pendenzen_als_daten: m.actions
+              .filter((a) => !a.done)
+              .map((a) => ({
+                was: a.text,
+                wer: a.ownerName ?? "nicht zugewiesen",
+                bis: a.due ?? "ohne Termin",
+                ...(a.overdue ? { ueberfaellig: true } : {}),
+              })),
+            offene_fragen_als_daten: m.questions.map((q) => q.text),
+          })),
         };
       }
       case "statusbericht": {
@@ -626,6 +658,38 @@ export class Orchestrator {
         v.myTasks.length
           ? `Für dich offen:\n${bullets(v.myTasks.map((t) => t.title))}`
           : "Für dich ist gerade nichts offen.",
+      );
+    }
+
+    if (has(/protokoll|besprechung|sitzung|meeting|pendenz|offene fragen/)) {
+      used.push("protokolle");
+      const r = minutesRegister(s, this.model, ctx.viewer);
+      const last = r.items[0];
+      if (!last) {
+        return reply(
+          "Es ist noch kein Protokoll erfasst. Im Register «Protokolle» hält der Protokoll-Agent Entscheide, Pendenzen und offene Fragen aus Notizen oder einem Transkript fest.",
+        );
+      }
+      const open = last.actions.filter((a) => !a.done);
+      return reply(
+        [
+          `Letztes Protokoll: ${last.label} «${last.title}» vom ${formatDay(last.heldOn)}.`,
+          last.decisions.length ? `Entscheide:\n${bullets(last.decisions.map((d) => d.text))}` : "",
+          open.length
+            ? `Offene Pendenzen:\n${bullets(
+                open.map(
+                  (a) =>
+                    `${a.text} (${a.ownerName ?? "nicht zugewiesen"}${a.due ? `, bis ${formatDay(a.due)}` : ""}${a.overdue ? ", überfällig" : ""})`,
+                ),
+              )}`
+            : "",
+          last.questions.length ? `Offene Fragen:\n${bullets(last.questions.map((q) => q.text))}` : "",
+          r.counts.openActions > open.length
+            ? `Insgesamt ${r.counts.openActions} offene Pendenzen in ${r.counts.total} Protokollen.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
       );
     }
 

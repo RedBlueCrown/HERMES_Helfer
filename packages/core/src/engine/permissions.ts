@@ -542,6 +542,33 @@ export function checkAcknowledgeStatusReport(
   return OK;
 }
 
+// ---------- Minutes ----------
+
+/** Members of the project keep minutes; the Protokoll agent helps them. */
+export function checkRecordMinutes(s: ProjectState, model: HermesModel, v: Viewer): Check {
+  if (!rolesOf(s, v.userId).length) return forbidden("Protokolle erfassen die Mitglieder des Vorhabens.");
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
+  return OK;
+}
+
+/** The person responsible for an action item, or the project lead, reports it done. */
+export function checkCompleteMinutesAction(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  minutesId: string,
+  actionId: string,
+): Check {
+  const a = s.minutes[minutesId]?.actions.find((x) => x.id === actionId);
+  if (!a) return invalid("Diese Pendenz gibt es nicht.");
+  if (a.doneAt) return invalid("Diese Pendenz ist bereits erledigt.");
+  if (a.ownerId !== v.userId && !isPL(s, v)) {
+    return forbidden("Als erledigt melden die verantwortliche Person und die Projektleitung.");
+  }
+  if (isFinished(s, model)) return invalid("Das Vorhaben ist abgeschlossen.");
+  return OK;
+}
+
 export function canVerifyAudit(s: ProjectState, v: Viewer): boolean {
   return isPL(s, v) || hasGlobal(v, "HH.PMO");
 }

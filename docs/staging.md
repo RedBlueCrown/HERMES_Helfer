@@ -112,7 +112,7 @@ The evaluation sends fixed, fictional cases to the agents and checks every answe
 scripts/check-agents.sh
 ```
 
-Eighteen cases, about 20 model calls and five minutes. The report lists every case, the checks that failed and why, the tokens used, and ends with «Ergebnis: bestanden» or the reasons why not. If the assistant answered from its fixed rules instead of the model, the report names the model's error. The script also saves the answers as `eval-azure-<time>.html`, a page to read, compare and rate them, and `eval-azure-<time>.json` («Manage files» → «Download» in Cloud Shell). Run it after each deployment and after each change of model, prompt or settings such as `REASONING_EFFORT`, and compare the rates with the run before. To test the agents without Azure, with Claude on your computer, and to compare models side by side: [testing-agents.md](testing-agents.md).
+21 cases, about 23 model calls and five minutes. The report lists every case, the checks that failed and why, the tokens used, and ends with «Ergebnis: bestanden» or the reasons why not. If the assistant answered from its fixed rules instead of the model, the report names the model's error. The script also saves the answers as `eval-azure-<time>.html`, a page to read, compare and rate them, and `eval-azure-<time>.json` («Manage files» → «Download» in Cloud Shell). Run it after each deployment and after each change of model, prompt or settings such as `REASONING_EFFORT`, and compare the rates with the run before. To test the agents without Azure, with Claude on your computer, and to compare models side by side: [testing-agents.md](testing-agents.md).
 
 ## When something does not work
 

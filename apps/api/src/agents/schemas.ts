@@ -2,7 +2,14 @@
 // each call (structured outputs) and the parsers that read the answer. Shared by
 // the model adapters, so every model is held to the same contract.
 
-import { CR_FLAGS, PROJECT_ROLES, RISK_LEVELS, STATUS_CRITERION_IDS } from "@hermes-helfer/core";
+import {
+  CR_FLAGS,
+  MINUTES_ITEMS_MAX,
+  MINUTES_ITEM_MAX,
+  PROJECT_ROLES,
+  RISK_LEVELS,
+  STATUS_CRITERION_IDS,
+} from "@hermes-helfer/core";
 import { z } from "zod";
 import { MAX_SECTIONS, SECTION_MAX, clampedList, clampedText } from "./output";
 
@@ -202,4 +209,34 @@ export const StatusReportOut = z.object({
 });
 export const CritiqueOut = z.object({
   findings: clampedList(z.object({ severity: z.enum(["hinweis", "warnung"]), text: clampedText(500) }), 10),
+});
+
+const quoted = (extra: Record<string, { type: "string" }> = {}) => ({
+  type: "object",
+  additionalProperties: false,
+  required: ["text", ...Object.keys(extra), "quote"],
+  properties: { text: { type: "string" }, ...extra, quote: { type: "string" } },
+});
+
+export const MINUTES_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["decisions", "actions", "questions"],
+  properties: {
+    decisions: { type: "array", items: quoted() },
+    actions: { type: "array", items: quoted({ owner: { type: "string" }, due: { type: "string" } }) },
+    questions: { type: "array", items: quoted() },
+  },
+} as const;
+
+// A quote is not cut here: a cut quote is no longer in the text. The agent checks
+// it against the text and shortens it for the record.
+const QuotedOut = z.object({ text: clampedText(MINUTES_ITEM_MAX), quote: z.string().max(5_000) });
+export const MinutesOut = z.object({
+  decisions: clampedList(QuotedOut, MINUTES_ITEMS_MAX),
+  actions: clampedList(
+    QuotedOut.extend({ owner: clampedText(120), due: clampedText(40) }),
+    MINUTES_ITEMS_MAX,
+  ),
+  questions: clampedList(QuotedOut, MINUTES_ITEMS_MAX),
 });

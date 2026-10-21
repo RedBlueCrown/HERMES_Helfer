@@ -48,6 +48,7 @@ class AssistantModel implements AiProvider {
     this.offline.draftChangeRequest(req, ctx);
   reviewRisks: AiProvider["reviewRisks"] = (req, ctx) => this.offline.reviewRisks(req, ctx);
   draftStatusReport: AiProvider["draftStatusReport"] = (req, ctx) => this.offline.draftStatusReport(req, ctx);
+  extractMinutes: AiProvider["extractMinutes"] = (req, ctx) => this.offline.extractMinutes(req, ctx);
 }
 
 export interface AssistantAnswer {

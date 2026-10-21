@@ -17,6 +17,8 @@ import {
   type ChangeRequestDraftRequest,
   type CritiqueRequest,
   type DraftRequest,
+  type MinutesExtract,
+  type MinutesExtractRequest,
   type ProposedReassessment,
   type ProposedRisk,
   type ProviderInfo,
@@ -348,6 +350,47 @@ export function mockStatusReport(req: StatusReportDraftRequest): StatusReportDra
   };
 }
 
+const DECISION = /^(?:entscheid|beschluss|beschlossen|entschieden)\s*:\s*/i;
+const ACTION = /^(?:pendenz|aufgabe|to-?do|aktion)\s*:\s*/i;
+const QUESTION = /^(?:offene frage|frage|offen)\s*:\s*/i;
+const OWNER = /[,;(]?\s*verantwortlich\s*:?\s*([^,;()]+?)\s*(?=[,;)]|bis\b|$)\)?/i;
+const DUE = /[,;]?\s*bis\s+(?:zum\s+|am\s+)?(\d{1,2})\.(\d{1,2})\.(\d{4})?/i;
+
+/**
+ * Without a model: lines that start with «Entscheid:», «Pendenz:» or «Frage:»
+ * (after a speaker's name, if any) become items, with the line as the quote.
+ * A Pendenz names its owner with «verantwortlich: …» and its day with «bis 30.10.».
+ */
+export function mockMinutes(req: MinutesExtractRequest): MinutesExtract {
+  const out: MinutesExtract = { decisions: [], actions: [], questions: [] };
+  const year = req.meeting.heldOn.slice(0, 4);
+  for (const raw of req.text.split(/\r?\n/)) {
+    const quote = raw.trim();
+    // «Anna Keller: Entscheid: …»: the speaker's name goes.
+    const line = quote.replace(
+      /^[^:]{1,40}:\s*(?=(?:entscheid|beschluss|beschlossen|entschieden|pendenz|aufgabe|to-?do|aktion|offene frage|frage|offen)\s*:)/i,
+      "",
+    );
+    if (DECISION.test(line)) {
+      out.decisions.push({ text: line.replace(DECISION, ""), quote });
+    } else if (ACTION.test(line)) {
+      let text = line.replace(ACTION, "");
+      const owner = OWNER.exec(text)?.[1]?.trim() ?? "";
+      const due = DUE.exec(text);
+      text = text.replace(OWNER, "").replace(DUE, "").trim().replace(/[,;]$/, "");
+      const day = due ? `${due[3] ?? year}-${due[2]!.padStart(2, "0")}-${due[1]!.padStart(2, "0")}` : "";
+      out.actions.push({ text, owner, due: day, quote });
+    } else if (QUESTION.test(line)) {
+      out.questions.push({ text: line.replace(QUESTION, ""), quote });
+    }
+  }
+  return {
+    decisions: out.decisions.slice(0, req.max),
+    actions: out.actions.slice(0, req.max),
+    questions: out.questions.slice(0, req.max),
+  };
+}
+
 export class MockProvider implements AiProvider {
   readonly info: ProviderInfo = {
     provider: "mock",
@@ -398,5 +441,10 @@ export class MockProvider implements AiProvider {
   async draftStatusReport(req: StatusReportDraftRequest, ctx?: CallContext) {
     await this.wait(ctx);
     return { draft: mockStatusReport(req) };
+  }
+
+  async extractMinutes(req: MinutesExtractRequest, ctx?: CallContext) {
+    await this.wait(ctx);
+    return { extract: mockMinutes(req) };
   }
 }

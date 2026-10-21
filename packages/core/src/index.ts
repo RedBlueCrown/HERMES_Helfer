@@ -10,6 +10,7 @@ export * from "./engine/views";
 export * from "./engine/conditions";
 export * from "./engine/change-requests";
 export * from "./engine/risks";
+export * from "./engine/minutes";
 export * from "./engine/status-report";
 export * from "./engine/storage";
 export * from "./engine/portfolio";

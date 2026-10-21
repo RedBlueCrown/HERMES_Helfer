@@ -12,6 +12,7 @@ import {
   STATUS_CRITERIA,
   mandatoryProgress,
   nextCrNumber,
+  nextMinutesNumber,
   nextRiskNumber,
   nextStatusReportNumber,
   reportRisks,
@@ -310,6 +311,55 @@ class Seeder {
     );
   }
 
+  /**
+   * Minutes of a meeting as the Protokoll agent proposed them from the notes (offline
+   * variant) and a member accepted them; each item with its passage of the notes.
+   */
+  async minutes(
+    projectId: string,
+    by: Person,
+    m: {
+      title: string;
+      heldOn: string;
+      decisions: { text: string; quote: string }[];
+      actions: { text: string; quote: string; owner?: Person; ownerName?: string; due?: string }[];
+      questions: { text: string; quote: string }[];
+    },
+  ): Promise<void> {
+    const s = (await this.repo.get(projectId))!;
+    const item = (x: { text: string; quote: string }) => ({ id: randomUUID(), text: x.text, quote: x.quote });
+    await this.append(
+      projectId,
+      [
+        {
+          type: "MinutesRecorded",
+          data: {
+            minutesId: randomUUID(),
+            number: nextMinutesNumber(s),
+            title: m.title,
+            heldOn: m.heldOn,
+            decisions: m.decisions.map(item),
+            actions: m.actions.map((a) => ({
+              ...item(a),
+              ...(a.owner ? { ownerId: a.owner.id, ownerName: a.owner.displayName } : {}),
+              ...(a.ownerName ? { ownerName: a.ownerName } : {}),
+              ...(a.due ? { due: a.due } : {}),
+            })),
+            questions: m.questions.map(item),
+            producer: {
+              kind: "ai",
+              agent: "A9",
+              provider: "mock",
+              model: "mock (ohne KI-Modell)",
+              edited: false,
+            },
+          },
+        },
+      ],
+      await this.actor(projectId, by),
+    );
+  }
+
   /** A risk; `ai`: proposed by the Risiko agent (offline variant) on this fact, and accepted by the PL. */
   async risk(
     projectId: string,
@@ -581,6 +631,46 @@ export async function seedDemo(repo: ProjectRepository, now = new Date()): Promi
     impact: "mittel",
     ownerRole: "APM",
     mitigation: "Probemigration mit einem Teilbestand durchführen und die Abweichungen bereinigen.",
+  });
+  const day = (offset: number) => new Date(now.getTime() + offset * 24 * 3600_000).toISOString().slice(0, 10);
+  await seed.minutes(crm, anna, {
+    title: "Projektsitzung Konzept",
+    heldOn: day(-6),
+    decisions: [
+      {
+        text: "Die Standardlösung wird ohne Anpassungen am Datenmodell eingeführt.",
+        quote: "Entscheid: Wir führen die Standardlösung ohne Anpassungen am Datenmodell ein.",
+      },
+      {
+        text: "Die Migration erfolgt in zwei Etappen: zuerst Kontakte, dann Verkaufschancen.",
+        quote: "Entscheid: Migration in zwei Etappen, zuerst die Kontakte, danach die Verkaufschancen.",
+      },
+    ],
+    actions: [
+      {
+        text: "Restrisiken des ISDS-Konzepts mit dem ISM klären",
+        quote: "Pendenz: Restrisiken des ISDS-Konzepts mit dem ISM klären; verantwortlich: Anna Keller",
+        owner: anna,
+        due: day(-2),
+      },
+      {
+        text: "Testdaten für die Probemigration bereitstellen",
+        quote: "Pendenz: Testdaten für die Probemigration bereitstellen, verantwortlich: Tim Brunner",
+        owner: tim,
+        due: day(7),
+      },
+      {
+        text: "Offerte für die Schnittstelle zum ERP einholen",
+        quote: "Pendenz: Offerte für die ERP-Schnittstelle einholen (Einkauf)",
+        ownerName: "Einkauf",
+      },
+    ],
+    questions: [
+      {
+        text: "Wer betreibt die Schnittstelle zum ERP nach der Einführung?",
+        quote: "Frage: Wer betreibt die Schnittstelle zum ERP nach der Einführung?",
+      },
+    ],
   });
 
   // 3. Realisierung with a partly confirmed readiness check.

@@ -39,7 +39,7 @@ Settings, as environment variables:
 | `ANTHROPIC_EFFORT` | the model's own | `low`, `medium`, `high`: how much the model thinks before it answers |
 | `ANTHROPIC_MAX_TOKENS`, `ANTHROPIC_DRAFT_MAX_TOKENS` | 16,000 / 32,000 | Upper bound per call, thinking included |
 
-Further options: `--repeat 3` runs every case three times, because a model answers differently each time. `--case entwurf-isds` runs one case. A full run makes about 20 model calls; the page shows the tokens used. For the cost, see the [price list](https://claude.com/pricing#api).
+Further options: `--repeat 3` runs every case three times, because a model answers differently each time. `--case entwurf-isds` runs one case. A full run makes about 23 model calls; the page shows the tokens used. For the cost, see the [price list](https://claude.com/pricing#api).
 
 **Fictional data only.** The Claude API processes data in the USA or worldwide, never only in the EU. HERMES Helfer needs EU-only processing, so the app refuses `AI_PROVIDER=anthropic` in production, in Azure and with a database (`STORE=sql`). Claude can process data inside the EU only through Amazon Bedrock (`eu.` inference profiles) or Google Vertex AI (EU regions). Claude in Microsoft Foundry is offered as «Global Standard» or «US Data Zone», not EU-only (as of October 2026).
 

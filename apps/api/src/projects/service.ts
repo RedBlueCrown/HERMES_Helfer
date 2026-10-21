@@ -17,6 +17,7 @@ import {
   checkAssessRisk,
   checkAssignRole,
   checkCompleteCondition,
+  checkCompleteMinutesAction,
   checkConfirmChecklistItem,
   checkConfirmRecheck,
   checkDecideChangeRequest,
@@ -25,6 +26,7 @@ import {
   checkEditOutput,
   checkMarkNotApplicable,
   checkReactivate,
+  checkRecordMinutes,
   checkRecordParticipation,
   checkRecordRisk,
   checkRelease,
@@ -44,6 +46,7 @@ import {
   nextCrNumber,
   impactContext,
   mandatoryProgress,
+  nextMinutesNumber,
   nextRiskNumber,
   nextStatusReportNumber,
   openChecklistItems,
@@ -56,6 +59,7 @@ import {
   rolesOf,
   validateChangeRequest,
   validateDecision,
+  validateMinutes,
   validateNotApplicableReason,
   validateRecheck,
   validateRisk,
@@ -70,6 +74,8 @@ import {
   type DecisionInput,
   type DraftContent,
   type Level,
+  type MinutesAction,
+  type MinutesItem,
   type PhaseId,
   type AgentRiskBasis,
   type ReassessmentProposal,
@@ -90,6 +96,7 @@ import {
 } from "@hermes-helfer/core";
 import { randomUUID } from "node:crypto";
 import type { ChangeRequestProposalContent } from "../agents/change-request-agent";
+import type { MinutesProposalContent } from "../agents/minutes-agent";
 import type { RiskReviewContent } from "../agents/risk-agent";
 import {
   checkChangeRequest,
@@ -158,6 +165,28 @@ export interface RiskInput {
   mitigation: string;
   /** A new risk the Risiko agent proposed. */
   accepted?: AcceptedRiskItem<RiskProposal>;
+}
+
+/** An item of minutes as entered; `source` names the agent's item it was taken from. */
+export interface MinutesItemInput {
+  text: string;
+  source?: number;
+}
+
+export interface MinutesActionInput extends MinutesItemInput {
+  ownerId?: string;
+  ownerName?: string;
+  due?: string;
+}
+
+export interface MinutesRecordInput {
+  title: string;
+  heldOn: string;
+  decisions: MinutesItemInput[];
+  actions: MinutesActionInput[];
+  questions: MinutesItemInput[];
+  /** The Protokoll agent's proposal the items were taken from (claimed for this request). */
+  proposal?: StoredProposal<MinutesProposalContent>;
 }
 
 export interface RiskAssessmentInput {
@@ -753,6 +782,108 @@ export class ProjectService {
           },
         },
       ];
+    });
+  }
+
+  // ---------- Minutes ----------
+
+  /**
+   * Records minutes. Items taken from the agent's proposal keep its quote, which
+   * the client cannot set; the record names the agent if at least one item came
+   * from it, and whether the person changed any of them or added their own.
+   */
+  recordMinutes(code: string, ctx: RequestContext, input: MinutesRecordInput) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkRecordMinutes(s, this.model, ctx.viewer));
+      const items = {
+        decisions: input.decisions.map((x) => ({ ...x, text: x.text.trim() })),
+        actions: input.actions.map((x) => {
+          const ownerName = (x.ownerId ? s.members[x.ownerId]?.displayName : x.ownerName)?.trim();
+          return {
+            ...x,
+            text: x.text.trim(),
+            ...(ownerName ? { ownerName } : { ownerName: undefined }),
+            ...(x.due?.trim() ? { due: x.due.trim() } : { due: undefined }),
+          };
+        }),
+        questions: input.questions.map((x) => ({ ...x, text: x.text.trim() })),
+      };
+      const invalid = validateMinutes(s, { title: input.title, heldOn: input.heldOn, ...items });
+      if (invalid) throw unprocessable(invalid);
+      const p = input.proposal?.content;
+      let fromAgent = 0;
+      let edited = false;
+      /** The agent's item a `source` names, once per item; its quote goes into the record. */
+      const sourced = <T extends { quote: string }>(
+        list: readonly T[] | undefined,
+        used: Set<number>,
+        n?: number,
+      ) => {
+        if (n === undefined) {
+          edited = true;
+          return undefined;
+        }
+        const item = list?.[n];
+        if (!item || used.has(n)) throw unprocessable("Diesen Vorschlag des Agenten gibt es nicht.");
+        used.add(n);
+        fromAgent++;
+        return item;
+      };
+      const used = { decisions: new Set<number>(), actions: new Set<number>(), questions: new Set<number>() };
+      const plain = (kind: "decisions" | "questions") =>
+        items[kind].map((x): MinutesItem => {
+          const agent = sourced(p?.[kind], used[kind], x.source);
+          if (agent && agent.text !== x.text) edited = true;
+          return { id: this.newId(), text: x.text, ...(agent ? { quote: agent.quote } : {}) };
+        });
+      const decisions = plain("decisions");
+      const questions = plain("questions");
+      const actions = items.actions.map((x): MinutesAction => {
+        const agent = sourced(p?.actions, used.actions, x.source);
+        if (
+          agent &&
+          !sameContent([agent.text, agent.ownerName || undefined, agent.due], [x.text, x.ownerName, x.due])
+        ) {
+          edited = true;
+        }
+        return {
+          id: this.newId(),
+          text: x.text,
+          ...(agent ? { quote: agent.quote } : {}),
+          ...(x.ownerId ? { ownerId: x.ownerId } : {}),
+          ...(x.ownerName ? { ownerName: x.ownerName } : {}),
+          ...(x.due ? { due: x.due } : {}),
+        };
+      });
+      return [
+        {
+          type: "MinutesRecorded",
+          data: {
+            minutesId: this.newId(),
+            number: nextMinutesNumber(s),
+            title: input.title.trim(),
+            heldOn: input.heldOn,
+            decisions,
+            actions,
+            questions,
+            producer:
+              input.proposal && fromAgent ? acceptedProducer(input.proposal, edited) : { kind: "human" },
+          },
+        },
+      ];
+    });
+  }
+
+  completeMinutesAction(
+    code: string,
+    ctx: RequestContext,
+    minutesId: string,
+    actionId: string,
+    note: string,
+  ) {
+    return this.command(code, ctx, (s) => {
+      assertCheck(checkCompleteMinutesAction(s, this.model, ctx.viewer, minutesId, actionId));
+      return [{ type: "MinutesActionCompleted", data: { minutesId, actionId, note: note.trim() } }];
     });
   }
 

@@ -684,6 +684,7 @@ describe("change requests", () => {
         },
         reviewRisks: (r) => mock.reviewRisks(r),
         draftStatusReport: (r) => mock.draftStatusReport(r),
+        extractMinutes: (r) => mock.extractMinutes(r),
       },
     });
     const res = await server.as("u-nina").post("/api/projects/ERP/change-requests/draft", wish);
@@ -703,6 +704,7 @@ describe("change requests", () => {
         draftChangeRequest: async (r) => ({ ...(await mock.draftChangeRequest(r)), usage }),
         reviewRisks: (r) => mock.reviewRisks(r),
         draftStatusReport: (r) => mock.draftStatusReport(r),
+        extractMinutes: (r) => mock.extractMinutes(r),
       },
     });
     const draft = (user: string) => server!.as(user).post("/api/projects/ERP/change-requests/draft", wish);
@@ -1220,6 +1222,7 @@ describe("risks", () => {
           throw new AiProviderError("timeout", "Azure OpenAI timeout");
         },
         draftStatusReport: (r) => mock.draftStatusReport(r),
+        extractMinutes: (r) => mock.extractMinutes(r),
       },
     });
     const res = await review(server, "u-anna", "KPO");
@@ -1465,6 +1468,10 @@ describe("what reaches the model and the logs (principle 3)", () => {
         draftStatusReport: (r, c) => {
           note(c, r.project);
           return mock.draftStatusReport(r, c);
+        },
+        extractMinutes: (r, c) => {
+          note(c, r.project);
+          return mock.extractMinutes(r, c);
         },
       },
     });

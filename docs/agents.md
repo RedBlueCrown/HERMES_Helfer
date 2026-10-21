@@ -12,12 +12,13 @@ The target architecture names 13 agents (`packages/core/src/model/agents.ts`). E
 
 | Agent | What it does | Started by | Code |
 |---|---|---|---|
-| A1 Delivery-Assistent | Answers questions about the project. The model picks among ten tools: nine read the engine's facts (next step, tasks, gate, results, change requests, risks, status report …), one starts a draft when the person asks for it. It never decides. | Chat in the web app | `apps/api/src/agents/orchestrator.ts` |
+| A1 Delivery-Assistent | Answers questions about the project. The model picks among eleven tools: ten read the engine's facts (next step, tasks, gate, results, change requests, risks, status report, minutes …), one starts a draft when the person asks for it. It never decides. | Chat in the web app | `apps/api/src/agents/orchestrator.ts` |
 | A2 to A8 drafting agents | Draft the results of 44 skills (Projektauftrag, ISDS-Konzept, Testkonzept …), along the organisation's Word template where one exists. A2 also drafts the texts of a status report. | «Entwurf erstellen», or A1 | `runner.ts`, `prompts.ts`, `status-report-agent.ts` |
 | A10 Change-Request | Turns a rough wish into a change request and says which areas it touches. Never estimates effort or cost. | «Mit dem Agenten ausarbeiten» | `change-request-agent.ts` |
 | A11 Kritiker | Checks every draft: a deterministic checklist first, then the model's content review. Also checks change requests and status texts. | Automatically, after each draft | `kritiker.ts` |
 | A12 Risiko | Proposes new risks and new assessments, each resting on a fact the engine supplied. | «Risiken prüfen lassen» | `risk-agent.ts` |
-| A9 Protokoll, A13 Wissen | Planned: decisions and tasks from meeting minutes; finding documents in SharePoint. They need Microsoft Graph (Increment 3). | – | – |
+| A9 Protokoll | Turns the notes or the transcript of a meeting into decisions, action items (who, what, by when) and open questions. Each item carries its passage of the text, which code checks; items without one are dropped. A member accepts each item; open action items go to their owner's tasks. The text itself is not stored. | «Protokoll erfassen» in the tab «Protokolle» | `minutes-agent.ts` |
+| A13 Wissen | Planned: finding documents, lessons learned and responsibilities. | – | – |
 
 Agents propose; people decide. Drafts and proposals are stored only when a person accepts or releases them, and every decision goes through the engine's permission checks (`packages/core/src/engine/permissions.ts`), for which no agent has a tool.
 
@@ -26,7 +27,7 @@ Agents propose; people decide. Drafts and proposals are stored only when a perso
 A1 is not an orchestrator that watches the other agents. The engine is the orchestrator, and each project's history is the shared memory:
 
 1. Each agent does one job and returns a result; agents never talk to each other.
-2. Every result is written into the project's history as an event, with which agent and model produced it: a draft with the Kritiker's findings (`SkillRunCompleted`), a failed run (`SkillRunFailed`), and, once a person accepts them, a change request, risks or a status report.
+2. Every result is written into the project's history as an event, with which agent and model produced it: a draft with the Kritiker's findings (`SkillRunCompleted`), a failed run (`SkillRunFailed`), and, once a person accepts them, a change request, risks, a status report or the minutes of a meeting (`MinutesRecorded`, whose open action items land on their owners' task lists).
 3. From the history the engine computes the current state: the next step, each person's open tasks, gate readiness, the status of every result.
 4. A1's read tools return exactly that state, with the asking person's permissions. When someone asks «Ist das Testkonzept fertig?», A1 looks it up again; it keeps nothing of its own that could go stale.
 
@@ -50,7 +51,7 @@ No agent framework: the agents are plain TypeScript in the API process (about 3,
 | Level | What | Where |
 |---|---|---|
 | Unit tests | Every agent against fake models: request formats for Azure (schemas, tool calls, the second round of a chat), parsing, limits, errors. | `apps/api/test`, in CI |
-| Evaluation set | 18 fixed, fictional cases for all eleven agents. Critical checks must hold every time (no hidden instruction followed, no effort estimated, the assistant answers with the model, starts no draft unasked and claims no decision); quality checks count as a rate (at least 80 %). | `apps/api/src/eval`: offline in CI; against the real model with `scripts/check-agents.sh` |
+| Evaluation set | 21 fixed, fictional cases for all twelve agents. Critical checks must hold every time (no hidden instruction followed, no effort estimated, the assistant answers with the model, starts no draft unasked and claims no decision); quality checks count as a rate (at least 80 %). | `apps/api/src/eval`: offline in CI; against the real model with `scripts/check-agents.sh` |
 | End-to-end | The web app in a browser with the offline model: drafts, assistant, change requests, risks, status reports, templates. | `apps/web/e2e`, in CI |
 | Without Azure | The same cases against Claude on your computer, with a page to read, compare and rate the answers | [testing-agents.md](testing-agents.md) |
 
@@ -102,7 +103,7 @@ The agents depend on the rest of the app through a few narrow points. A version 
 | The project's facts | `ProjectContext` (`provider.ts`): code, name, description, phase, profile, released results with summaries (confidential ones by name only, need-to-know), open risks | Built from its own data model |
 | A place for results | Events (`SkillRunCompleted`, `ChangeRequestSubmitted`, `RiskRecorded`, `RiskAssessed`, `StatusReportPublished`) through `ProjectService` | Its own storage, written only after a person accepts |
 | Who may do what | `permissions.ts` in the engine | Its own role checks; agents never get a decision |
-| A1's tools | The engine's views (`views.ts`, `tasks.ts`) | The same ten tools against its own read model; «entwurf_anstossen» behind its permission check |
+| A1's tools | The engine's views (`views.ts`, `tasks.ts`) | The same eleven tools against its own read model; «entwurf_anstossen» behind its permission check |
 | The model | `AiProvider` with the Azure OpenAI adapter, quota gate and offline model | Copied as it is; settings `AZURE_OPENAI_*`, a managed identity with the role «Cognitive Services OpenAI User» |
 
 Files to take: `packages/core` (the HERMES model and engine, if the other app does not already have its own), `apps/api/src/agents`, `apps/api/src/eval`, optionally `apps/api/src/documents` (Word templates), with their tests in `apps/api/test` (`eval.test.ts`, the provider tests in `units.test.ts`).

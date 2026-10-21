@@ -17,6 +17,7 @@ import {
   rolesOf,
   type Viewer,
 } from "./permissions";
+import { openActions } from "./minutes";
 import { highRisks } from "./risks";
 import { isStatusReportDue, reportsAwaitingAcknowledgement } from "./status-report";
 import type { ProjectState } from "./state";
@@ -43,7 +44,8 @@ export type MyTask =
   | { kind: "recheck"; crId: string; role: RecheckRole }
   | { kind: "risk"; riskId: string }
   | { kind: "status-report" }
-  | { kind: "acknowledge-report"; reportId: string };
+  | { kind: "acknowledge-report"; reportId: string }
+  | { kind: "minutes-action"; minutesId: string; actionId: string };
 
 /** `now`: the time for tasks that fall due (the status report). */
 export function myTasks(s: ProjectState, model: HermesModel, v: Viewer, now: Date = new Date()): MyTask[] {
@@ -96,6 +98,15 @@ export function myTasks(s: ProjectState, model: HermesModel, v: Viewer, now: Dat
   if (!isFinished(s, model)) {
     for (const r of highRisks(s)) {
       if (r.status === "offen" && roles.includes(r.ownerRole)) out.push({ kind: "risk", riskId: r.id });
+    }
+  }
+
+  // Action items from minutes, for the person responsible: the earliest due first.
+  if (!isFinished(s, model)) {
+    for (const { minutes, action } of openActions(s)) {
+      if (action.ownerId === v.userId) {
+        out.push({ kind: "minutes-action", minutesId: minutes.id, actionId: action.id });
+      }
     }
   }
 

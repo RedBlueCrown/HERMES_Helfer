@@ -22,13 +22,14 @@ import { ChatPanel } from "../components/ChatPanel";
 import { DeliverableDrawer } from "../components/DeliverableDrawer";
 import { ParticipationTab } from "../components/ParticipationTab";
 import { DeliverableList, GatePanel, PhaseTimeline } from "../components/PhaseOverview";
+import { MinutesTab, NewMinutesDrawer } from "../components/Minutes";
 import { NewRiskDrawer, RiskDrawer, RiskReviewDrawer, RisksTab } from "../components/Risks";
 import { NewStatusReportDrawer, StatusReportTab } from "../components/StatusReports";
 import { ConditionsCard, MyTasksCard, NextStepCard, type Navigate } from "../components/SidePanels";
 import { StorageButtons } from "../components/StorageLink";
 import { AmpelBadge, ErrorView, formatDay } from "../components/ui";
 
-type TabId = "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "status" | "verlauf";
+type TabId = "ergebnisse" | "beteiligung" | "aenderungen" | "risiken" | "status" | "protokolle" | "verlauf";
 
 const useStyles = makeStyles({
   page: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL },
@@ -81,6 +82,7 @@ export function ProjectPage() {
   const [newRisk, setNewRisk] = useState(false);
   const [riskReview, setRiskReview] = useState(false);
   const [newReport, setNewReport] = useState(false);
+  const [newMinutes, setNewMinutes] = useState(false);
 
   if (project.isPending) return <Spinner label="Vorhaben wird geladen …" />;
   if (project.isError) return <ErrorView error={project.error} onRetry={() => void project.refetch()} />;
@@ -204,6 +206,20 @@ export function ProjectPage() {
             </Badge>
           ) : null}
         </Tab>
+        <Tab value="protokolle">
+          Protokolle
+          {v.minutes.openActions ? (
+            <Badge
+              appearance="filled"
+              color="informative"
+              size="small"
+              aria-label={`${v.minutes.openActions} offene Pendenzen`}
+              className={s.tabBadge}
+            >
+              {v.minutes.openActions}
+            </Badge>
+          ) : null}
+        </Tab>
         <Tab value="verlauf">Verlauf</Tab>
       </TabList>
 
@@ -247,6 +263,7 @@ export function ProjectPage() {
             />
           ) : null}
           {tab === "status" ? <StatusReportTab code={code} onNew={() => setNewReport(true)} /> : null}
+          {tab === "protokolle" ? <MinutesTab code={code} onNew={() => setNewMinutes(true)} /> : null}
           {tab === "verlauf" ? <ActivityTab code={code} view={v} /> : null}
         </div>
         <aside className={s.column} aria-label="Hinweise">
@@ -268,6 +285,7 @@ export function ProjectPage() {
       <NewRiskDrawer code={code} open={newRisk} onClose={() => setNewRisk(false)} />
       <RiskReviewDrawer code={code} open={riskReview} onClose={() => setRiskReview(false)} />
       <NewStatusReportDrawer code={code} open={newReport} onClose={() => setNewReport(false)} />
+      <NewMinutesDrawer code={code} view={v} open={newMinutes} onClose={() => setNewMinutes(false)} />
       <ChatPanel
         // A new project starts a new conversation.
         key={code}

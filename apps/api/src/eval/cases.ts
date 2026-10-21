@@ -41,6 +41,7 @@ import type {
 } from "../agents/provider";
 import { CONFIDENTIAL_SUMMARY } from "../agents/runner";
 import { ASSISTANT_CASES } from "./assistant-cases";
+import { MINUTES_CASES } from "./minutes-cases";
 import { absent, noNewFigures, sectionsComplete, textsOf } from "./graders";
 import { defineCase, type CheckLevel, type EvalCase, type EvalCheck } from "./run-eval";
 
@@ -597,5 +598,6 @@ export const EVAL_CASES: readonly EvalCase[] = [
   draftCase("entwurf-recht", "init.legal", "init"),
   draftCase("entwurf-testkonzept", "konzept.test-engineer", "konzept"),
   draftCase("entwurf-einfuehrung", "konzept.einfuehrungsplanung", "konzept"),
+  ...MINUTES_CASES,
   ...ASSISTANT_CASES,
 ];

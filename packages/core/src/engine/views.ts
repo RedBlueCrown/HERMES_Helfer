@@ -77,6 +77,8 @@ import {
   checkRecordParticipation,
   checkAcknowledgeStatusReport,
   checkAssessRisk,
+  checkCompleteMinutesAction,
+  checkRecordMinutes,
   checkPublishStatusReport,
   checkRecordRisk,
   checkRelease,
@@ -100,6 +102,9 @@ import {
   type ChangeRequestState,
   type ChangeRequestStatus,
   type ConditionState,
+  type MinutesActionState,
+  type MinutesItemState,
+  type MinutesState,
   type ProjectState,
   type RiskState,
   type StatusReportState,
@@ -115,6 +120,7 @@ import {
   suggestionVersion,
   type StatusFact,
 } from "./status-report";
+import { formatDay, isActionOverdue, minutesLabel, minutesList, openActions } from "./minutes";
 import {
   compareRisks,
   highRisks,
@@ -312,6 +318,8 @@ export interface TaskView {
   crId?: string;
   riskId?: string;
   reportId?: string;
+  minutesId?: string;
+  actionId?: string;
 }
 
 export interface NextStepView {
@@ -362,6 +370,8 @@ export interface ProjectView {
   changeRequests: { total: number; open: number; openRechecks: number };
   /** For the tab of the risk register; the risks themselves: riskRegister. */
   risks: { total: number; open: number; high: number };
+  /** For the tab of the minutes; the minutes themselves: minutesRegister. */
+  minutes: { total: number; openActions: number };
   /** The latest status report and when the next one is due; the reports: statusReportRegister. */
   statusReport: {
     latest?: { id: string; number: number; overall: Ampel; publishedAt: string };
@@ -487,6 +497,41 @@ export interface RiskRegisterView {
   counts: { open: number; high: number; closed: number };
   /** Open risks (most serious first), then closed ones (last closed first). */
   items: RiskView[];
+}
+
+export interface MinutesActionView extends MinutesItemState {
+  ownerId?: string;
+  /** The member's name, or the name of someone outside the project. */
+  ownerName?: string;
+  due?: string;
+  overdue: boolean;
+  done: boolean;
+  doneAt?: string;
+  doneBy?: ActorRef;
+  note?: string;
+  canComplete: Check;
+}
+
+export interface MinutesView {
+  id: string;
+  number: number;
+  /** P-01 … */
+  label: string;
+  title: string;
+  heldOn: string;
+  decisions: MinutesItemState[];
+  actions: MinutesActionView[];
+  questions: MinutesItemState[];
+  producer: Producer;
+  recordedAt: string;
+  recordedBy: ActorRef;
+}
+
+export interface MinutesRegisterView {
+  canRecord: Check;
+  counts: { total: number; openActions: number; overdue: number };
+  /** The latest meeting first. */
+  items: MinutesView[];
 }
 
 export interface StatusCriterionView {
@@ -929,6 +974,20 @@ function taskView(s: ProjectState, model: HermesModel, t: MyTask, now: Date): Ta
         reportId: r.id,
       };
     }
+    case "minutes-action": {
+      const m = s.minutes[t.minutesId]!;
+      const a = m.actions.find((x) => x.id === t.actionId)!;
+      const due = a.due
+        ? `, fällig am ${formatDay(a.due)}${isActionOverdue(a, now) ? " (überfällig)" : ""}`
+        : "";
+      return {
+        kind: t.kind,
+        title: `Pendenz: ${a.text}`,
+        detail: `Aus ${minutesLabel(m.number)} «${m.title}» vom ${formatDay(m.heldOn)}${due}.`,
+        minutesId: m.id,
+        actionId: a.id,
+      };
+    }
     case "risk": {
       const r = s.risks[t.riskId]!;
       return {
@@ -1103,6 +1162,7 @@ export function projectView(
       open: openRisks(s).length,
       high: highRisks(s).length,
     },
+    minutes: { total: Object.keys(s.minutes).length, openActions: openActions(s).length },
     statusReport: (() => {
       const last = latestStatusReport(s);
       return {
@@ -1273,6 +1333,53 @@ export function riskRegister(s: ProjectState, model: HermesModel, v: Viewer): Ri
     matrix: riskMatrix(s),
     counts: { open: all.length - closed.length, high: highRisks(s).length, closed: closed.length },
     items: [...openRisks(s), ...closed].map((r) => riskView(s, model, v, r)),
+  };
+}
+
+function minutesActionView(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  m: MinutesState,
+  a: MinutesActionState,
+  now: Date,
+): MinutesActionView {
+  return {
+    ...a,
+    overdue: isActionOverdue(a, now),
+    done: !!a.doneAt,
+    canComplete: checkCompleteMinutesAction(s, model, v, m.id, a.id),
+  };
+}
+
+export function minutesRegister(
+  s: ProjectState,
+  model: HermesModel,
+  v: Viewer,
+  now: Date = new Date(),
+): MinutesRegisterView {
+  const items = minutesList(s).map((m): MinutesView => ({
+    id: m.id,
+    number: m.number,
+    label: minutesLabel(m.number),
+    title: m.title,
+    heldOn: m.heldOn,
+    decisions: m.decisions,
+    actions: m.actions.map((a) => minutesActionView(s, model, v, m, a, now)),
+    questions: m.questions,
+    producer: m.producer,
+    recordedAt: m.recordedAt,
+    recordedBy: m.recordedBy,
+  }));
+  const open = openActions(s);
+  return {
+    canRecord: checkRecordMinutes(s, model, v),
+    counts: {
+      total: items.length,
+      openActions: open.length,
+      overdue: open.filter((x) => isActionOverdue(x.action, now)).length,
+    },
+    items,
   };
 }
 

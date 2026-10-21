@@ -18,6 +18,7 @@ import type {
 // The agents' proposals, as the API returns them.
 export type {
   ChangeRequestProposal,
+  MinutesProposal,
   ReassessmentProposal,
   RiskProposal,
   RiskReviewResult,
@@ -32,6 +33,8 @@ export type {
   DeliverableRowView,
   GateView,
   MemberView,
+  MinutesRegisterView,
+  MinutesView,
   ParticipantView,
   PhaseView,
   PortfolioOverview,
